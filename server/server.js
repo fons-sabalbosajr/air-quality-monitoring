@@ -404,6 +404,54 @@ async function readVizData(yKeyOverride) {
   };
 }
 
+async function readSheetSeries(sheetName, yKeyOverride) {
+  const wbPath = resolveWorkbookPath();
+  const wb = await loadWorkbook(wbPath);
+  const sheet = wb.SheetNames.find((n) => n.toLowerCase() === String(sheetName).toLowerCase()) || null;
+  if (!sheet) throw new Error(`Sheet '${sheetName}' not found in workbook.`);
+  const ws = wb.Sheets[sheet];
+  const rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
+  if (!Array.isArray(rows))
+    return { series: [], meta: { sheet, xKey: null, yKey: null, yLabel: null, points: 0, path: wbPath } };
+
+  const keysPicked = rows.length ? pickKeysFromRows(rows) : { xKey: null, yKey: null };
+  const xKey = keysPicked.xKey;
+  let yKey = yKeyOverride || keysPicked.yKey;
+  if (!yKey && rows.length) {
+    const sample = rows[0];
+    yKey = Object.keys(sample).find((k) => k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, ""))));
+  }
+
+  const headerRow = rows[0] || {};
+  const headerValues = Object.fromEntries(Object.keys(headerRow).map((k) => [k, (headerRow[k] || "").toString().trim()]));
+  const yLabel = (yKey && headerValues[yKey]) || yKey || null;
+
+  const series = rows
+    .map((r) => {
+      const t = coerceDate(r[xKey]);
+      let yStr = r[yKey];
+      if (typeof yStr === "string") yStr = yStr.replace(/[, ]/g, "");
+      const y = Number(yStr);
+      if (!t || !isFinite(y)) return null;
+      return { t: t.getTime(), y };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (typeof a.t === 'string' ? a.t.localeCompare(b.t) : a.t - b.t));
+
+  return { series, meta: { sheet, xKey, yKey, yLabel, points: series.length, path: wbPath } };
+}
+
+// PM10 worksheet series
+app.get("/api/pm10-data", async (req, res) => {
+  try {
+    const { yKey } = req.query;
+    const data = await readSheetSeries("PM10", yKey);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to read PM10 sheet" });
+  }
+});
+
 app.get("/api/viz-data", async (req, res) => {
   try {
     const { yKey } = req.query;
@@ -427,13 +475,61 @@ app.get("/api/aqi/latest", async (req, res) => {
     if (!Array.isArray(rows) || rows.length < 2)
       return res.status(404).json({ error: "No rows in viz_data" });
 
+    // Determine keys from header labels where possible
+    const headerRow = rows[0] || {};
+    const headerValues = Object.fromEntries(
+      Object.keys(headerRow).map((k) => [k, (headerRow[k] || "").toString().trim()])
+    );
+    // Prefer labels containing DATE/TIME for x
+    const xKey = Object.keys(headerValues).find((k) => /date|time/i.test(headerValues[k] || ""))
+      || (Object.keys(headerValues).includes("Data Visualization Process") ? "Data Visualization Process" : null);
+    // y (value) preference order
+    const yPrefOrder = [
+      /24\s*HR\s*ROLLING\s*AQI\s*VALUE/i,
+      /^\s*AQI\s*$/i,
+      /HOURLY\s*CONC/i,
+      /TRUNCATED\s*VALUE/i,
+    ];
+    let valueKey = null;
+    for (const rx of yPrefOrder) {
+      const found = Object.keys(headerValues).find((k) => rx.test(headerValues[k] || ""));
+      if (found) { valueKey = found; break; }
+    }
+    // category column
+    let categoryKey = Object.keys(headerValues).find((k) => /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || "")) || null;
+
+    // Fallbacks using content heuristics if header detection failed
+    if (!valueKey || !xKey) {
+      const picked = pickKeysFromRows(rows);
+      if (!xKey) valueKey = valueKey; // no-op to keep valueKey
+      const fallbackX = picked.xKey;
+      const fallbackY = picked.yKey;
+      // only adopt fallback if not already set
+      const xUse = xKey || fallbackX;
+      const yUse = valueKey || fallbackY;
+      // assign for downstream
+      valueKey = yUse;
+      // also try to guess categoryKey as a non-numeric string column
+      if (!categoryKey && rows.length > 1) {
+        const keys = Object.keys(rows[1] || {});
+        categoryKey = keys.find((k) => {
+          if (k === xUse || k === yUse) return false;
+          const v = rows[1]?.[k];
+          if (v == null) return false;
+          const n = Number(String(v).replace(/[, ]/g, ""));
+          return !isFinite(n) && /category|aqi/i.test(String(v)) ? true : /category|aqi/i.test(k);
+        }) || null;
+      }
+    }
+
     let last = null;
     for (let i = rows.length - 1; i >= 1; i--) {
       const r = rows[i];
-      const t = coerceDate(r["Data Visualization Process"]);
-      // __EMPTY_3 is "24 HR ROLLING AQI VALUE", __EMPTY_4 is "AQI CATEGORY" per diagnostics
-      const aqiVal = Number((r["__EMPTY_3"] ?? "").toString().replace(/[, ]/g, ""));
-      const cat = r["__EMPTY_4"] ? String(r["__EMPTY_4"]).trim() : null;
+      const t = coerceDate(xKey ? r[xKey] : r["Data Visualization Process"]);
+      let valRaw = valueKey ? r[valueKey] : null;
+      if (typeof valRaw === "string") valRaw = valRaw.replace(/[, ]/g, "");
+      const aqiVal = Number(valRaw);
+      const cat = categoryKey ? (r[categoryKey] != null ? String(r[categoryKey]).trim() : null) : null;
       if (t && isFinite(aqiVal)) {
         last = { t: t.getTime(), value: aqiVal, category: cat || null };
         break;
@@ -610,6 +706,19 @@ app.get("/api/aqi/last-days", async (req, res) => {
     res.json({ days: items.length, items });
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to compute AQI last days" });
+  }
+});
+
+// Station metadata (name/address/coords) from environment with graceful nulls
+app.get("/api/station/meta", async (req, res) => {
+  try {
+    const name = process.env.STATION_NAME || null;
+    const address = process.env.STATION_ADDRESS || null;
+    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
+    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
+    res.json({ name, address, latitude: lat, longitude: lon });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to read station meta" });
   }
 });
 

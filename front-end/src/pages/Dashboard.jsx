@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Skeleton, Alert, Spin } from "antd";
 import VizChart from "../components/VizChart";
+import Pm10Chart from "../components/Pm10Chart";
 
 function useLatestAQI() {
   const [state, setState] = useState({
@@ -150,12 +151,12 @@ function useStationForecast(days = 3) {
 
 function categoryTint(category) {
   const c = String(category || "").toUpperCase();
-  if (c.includes("GOOD")) return "#08979c"; // cyan-700
-  if (c.includes("MODERATE")) return "#d4b106"; // amber-700
-  if (c.includes("SENSITIVE")) return "#fa8c16"; // orange-600
-  if (c === "UNHEALTHY") return "#cf1322"; // red-700
-  if (c.includes("VERY")) return "#531dab"; // violet-800
-  if (c.includes("HAZARD") || c.includes("EMERGENCY")) return "#ff4d4f"; // rose-500
+  if (c.includes("GOOD")) return "#52c41a"; // green
+  if (c.includes("FAIR")) return "#d4b106"; // yellow
+  if (c === "UNHEALTHY") return "#fa8c16"; // orange
+  if (c.includes("VERY")) return "#f5222d"; // red (VERY UNHEALTHY)
+  if (c.includes("ACUTELY")) return "#722ed1"; // purple
+  if (c.includes("EMERGENCY") || c.includes("HAZARD")) return "#a8071a"; // maroon
   return "#1677ff"; // default primary
 }
 
@@ -177,11 +178,77 @@ export default function DashboardPage() {
   const station = useStationCurrent();
   const forecast = useStationForecast(3);
   const aqiDays = useAqiLastDays(3);
+  const meta = useStationMeta();
+  const [addrState, setAddrState] = useState({ loading: false, display: null });
+
+  // Resolve address for header: prefer .env address, fallback to reverse geocode
+  useEffect(() => {
+    let cancelled = false;
+    async function maybeGeocode() {
+      const hasAddr =
+        !!meta?.data?.address && meta.data.address.trim().length > 0;
+      const lat = meta?.data?.latitude ?? station?.data?.latitude;
+      const lon = meta?.data?.longitude ?? station?.data?.longitude;
+      if (hasAddr || !isFinite(Number(lat)) || !isFinite(Number(lon))) {
+        setAddrState({
+          loading: false,
+          display: hasAddr ? meta.data.address : null,
+        });
+        return;
+      }
+      try {
+        setAddrState({ loading: true, display: null });
+        const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+        const url = new URL("/api/reverse-geocode", base);
+        url.searchParams.set("lat", String(lat));
+        url.searchParams.set("lon", String(lon));
+        const r = await fetch(url.toString());
+        const j = r.ok ? await r.json() : null;
+        if (!cancelled)
+          setAddrState({ loading: false, display: j?.display || null });
+      } catch {
+        if (!cancelled) setAddrState({ loading: false, display: null });
+      }
+    }
+    maybeGeocode();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    meta?.data?.address,
+    meta?.data?.latitude,
+    meta?.data?.longitude,
+    station?.data?.latitude,
+    station?.data?.longitude,
+  ]);
 
   return (
     <div className="space-y-4">
-  <h2 className="text-xl font-semibold">Clark Station</h2>
-
+      {/* Header: Station Name (left) • Address (right) */}
+      <div className="flex items-center justify-between gap-4">
+        <div
+          className="text-xl font-semibold truncate"
+          title={meta.data?.name || "Station"}
+        >
+          {meta.loading ? (
+            <Skeleton.Input active style={{ width: 200, height: 24 }} />
+          ) : meta.error ? (
+            "Station"
+          ) : (
+            meta.data?.name || "Station"
+          )}
+        </div>
+        <div
+          className="text-sm text-gray-500 dark:text-gray-400 text-right truncate"
+          title={addrState.display || meta.data?.address || ""}
+        >
+          {addrState.loading ? (
+            <Skeleton.Input active style={{ width: 300, height: 20 }} />
+          ) : (
+            addrState.display || meta.data?.address || ""
+          )}
+        </div>
+      </div>
       <div className="aqm-tiles">
         {/* Latest AQI Category (PM10) */}
         <AQITile
@@ -334,8 +401,14 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-      {/* Station chart moved here, styled as a tile with refreshing spinner */}
-      <VizChart variant="tile" title="AQI Chart" />
+      {/* Air Quality Monitoring Graph */}
+      <VizChart
+        variant="tile"
+        title="Air Quality Monitoring Daily Average (µg/Ncm)"
+      />
+
+      {/* PM10 chart below the Air Quality Monitoring Graph */}
+      <Pm10Chart title="Hourly Station Reading (µg/Ncm)" />
     </div>
   );
 }
@@ -383,8 +456,46 @@ function AQITile({
         </div>
       ) : (
         <div className="aqm-tile-body">
-          <div className="aqm-primary aqm-category" style={{ color: tint }}>
-            {(category || "--").toUpperCase()}
+          <div
+            className="aqm-primary"
+            style={{
+              color: tint,
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+              flexWrap: "wrap",
+            }}
+          >
+            {(() => {
+              const n = Number(value);
+              const v = isFinite(n) ? Math.round(n) : "--";
+              const cat = (category || "--").toUpperCase();
+              return (
+                <>
+                  <span style={{ fontSize: 28, fontWeight: 700 }}>{v}</span>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "var(--aqm-muted)",
+                      textTransform: "none",
+                    }}
+                  >
+                    µg/ncm
+                  </span>
+                  <span style={{ color: "var(--aqm-muted)", fontSize: 28, fontWeight: 700 }}>|</span>
+                  <span
+                    style={{
+                      fontSize: 28,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {cat}
+                  </span>
+                </>
+              );
+            })()}
           </div>
           {/* 'as of' subline removed per request */}
           {daysLoading ? (
@@ -570,5 +681,48 @@ function useAqiLastDays(days = 3) {
       clearInterval(id);
     };
   }, [days]);
+  return state;
+}
+
+function useStationMeta() {
+  const [state, setState] = useState({
+    loading: true,
+    refreshing: false,
+    error: null,
+    data: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+    async function run() {
+      setState((s) => ({
+        ...s,
+        loading: s.data ? false : true,
+        refreshing: !!s.data,
+        error: null,
+      }));
+      try {
+        const r = await fetch(new URL("/api/station/meta", base));
+        if (!r.ok) throw new Error(await r.text());
+        const j = await r.json();
+        if (!cancelled)
+          setState({ loading: false, refreshing: false, error: null, data: j });
+      } catch (e) {
+        if (!cancelled)
+          setState((s) => ({
+            ...s,
+            loading: false,
+            refreshing: false,
+            error: e.message || "Failed to load",
+          }));
+      }
+    }
+    run();
+    const id = setInterval(run, 60_000 * 10);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
   return state;
 }
