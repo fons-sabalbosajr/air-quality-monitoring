@@ -16,6 +16,8 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
 const DEFAULT_RELATIVE = path.join(__dirname, "data", "aqi.xlsm");
+const OWM_API_KEY =
+  process.env.OWM_API_KEY || process.env.OPENWEATHERMAP_API_KEY || null;
 
 function resolveWorkbookPath() {
   const p = process.env.EXCEL_FILE_PATH || DEFAULT_RELATIVE;
@@ -105,10 +107,13 @@ function pickKeysFromRows(rows) {
     keys.map((k) => [k, (headerRow[k] || "").toString().trim()])
   );
   const labels = Object.values(headerValues).filter((v) => v.length > 0);
-  const headerLooksLikeLabels = labels.length >= 3 && labels.every((v) => /[A-Za-z]/.test(v));
+  const headerLooksLikeLabels =
+    labels.length >= 3 && labels.every((v) => /[A-Za-z]/.test(v));
   if (headerLooksLikeLabels) {
     // xKey: look for label containing DATE or TIME
-    const xKeyFromHeader = keys.find((k) => /date|time/i.test(headerValues[k] || ""));
+    const xKeyFromHeader = keys.find((k) =>
+      /date|time/i.test(headerValues[k] || "")
+    );
     // yKey preference order: 24 HR ROLLING AQI VALUE > AQI (generic) > HOURLY CONC > TRUNCATED VALUE > first numeric
     const yPrefOrder = [
       /24\s*HR\s*ROLLING\s*AQI\s*VALUE/i,
@@ -119,7 +124,10 @@ function pickKeysFromRows(rows) {
     let yKeyFromHeader = null;
     for (const rx of yPrefOrder) {
       const found = keys.find((k) => rx.test(headerValues[k] || ""));
-      if (found) { yKeyFromHeader = found; break; }
+      if (found) {
+        yKeyFromHeader = found;
+        break;
+      }
     }
     // If not found by regex, fall back to numeric scoring from data rows (skip header row)
     if (!yKeyFromHeader) {
@@ -139,7 +147,11 @@ function pickKeysFromRows(rows) {
       scores.sort((a, b) => b.score - a.score);
       yKeyFromHeader = scores[0]?.score > 0 ? scores[0].k : null;
     }
-    const xKey = xKeyFromHeader || (keys.includes("Data Visualization Process") ? "Data Visualization Process" : null);
+    const xKey =
+      xKeyFromHeader ||
+      (keys.includes("Data Visualization Process")
+        ? "Data Visualization Process"
+        : null);
     const yKey = yKeyFromHeader || null;
     if (xKey && yKey) return { xKey, yKey };
   }
@@ -157,7 +169,8 @@ function pickKeysFromRows(rows) {
         let vv = v;
         if (typeof vv === "string") vv = vv.replace(/[, ]/g, "");
         const n = Number(vv);
-        if (vv !== null && vv !== undefined && vv !== "" && isFinite(n)) numHits++;
+        if (vv !== null && vv !== undefined && vv !== "" && isFinite(n))
+          numHits++;
       }
       acc.date[k] = dateHits;
       acc.num[k] = numHits;
@@ -165,8 +178,9 @@ function pickKeysFromRows(rows) {
     },
     { date: {}, num: {} }
   );
-  const bestDate = Object.entries(keyScores.date)
-    .sort((a, b) => b[1] - a[1])[0]?.[0];
+  const bestDate = Object.entries(keyScores.date).sort(
+    (a, b) => b[1] - a[1]
+  )[0]?.[0];
   const bestNum = Object.entries(keyScores.num)
     .filter(([k]) => k !== bestDate)
     .sort((a, b) => b[1] - a[1])[0]?.[0];
@@ -217,16 +231,22 @@ async function loadWorkbook(p) {
     }
 
     // 2) If SharePoint share link (/:x:/g/...) try canonical download.aspx?share=<id>
-  if (isSP && /\/:.?:\/g\//i.test(url.pathname)) {
+    if (isSP && /\/:.?:\/g\//i.test(url.pathname)) {
       // extract share id (last non-empty path segment)
-      const parts = url.pathname.split('/').filter(Boolean);
+      const parts = url.pathname.split("/").filter(Boolean);
       const shareId = parts[parts.length - 1];
       // try to reconstruct personal path segment to build _layouts download URL
-      const personalIdx = parts.indexOf('personal');
+      const personalIdx = parts.indexOf("personal");
       if (shareId && personalIdx !== -1 && parts.length > personalIdx + 1) {
         const userSegment = parts[personalIdx + 1];
-        const dlUrl1 = `https://${url.hostname}/personal/${userSegment}/_layouts/15/download.aspx?share=${encodeURIComponent(shareId)}`;
-        const dlUrl2 = `https://${url.hostname}/_layouts/15/download.aspx?share=${encodeURIComponent(shareId)}`;
+        const dlUrl1 = `https://${
+          url.hostname
+        }/personal/${userSegment}/_layouts/15/download.aspx?share=${encodeURIComponent(
+          shareId
+        )}`;
+        const dlUrl2 = `https://${
+          url.hostname
+        }/_layouts/15/download.aspx?share=${encodeURIComponent(shareId)}`;
         try {
           let r2 = await fetch(dlUrl1);
           if (!r2.ok) {
@@ -237,7 +257,7 @@ async function loadWorkbook(p) {
             const buf2 = Buffer.from(ab2);
             try {
               return XLSX.read(buf2, {
-                type: 'buffer',
+                type: "buffer",
                 cellDates: true,
                 cellNF: false,
                 cellText: false,
@@ -267,9 +287,7 @@ async function loadWorkbook(p) {
     const reason = isSP
       ? "If this is a SharePoint/OneDrive link that is not public, either provide an 'anyone with the link' direct download URL or configure Microsoft Graph credentials and admin consent."
       : "Verify the URL is reachable and returns the file bytes.";
-    throw new Error(
-      `Failed to download Excel from URL. ${reason}`
-    );
+    throw new Error(`Failed to download Excel from URL. ${reason}`);
   }
   if (!fs.existsSync(p)) {
     throw new Error(
@@ -325,12 +343,16 @@ async function downloadFromSharePointViaGraph(spUrl) {
 
   // Resolve site id
   const siteResp = await fetch(
-    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(envHost)}:${encodeURI(envSitePath)}`,
+    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(
+      envHost
+    )}:${encodeURI(envSitePath)}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!siteResp.ok) {
     const t = await siteResp.text().catch(() => "");
-    throw new Error(`Failed to resolve SharePoint site (${siteResp.status}): ${t}`);
+    throw new Error(
+      `Failed to resolve SharePoint site (${siteResp.status}): ${t}`
+    );
   }
   const siteJson = await siteResp.json();
   const siteId = siteJson.id;
@@ -338,12 +360,16 @@ async function downloadFromSharePointViaGraph(spUrl) {
 
   // Download file content
   const contentResp = await fetch(
-    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(siteId)}/drive/root:${encodeURI(envFilePath)}:/content`,
+    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(
+      siteId
+    )}/drive/root:${encodeURI(envFilePath)}:/content`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!contentResp.ok) {
     const t = await contentResp.text().catch(() => "");
-    throw new Error(`Failed to download file via Graph (${contentResp.status}): ${t}`);
+    throw new Error(
+      `Failed to download file via Graph (${contentResp.status}): ${t}`
+    );
   }
   const ab = await contentResp.arrayBuffer();
   return Buffer.from(ab);
@@ -361,7 +387,13 @@ async function readVizData(yKeyOverride) {
   if (!Array.isArray(rows))
     return {
       series: [],
-      meta: { sheet: sheetName, xKey: null, yKey: null, yLabel: null, points: 0 },
+      meta: {
+        sheet: sheetName,
+        xKey: null,
+        yKey: null,
+        yLabel: null,
+        points: 0,
+      },
     };
 
   const keysPicked = rows.length
@@ -381,7 +413,10 @@ async function readVizData(yKeyOverride) {
   // Friendly labels from the first data row (often contains readable headers)
   const headerRow = rows[0] || {};
   const headerValues = Object.fromEntries(
-    Object.keys(headerRow).map((k) => [k, (headerRow[k] || "").toString().trim()])
+    Object.keys(headerRow).map((k) => [
+      k,
+      (headerRow[k] || "").toString().trim(),
+    ])
   );
   const yLabel = (yKey && headerValues[yKey]) || yKey || null;
 
@@ -396,34 +431,66 @@ async function readVizData(yKeyOverride) {
       return { t: t.getTime(), y };
     })
     .filter(Boolean)
-    .sort((a, b) => (typeof a.t === 'string' ? a.t.localeCompare(b.t) : a.t - b.t));
+    .sort((a, b) =>
+      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t
+    );
 
   return {
     series,
-    meta: { sheet: sheetName, xKey, yKey, yLabel, points: series.length, path: wbPath },
+    meta: {
+      sheet: sheetName,
+      xKey,
+      yKey,
+      yLabel,
+      points: series.length,
+      path: wbPath,
+    },
   };
 }
 
 async function readSheetSeries(sheetName, yKeyOverride) {
   const wbPath = resolveWorkbookPath();
   const wb = await loadWorkbook(wbPath);
-  const sheet = wb.SheetNames.find((n) => n.toLowerCase() === String(sheetName).toLowerCase()) || null;
+  const sheet =
+    wb.SheetNames.find(
+      (n) => n.toLowerCase() === String(sheetName).toLowerCase()
+    ) || null;
   if (!sheet) throw new Error(`Sheet '${sheetName}' not found in workbook.`);
   const ws = wb.Sheets[sheet];
   const rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
   if (!Array.isArray(rows))
-    return { series: [], meta: { sheet, xKey: null, yKey: null, yLabel: null, points: 0, path: wbPath } };
+    return {
+      series: [],
+      meta: {
+        sheet,
+        xKey: null,
+        yKey: null,
+        yLabel: null,
+        points: 0,
+        path: wbPath,
+      },
+    };
 
-  const keysPicked = rows.length ? pickKeysFromRows(rows) : { xKey: null, yKey: null };
+  const keysPicked = rows.length
+    ? pickKeysFromRows(rows)
+    : { xKey: null, yKey: null };
   const xKey = keysPicked.xKey;
   let yKey = yKeyOverride || keysPicked.yKey;
   if (!yKey && rows.length) {
     const sample = rows[0];
-    yKey = Object.keys(sample).find((k) => k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, ""))));
+    yKey = Object.keys(sample).find(
+      (k) =>
+        k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, "")))
+    );
   }
 
   const headerRow = rows[0] || {};
-  const headerValues = Object.fromEntries(Object.keys(headerRow).map((k) => [k, (headerRow[k] || "").toString().trim()]));
+  const headerValues = Object.fromEntries(
+    Object.keys(headerRow).map((k) => [
+      k,
+      (headerRow[k] || "").toString().trim(),
+    ])
+  );
   const yLabel = (yKey && headerValues[yKey]) || yKey || null;
 
   const series = rows
@@ -436,9 +503,14 @@ async function readSheetSeries(sheetName, yKeyOverride) {
       return { t: t.getTime(), y };
     })
     .filter(Boolean)
-    .sort((a, b) => (typeof a.t === 'string' ? a.t.localeCompare(b.t) : a.t - b.t));
+    .sort((a, b) =>
+      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t
+    );
 
-  return { series, meta: { sheet, xKey, yKey, yLabel, points: series.length, path: wbPath } };
+  return {
+    series,
+    meta: { sheet, xKey, yKey, yLabel, points: series.length, path: wbPath },
+  };
 }
 
 // PM10 worksheet series
@@ -468,7 +540,8 @@ app.get("/api/aqi/latest", async (req, res) => {
     const wbPath = resolveWorkbookPath();
     const wb = await loadWorkbook(wbPath);
     const sheetName =
-      wb.SheetNames.find((n) => n.toLowerCase() === "viz_data") || wb.SheetNames[0];
+      wb.SheetNames.find((n) => n.toLowerCase() === "viz_data") ||
+      wb.SheetNames[0];
     const ws = wb.Sheets[sheetName];
     if (!ws) return res.status(404).json({ error: "viz_data sheet not found" });
     const rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
@@ -478,11 +551,19 @@ app.get("/api/aqi/latest", async (req, res) => {
     // Determine keys from header labels where possible
     const headerRow = rows[0] || {};
     const headerValues = Object.fromEntries(
-      Object.keys(headerRow).map((k) => [k, (headerRow[k] || "").toString().trim()])
+      Object.keys(headerRow).map((k) => [
+        k,
+        (headerRow[k] || "").toString().trim(),
+      ])
     );
     // Prefer labels containing DATE/TIME for x
-    const xKey = Object.keys(headerValues).find((k) => /date|time/i.test(headerValues[k] || ""))
-      || (Object.keys(headerValues).includes("Data Visualization Process") ? "Data Visualization Process" : null);
+    const xKey =
+      Object.keys(headerValues).find((k) =>
+        /date|time/i.test(headerValues[k] || "")
+      ) ||
+      (Object.keys(headerValues).includes("Data Visualization Process")
+        ? "Data Visualization Process"
+        : null);
     // y (value) preference order
     const yPrefOrder = [
       /24\s*HR\s*ROLLING\s*AQI\s*VALUE/i,
@@ -492,11 +573,19 @@ app.get("/api/aqi/latest", async (req, res) => {
     ];
     let valueKey = null;
     for (const rx of yPrefOrder) {
-      const found = Object.keys(headerValues).find((k) => rx.test(headerValues[k] || ""));
-      if (found) { valueKey = found; break; }
+      const found = Object.keys(headerValues).find((k) =>
+        rx.test(headerValues[k] || "")
+      );
+      if (found) {
+        valueKey = found;
+        break;
+      }
     }
     // category column
-    let categoryKey = Object.keys(headerValues).find((k) => /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || "")) || null;
+    let categoryKey =
+      Object.keys(headerValues).find((k) =>
+        /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || "")
+      ) || null;
 
     // Fallbacks using content heuristics if header detection failed
     if (!valueKey || !xKey) {
@@ -512,13 +601,16 @@ app.get("/api/aqi/latest", async (req, res) => {
       // also try to guess categoryKey as a non-numeric string column
       if (!categoryKey && rows.length > 1) {
         const keys = Object.keys(rows[1] || {});
-        categoryKey = keys.find((k) => {
-          if (k === xUse || k === yUse) return false;
-          const v = rows[1]?.[k];
-          if (v == null) return false;
-          const n = Number(String(v).replace(/[, ]/g, ""));
-          return !isFinite(n) && /category|aqi/i.test(String(v)) ? true : /category|aqi/i.test(k);
-        }) || null;
+        categoryKey =
+          keys.find((k) => {
+            if (k === xUse || k === yUse) return false;
+            const v = rows[1]?.[k];
+            if (v == null) return false;
+            const n = Number(String(v).replace(/[, ]/g, ""));
+            return !isFinite(n) && /category|aqi/i.test(String(v))
+              ? true
+              : /category|aqi/i.test(k);
+          }) || null;
       }
     }
 
@@ -529,7 +621,11 @@ app.get("/api/aqi/latest", async (req, res) => {
       let valRaw = valueKey ? r[valueKey] : null;
       if (typeof valRaw === "string") valRaw = valRaw.replace(/[, ]/g, "");
       const aqiVal = Number(valRaw);
-      const cat = categoryKey ? (r[categoryKey] != null ? String(r[categoryKey]).trim() : null) : null;
+      const cat = categoryKey
+        ? r[categoryKey] != null
+          ? String(r[categoryKey]).trim()
+          : null
+        : null;
       if (t && isFinite(aqiVal)) {
         last = { t: t.getTime(), value: aqiVal, category: cat || null };
         break;
@@ -566,15 +662,21 @@ app.get("/api/station/current", async (req, res) => {
     const lat = process.env.STATION_LAT;
     const lon = process.env.STATION_LON;
     if (!lat || !lon) {
-      return res.status(400).json({ error: "STATION_LAT and STATION_LON must be set in .env" });
+      return res
+        .status(400)
+        .json({ error: "STATION_LAT and STATION_LON must be set in .env" });
     }
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", lat);
     url.searchParams.set("longitude", lon);
-    url.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl");
+    url.searchParams.set(
+      "current",
+      "temperature_2m,relative_humidity_2m,pressure_msl"
+    );
     url.searchParams.set("timezone", "auto");
     const r = await fetch(url.toString());
-    if (!r.ok) return res.status(502).json({ error: `Weather upstream ${r.status}` });
+    if (!r.ok)
+      return res.status(502).json({ error: `Weather upstream ${r.status}` });
     const j = await r.json();
     const cur = j?.current ?? {};
     res.json({
@@ -587,7 +689,9 @@ app.get("/api/station/current", async (req, res) => {
       units: j?.current_units ?? null,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to fetch station weather" });
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to fetch station weather" });
   }
 });
 
@@ -600,7 +704,9 @@ app.get("/api/station/forecast", async (req, res) => {
     if (!isFinite(days) || days <= 0) days = 3;
     days = Math.min(Math.max(Math.floor(days), 1), 7); // clamp 1..7
     if (!lat || !lon) {
-      return res.status(400).json({ error: "STATION_LAT and STATION_LON must be set in .env" });
+      return res
+        .status(400)
+        .json({ error: "STATION_LAT and STATION_LON must be set in .env" });
     }
     const url = new URL("https://api.open-meteo.com/v1/forecast");
     url.searchParams.set("latitude", lat);
@@ -610,7 +716,8 @@ app.get("/api/station/forecast", async (req, res) => {
     url.searchParams.set("timezone", "auto");
     url.searchParams.set("forecast_days", String(days));
     const r = await fetch(url.toString());
-    if (!r.ok) return res.status(502).json({ error: `Weather upstream ${r.status}` });
+    if (!r.ok)
+      return res.status(502).json({ error: `Weather upstream ${r.status}` });
     const j = await r.json();
 
     const daily = j?.daily || {};
@@ -627,7 +734,7 @@ app.get("/api/station/forecast", async (req, res) => {
     const groups = new Map();
     for (let i = 0; i < htime.length; i++) {
       const ts = htime[i];
-      const dateKey = typeof ts === 'string' ? ts.slice(0, 10) : null; // 'YYYY-MM-DDTHH:MM' -> date
+      const dateKey = typeof ts === "string" ? ts.slice(0, 10) : null; // 'YYYY-MM-DDTHH:MM' -> date
       if (!dateKey) continue;
       if (!groups.has(dateKey)) groups.set(dateKey, { rh: [], p: [] });
       const g = groups.get(dateKey);
@@ -641,8 +748,12 @@ app.get("/api/station/forecast", async (req, res) => {
     for (let i = 0; i < dtime.length && i < days; i++) {
       const date = dtime[i]; // 'YYYY-MM-DD'
       const g = groups.get(date) || { rh: [], p: [] };
-      const humidity_mean = g.rh.length ? g.rh.reduce((a,b)=>a+b,0)/g.rh.length : null;
-      const pressure_mean = g.p.length ? g.p.reduce((a,b)=>a+b,0)/g.p.length : null;
+      const humidity_mean = g.rh.length
+        ? g.rh.reduce((a, b) => a + b, 0) / g.rh.length
+        : null;
+      const pressure_mean = g.p.length
+        ? g.p.reduce((a, b) => a + b, 0) / g.p.length
+        : null;
       out.push({
         date,
         temp_max: tmax[i] ?? null,
@@ -664,7 +775,9 @@ app.get("/api/station/forecast", async (req, res) => {
       },
     });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to fetch station forecast" });
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to fetch station forecast" });
   }
 });
 
@@ -683,13 +796,18 @@ app.get("/api/aqi/last-days", async (req, res) => {
     const lastByDate = new Map();
     for (const pt of series) {
       const d = new Date(pt.t);
-      const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0, 10);
+      const key = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+        .toISOString()
+        .slice(0, 10);
       if (key === todayKey) continue; // exclude today
       // overwrite to keep last value of the day as we traverse ascending
       lastByDate.set(key, pt.y);
     }
     // Get most recent N dates
-    const dates = Array.from(lastByDate.keys()).sort((a, b) => (a < b ? 1 : -1)).slice(0, days).sort();
+    const dates = Array.from(lastByDate.keys())
+      .sort((a, b) => (a < b ? 1 : -1))
+      .slice(0, days)
+      .sort();
     function inferCat(v) {
       if (v <= 50) return "GOOD";
       if (v <= 100) return "MODERATE";
@@ -705,7 +823,9 @@ app.get("/api/aqi/last-days", async (req, res) => {
     });
     res.json({ days: items.length, items });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to compute AQI last days" });
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to compute AQI last days" });
   }
 });
 
@@ -714,16 +834,64 @@ app.get("/api/station/meta", async (req, res) => {
   try {
     const name = process.env.STATION_NAME || null;
     const address = process.env.STATION_ADDRESS || null;
-    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
-    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
+    const lat = process.env.STATION_LAT
+      ? Number(process.env.STATION_LAT)
+      : null;
+    const lon = process.env.STATION_LON
+      ? Number(process.env.STATION_LON)
+      : null;
     res.json({ name, address, latitude: lat, longitude: lon });
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to read station meta" });
   }
 });
 
+// Proxy OpenWeatherMap tile layers so the frontend doesn't expose the API key
+// Usage: /api/tiles/owm/:layer/:z/:x/:y.png
+// Allowed layers example: clouds_new, precipitation_new, rain_new, wind_new, temp_new, pressure_new
+app.get("/api/tiles/owm/:layer/:z/:x/:y.png", async (req, res) => {
+  try {
+    if (!OWM_API_KEY) {
+      return res
+        .status(501)
+        .json({ error: "OWM_API_KEY is not configured on the server" });
+    }
+    const { layer, z, x, y } = req.params;
+    const allowed = new Set([
+      "clouds_new",
+      "precipitation_new",
+      "rain_new",
+      "wind_new",
+      "temp_new",
+      "pressure_new",
+    ]);
+    if (!allowed.has(layer)) {
+      return res.status(400).json({ error: "Unsupported layer" });
+    }
+    const url = `https://tile.openweathermap.org/map/${encodeURIComponent(
+      layer
+    )}/${encodeURIComponent(z)}/${encodeURIComponent(x)}/${encodeURIComponent(
+      y
+    )}.png?appid=${encodeURIComponent(OWM_API_KEY)}`;
+    const upstream = await fetch(url);
+    if (!upstream.ok) {
+      return res.status(upstream.status).end();
+        console.log(`[owm-tiles] request ${layer}/${z}/${x}/${y}`);
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type", "image/png");
+    // Cache for 5 minutes at clients and allow CDN/proxy caching
+    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
+          console.warn(`[owm-tiles] upstream ${upstream.status} ${layer}/${z}/${x}/${y}`);
+    return res.status(200).send(buf);
+  } catch (e) {
+    return res.status(502).json({ error: "Tile proxy failed" });
+  }
+});
+
 // Diagnostics endpoint to help troubleshoot workbook loading and sheet/key detection
 app.get("/api/viz-data/diagnostics", async (req, res) => {
+        console.error(`[owm-tiles] error: ${e && e.message}`);
   try {
     const wbPath = resolveWorkbookPath();
     const wb = await loadWorkbook(wbPath);
@@ -734,17 +902,24 @@ app.get("/api/viz-data/diagnostics", async (req, res) => {
     let rows = [];
     let head = null;
     if (ws) {
-  rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
+      rows = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
       head = rows[0] || null;
     }
-  const keysPicked = Array.isArray(rows) && rows.length ? pickKeysFromRows(rows) : { xKey: null, yKey: null };
+    const keysPicked =
+      Array.isArray(rows) && rows.length
+        ? pickKeysFromRows(rows)
+        : { xKey: null, yKey: null };
     const headerValues = head
       ? Object.fromEntries(
           Object.keys(head).map((k) => [k, (head[k] || "").toString().trim()])
         )
       : {};
-    const xLabel = keysPicked.xKey ? headerValues[keysPicked.xKey] || keysPicked.xKey : null;
-    const yLabel = keysPicked.yKey ? headerValues[keysPicked.yKey] || keysPicked.yKey : null;
+    const xLabel = keysPicked.xKey
+      ? headerValues[keysPicked.xKey] || keysPicked.xKey
+      : null;
+    const yLabel = keysPicked.yKey
+      ? headerValues[keysPicked.yKey] || keysPicked.yKey
+      : null;
     res.json({
       path: wbPath,
       sheetNames,

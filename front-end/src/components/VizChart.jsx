@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Card, Alert, Spin, Skeleton, Select } from "antd";
+import { Card, Alert, Spin, Skeleton, Select, DatePicker, Button } from "antd";
 import { useRef } from "react";
 import {
   ResponsiveContainer,
@@ -58,7 +58,7 @@ function useVizData(yKey) {
       }
     }
     run();
-    const id = setInterval(run, 60_000); // refresh every minute
+    const id = setInterval(run, 300_000); // refresh every 5 minutes
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -112,16 +112,18 @@ export default function VizChart({
   title = "Air Quality Monitoring Daily Average (µg/Ncm)",
   yKey,
   variant = "card",
+  defaultRange,
+  autoRefresh = true,
 }) {
-  const { loading, refreshing, error, data } = useVizData(yKey);
+  const { loading, refreshing, error, data } = useVizData(yKey, autoRefresh);
   const displayYLabel = "24 HR AQI Value";
-  const THRESHOLDS = [
-    { name: "GOOD", min: 0.0, max: 50.99, color: "#52c41a" }, // green
-    { name: "FAIR", min: 51.0, max: 100.99, color: "#d4b106" }, // yellow
-    { name: "UNHEALTHY", min: 101.0, max: 150.99, color: "#fa8c16" }, // orange
-    { name: "VERY UNHEALTHY", min: 151.0, max: 200.99, color: "#f5222d" }, // red
-    { name: "ACUTELY UNHEALTHY", min: 201.0, max: 300.99, color: "#722ed1" }, // purple
-    { name: "EMERGENCY", min: 301.0, max: 400.99, color: "#a8071a" }, // maroon
+  const BASE_THRESHOLDS = [
+    { name: "GOOD", min: 0.0, max: 50.99, color: "#52c41a" },
+    { name: "FAIR", min: 51.0, max: 100.99, color: "#d4b106" },
+    { name: "UNHEALTHY", min: 101.0, max: 150.99, color: "#fa8c16" },
+    { name: "VERY UNHEALTHY", min: 151.0, max: 200.99, color: "#f5222d" },
+    { name: "ACUTELY UNHEALTHY", min: 201.0, max: 300.99, color: "#722ed1" },
+    { name: "EMERGENCY", min: 301.0, max: 400.99, color: "#a8071a" },
   ];
 
   function classify(val) {
@@ -135,9 +137,8 @@ export default function VizChart({
     return { name: "GOOD", color: "#52c41a" };
   }
 
-  const yMax = 400.99;
-  const yDomain = [0, Math.ceil(yMax + 0.01)];
-  const [range, setRange] = useState("all"); // 'all' | '7d' | '30d'
+  const [range, setRange] = useState(defaultRange || "all"); // 'all' | '7d' | '30d' | 'custom'
+  const [customRange, setCustomRange] = useState(null); // [dayjs, dayjs] | null
 
   function filterByRange(arr, r) {
     if (!Array.isArray(arr) || arr.length === 0) return arr || [];
@@ -177,7 +178,49 @@ export default function VizChart({
     });
   }
 
-  const filtered = filterByRange(data, range);
+  function filterByCustom(arr, dr) {
+    if (!Array.isArray(arr) || arr.length === 0) return arr || [];
+    if (!dr || !dr[0] || !dr[1]) return arr;
+    try {
+      const start = dr[0].startOf('day').valueOf();
+      const end = dr[1].endOf('day').valueOf();
+      function parseTs(v) {
+        if (typeof v === 'number') return v;
+        const n = Date.parse(v);
+        return isFinite(n) ? n : NaN;
+      }
+      return arr.filter(it => {
+        const ts = parseTs(it.t);
+        return isFinite(ts) && ts >= start && ts <= end;
+      });
+    } catch {
+      return arr;
+    }
+  }
+
+  const filtered = (range === 'custom' && customRange)
+    ? filterByCustom(data, customRange)
+    : filterByRange(data, range);
+  // Dynamic Y-axis max based on highest reading in current filtered range (ignores static threshold cap)
+  const filteredMax = useMemo(() => {
+    const vals = filtered.map((p) => Number(p.y)).filter((v) => isFinite(v));
+    if (!vals.length) return 0;
+    return Math.max(...vals);
+  }, [filtered]);
+  // Add a small 5% headroom so the top point is not glued to the top edge
+  const dynamicMaxRaw = filteredMax * 1.05;
+  const dynamicMax = dynamicMaxRaw > 0 ? dynamicMaxRaw : 10;
+  // Extend last threshold band if dynamic max exceeds configured emergency max
+  const THRESHOLDS = useMemo(() => {
+    const maxConfigured = BASE_THRESHOLDS[BASE_THRESHOLDS.length - 1].max;
+    if (dynamicMax > maxConfigured) {
+      return BASE_THRESHOLDS.map((t, idx) =>
+        idx === BASE_THRESHOLDS.length - 1 ? { ...t, max: dynamicMax } : t
+      );
+    }
+    return BASE_THRESHOLDS;
+  }, [dynamicMax]);
+  const yDomain = [0, Math.ceil(dynamicMax)];
   const firstX = filtered && filtered.length > 0 ? filtered[0].t : undefined;
   const lastX =
     filtered && filtered.length > 0
@@ -192,30 +235,42 @@ export default function VizChart({
   useEffect(() => {
     // Clamp persisted brush indices when data length changes
     if (!brushRange) return;
-    const n = (filtered?.length ?? 0);
+    const n = filtered?.length ?? 0;
     if (!n) return;
     const ns = Math.max(0, Math.min(brushRange.startIndex ?? 0, n - 1));
     const ne = Math.max(ns, Math.min(brushRange.endIndex ?? n - 1, n - 1));
-    if (ns !== (brushRange.startIndex ?? 0) || ne !== (brushRange.endIndex ?? 0)) {
+    if (
+      ns !== (brushRange.startIndex ?? 0) ||
+      ne !== (brushRange.endIndex ?? 0)
+    ) {
       setBrushRange({ startIndex: ns, endIndex: ne });
     }
   }, [filtered?.length]);
 
+  // Reset brush when switching to/from a custom date range for clarity
+  useEffect(() => {
+    setBrushRange(null);
+  }, [customRange, range]);
+
   // Create per-threshold segmented series so the line changes color across ranges
-  const segmented = useMemo(() => filtered.map((p) => {
-    const o = { ...p };
-    THRESHOLDS.forEach((b, i) => {
-      const key = `y_b${i}`;
-      o[key] = p.y >= b.min && p.y <= b.max ? p.y : null;
-    });
-    return o;
-  }), [filtered]);
+  const segmented = useMemo(
+    () =>
+      filtered.map((p) => {
+        const o = { ...p };
+        THRESHOLDS.forEach((b, i) => {
+          const key = `y_b${i}`;
+          o[key] = p.y >= b.min && p.y <= b.max ? p.y : null;
+        });
+        return o;
+      }),
+    [filtered, THRESHOLDS]
+  );
 
   // Floating tile drag + line-to-point
   const containerRef = useRef(null);
   const tileRef = useRef(null);
   const positionedRef = useRef(false);
-  const [tilePos, setTilePos] = useState({ left: 8, top: 12 }); // default; will snap to right after measure
+  const [tilePos, setTilePos] = useState({ left: 24, top: 12 }); // increased left margin
   const [anchorPos, setAnchorPos] = useState(null); // {x, y}
 
   // Initialize tile position to top-right after first render with sizes known
@@ -229,15 +284,12 @@ export default function VizChart({
       return;
     const c = containerRef.current;
     const t = tileRef.current;
-    // Place a bit more to the right by default (about 18% of container width),
-    // while keeping safe margins from both sides.
-  const cw = c.clientWidth || 0;
-  const tw = t.clientWidth || 0;
-  const safeLeftMargin = 10;
-    const rightMargin = 12;
-    const proposed = Math.round(cw * 0.18);
-    const maxLeft = Math.max(safeLeftMargin, cw - tw - rightMargin);
-    const left = Math.max(safeLeftMargin, Math.min(proposed, maxLeft));
+    // Place inside the plotting area on the top-right with safe margins.
+    const cw = c.clientWidth || 0;
+    const tw = t.clientWidth || 0;
+    const safeLeftMargin = 24; // minimum distance from left edge
+    const rightMargin = 15; // distance from right edge
+    const left = Math.max(safeLeftMargin, cw - tw - rightMargin); // push to right side
     const top = 12;
     setTilePos({ left, top });
     positionedRef.current = true;
@@ -266,7 +318,7 @@ export default function VizChart({
     const ch = c.clientHeight || 0;
     const tw = t.clientWidth || 0;
     const th = t.clientHeight || 0;
-  const safeLeftMargin = 10;
+  const safeLeftMargin = 24; // drag boundary (allow closer to left if user wants)
     const safeTopMargin = 8;
     const minLeft = safeLeftMargin,
       minTop = safeTopMargin,
@@ -300,20 +352,47 @@ export default function VizChart({
         function SingleValueTooltip({ active, label, payload }) {
           if (!active || !payload || payload.length === 0) return null;
           // Prefer the base 'y' item; fallback to any non-null segmented value
-          const itemY = payload.find((p) => p && p.dataKey === 'y' && p.value != null);
-          const itemSeg = payload.find((p) => p && /^y_b\d+$/.test(String(p.dataKey)) && p.value != null);
-          const item = itemY || itemSeg || payload.find((p) => p && p.value != null);
+          const itemY = payload.find(
+            (p) => p && p.dataKey === "y" && p.value != null
+          );
+          const itemSeg = payload.find(
+            (p) => p && /^y_b\d+$/.test(String(p.dataKey)) && p.value != null
+          );
+          const item =
+            itemY || itemSeg || payload.find((p) => p && p.value != null);
           if (!item) return null;
           const value = item.value;
-          const color = item.color || item.stroke || 'var(--aqm-primary)';
-          const when = variant === 'card' ? formatDateTime(label) : formatDateMMDDYYYY(label);
+          const color = item.color || item.stroke || "var(--aqm-primary)";
+          const when =
+            variant === "card"
+              ? formatDateTime(label)
+              : formatDateMMDDYYYY(label);
           return (
-            <div style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)', borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--aqm-muted)', marginBottom: 4 }}>{when}</div>
+            <div
+              style={{
+                background: "var(--aqm-panel-bg)",
+                border: "1px solid var(--aqm-panel-border)",
+                borderRadius: 8,
+                padding: 8,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--aqm-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                {when}
+              </div>
               <div style={{ fontSize: 12 }}>
-                <span style={{ color: 'var(--aqm-muted)', marginRight: 6 }}>{displayYLabel}:</span>
+                <span style={{ color: "var(--aqm-muted)", marginRight: 6 }}>
+                  {displayYLabel}:
+                </span>
                 <strong style={{ color }}>{value}</strong>
-                <span style={{ color: 'var(--aqm-muted)', marginLeft: 4 }}>µg/Ncm</span>
+                <span style={{ color: "var(--aqm-muted)", marginLeft: 4 }}>
+                  µg/Ncm
+                </span>
               </div>
             </div>
           );
@@ -394,34 +473,77 @@ export default function VizChart({
 
       {/* Header row: summary left, dropdown right */}
       {!error && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 12, color: 'var(--aqm-muted)' }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "var(--aqm-muted)" }}>
             {(() => {
-              const rangeLabel = range === 'all' ? 'All data' : (range === '7d' ? 'Last 7 days' : 'Last 30 days');
+              const rangeLabel = (() => {
+                if (range === 'custom' && customRange && customRange[0] && customRange[1]) {
+                  const s = customRange[0].format('MM/DD/YYYY');
+                  const e = customRange[1].format('MM/DD/YYYY');
+                  return `Custom: ${s} – ${e}`;
+                }
+                if (range === '7d') return 'Last 7 days';
+                if (range === '30d') return 'Last 30 days';
+                return 'All data';
+              })();
               const pts = filtered || [];
               if (!pts.length) return `Showing: ${rangeLabel}`;
-              const nums = pts.map(p => Number(p.y)).filter(Number.isFinite);
+              const nums = pts.map((p) => Number(p.y)).filter(Number.isFinite);
               if (!nums.length) return `Showing: ${rangeLabel}`;
-              const sum = nums.reduce((a,b)=>a+b,0);
-              const avg = sum/nums.length;
+              const sum = nums.reduce((a, b) => a + b, 0);
+              const avg = sum / nums.length;
               const min = Math.min(...nums);
               const max = Math.max(...nums);
-              const last = nums[nums.length-1];
+              const last = nums[nums.length - 1];
               const c = classify(last);
-              return `Showing: ${rangeLabel} — ${nums.length} daily readings. Average ${avg.toFixed(1)} µg/Ncm (min ${min}, max ${max}). Latest daily average: ${last} µg/Ncm (${c.name}).`;
+              return `Showing: ${rangeLabel} — ${
+                nums.length
+              } daily readings. Average ${avg.toFixed(
+                1
+              )} µg/Ncm (min ${min}, max ${max}). Latest daily average: ${last} µg/Ncm (${
+                c.name
+              }).`;
             })()}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
             <Select
               size="small"
               value={range}
-              onChange={setRange}
+              onChange={(v) => {
+                setRange(v);
+                if (v !== 'custom') setCustomRange(null);
+              }}
               style={{ width: 160 }}
               options={[
                 { value: "all", label: "All data" },
                 { value: "7d", label: "Last 7 days" },
                 { value: "30d", label: "Last 30 days" },
+                { value: "custom", label: "Custom range" },
               ]}
+            />
+            <DatePicker.RangePicker
+              allowClear
+              size="small"
+              style={{ marginLeft: 8 }}
+              value={customRange}
+              onChange={(vals) => {
+                if (vals && vals[0] && vals[1]) {
+                  setCustomRange(vals);
+                  setRange('custom');
+                } else {
+                  setCustomRange(null);
+                  if (range === 'custom') setRange('all');
+                }
+              }}
             />
           </div>
         </div>
@@ -436,7 +558,12 @@ export default function VizChart({
         filtered.length > 0 && (
           <div
             ref={containerRef}
-            style={{ width: "100%", height: 360, position: "relative", minWidth: 0 }}
+            style={{
+              width: "100%",
+              height: 360,
+              position: "relative",
+              minWidth: 0,
+            }}
           >
             {/* Draggable floating tile for last point */}
             {lastPoint && (
@@ -492,7 +619,6 @@ export default function VizChart({
                 data={segmented}
                 margin={{ top: 10, right: 8, bottom: 12, left: 0 }}
               >
-                
                 {/* Threshold bands as background shading */}
                 {THRESHOLDS.map((b, idx) => (
                   <ReferenceArea
@@ -515,7 +641,7 @@ export default function VizChart({
                   tickFormatter={formatDateMMDDYYYY}
                   minTickGap={32}
                   stroke="var(--aqm-panel-border)"
-                  tick={{ fill: "var(--aqm-muted)" }}
+                  tick={{ fill: "var(--aqm-muted)", fontSize: 10 }}
                 />
                 <YAxis
                   domain={yDomain}
@@ -534,39 +660,84 @@ export default function VizChart({
                   content={(props) => {
                     // Inline wrapper to access closure variables
                     function SingleValueTooltip({ active, label, payload }) {
-                      if (!active || !payload || payload.length === 0) return null;
-                      const itemY = payload.find((p) => p && p.dataKey === 'y' && p.value != null);
-                      const itemSeg = payload.find((p) => p && /^y_b\d+$/.test(String(p.dataKey)) && p.value != null);
-                      const item = itemY || itemSeg || payload.find((p) => p && p.value != null);
+                      if (!active || !payload || payload.length === 0)
+                        return null;
+                      const itemY = payload.find(
+                        (p) => p && p.dataKey === "y" && p.value != null
+                      );
+                      const itemSeg = payload.find(
+                        (p) =>
+                          p &&
+                          /^y_b\d+$/.test(String(p.dataKey)) &&
+                          p.value != null
+                      );
+                      const item =
+                        itemY ||
+                        itemSeg ||
+                        payload.find((p) => p && p.value != null);
                       if (!item) return null;
                       const value = item.value;
                       // Color by threshold classification
-                      const color = classify(Number(item.value))?.color || 'var(--aqm-primary)';
-                      const when = variant === 'card' ? formatDateTime(label) : formatDateMMDDYYYY(label);
+                      const color =
+                        classify(Number(item.value))?.color ||
+                        "var(--aqm-primary)";
+                      const when =
+                        variant === "card"
+                          ? formatDateTime(label)
+                          : formatDateMMDDYYYY(label);
                       return (
-                        <div style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)', borderRadius: 8, padding: 8 }}>
-                          <div style={{ fontSize: 11, color: 'var(--aqm-muted)', marginBottom: 4 }}>{when}</div>
+                        <div
+                          style={{
+                            background: "var(--aqm-panel-bg)",
+                            border: "1px solid var(--aqm-panel-border)",
+                            borderRadius: 8,
+                            padding: 8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--aqm-muted)",
+                              marginBottom: 4,
+                            }}
+                          >
+                            {when}
+                          </div>
                           <div style={{ fontSize: 12 }}>
-                            <span style={{ color: 'var(--aqm-muted)', marginRight: 6 }}>{displayYLabel}:</span>
+                            <span
+                              style={{
+                                color: "var(--aqm-muted)",
+                                marginRight: 6,
+                              }}
+                            >
+                              {displayYLabel}:
+                            </span>
                             <strong style={{ color }}>{value}</strong>
-                            <span style={{ color: 'var(--aqm-muted)', marginLeft: 4 }}>µg/Ncm</span>
+                            <span
+                              style={{
+                                color: "var(--aqm-muted)",
+                                marginLeft: 4,
+                              }}
+                            >
+                              µg/Ncm
+                            </span>
                           </div>
                         </div>
                       );
                     }
                     return <SingleValueTooltip {...props} />;
                   }}
-                  wrapperStyle={{ outline: 'none' }}
+                  wrapperStyle={{ outline: "none" }}
                 />
 
                 {/* Threshold lines */}
-                {[50.99, 100.99, 150.99, 200.99, 300.99, 400.99].map((y, i) => (
+                {THRESHOLDS.map((b, i) => (
                   <ReferenceLine
-                    key={i}
-                    y={y}
+                    key={b.name + "-line"}
+                    y={b.max}
                     stroke="var(--aqm-panel-border)"
                     strokeDasharray="3 3"
-                    strokeOpacity={0.8}
+                    strokeOpacity={0.5}
                   />
                 ))}
 
@@ -729,10 +900,18 @@ export default function VizChart({
                   startIndex={brushRange?.startIndex}
                   endIndex={brushRange?.endIndex}
                   onChange={(e) => {
-                    if (e && typeof e.startIndex === 'number' && typeof e.endIndex === 'number') {
+                    if (
+                      e &&
+                      typeof e.startIndex === "number" &&
+                      typeof e.endIndex === "number"
+                    ) {
                       // Throttle updates via rAF for smoother interaction
-                      if (!VizChart.__raf) VizChart.__raf = { id: 0, pending: null };
-                      VizChart.__raf.pending = { startIndex: e.startIndex, endIndex: e.endIndex };
+                      if (!VizChart.__raf)
+                        VizChart.__raf = { id: 0, pending: null };
+                      VizChart.__raf.pending = {
+                        startIndex: e.startIndex,
+                        endIndex: e.endIndex,
+                      };
                       if (!VizChart.__raf.id) {
                         VizChart.__raf.id = requestAnimationFrame(() => {
                           setBrushRange(VizChart.__raf.pending);
@@ -745,15 +924,20 @@ export default function VizChart({
                 >
                   {/* Mini preview to improve selection */}
                   <LineChart data={filtered}>
-                    <Line type="monotone" dataKey="y" stroke="var(--aqm-muted)" strokeOpacity={0.6} dot={false} strokeWidth={1} />
+                    <Line
+                      type="monotone"
+                      dataKey="y"
+                      stroke="var(--aqm-muted)"
+                      strokeOpacity={0.6}
+                      dot={false}
+                      strokeWidth={1}
+                    />
                   </LineChart>
                 </Brush>
               </LineChart>
             </ResponsiveContainer>
           </div>
         )}
-
-      
 
       {/* Move last point details into floating tile above */}
     </>

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Skeleton, Alert, Spin } from "antd";
+import { useEffect, useState, useMemo } from "react";
+import { Skeleton, Alert, Spin, Table, Card, Tag, DatePicker, Button } from "antd";
+import dayjs from "dayjs";
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
 
@@ -180,6 +181,45 @@ export default function DashboardPage() {
   const aqiDays = useAqiLastDays(3);
   const meta = useStationMeta();
   const [addrState, setAddrState] = useState({ loading: false, display: null });
+  // Data for tables below charts
+  const [dailyRows, setDailyRows] = useState([]);
+  const [hourlyRows, setHourlyRows] = useState([]);
+  const [loadingDaily, setLoadingDaily] = useState(true);
+  const [loadingHourly, setLoadingHourly] = useState(true);
+  // Date range filters (null = no filter)
+  const [dailyRange, setDailyRange] = useState(null); // [startDayjs, endDayjs]
+  const [hourlyRange, setHourlyRange] = useState(null);
+
+  // Helpers
+  function classify(y) {
+    if (!isFinite(Number(y))) return { name: '—', color: 'default'};
+    y = Number(y);
+    if (y >= 301) return { name: 'EMERGENCY', color: '#a8071a' };
+    if (y >= 201) return { name: 'ACUTELY UNHEALTHY', color: '#722ed1' };
+    if (y >= 151) return { name: 'VERY UNHEALTHY', color: '#f5222d' };
+    if (y >= 101) return { name: 'UNHEALTHY', color: '#fa8c16' };
+    if (y >= 51) return { name: 'FAIR', color: '#d4b106' };
+    return { name: 'GOOD', color: '#52c41a' };
+  }
+
+  function exportCSV(kind, rows) {
+    if (!rows || !rows.length) return;
+    const header = 'timestamp,value,status';
+    const lines = rows.map(r => {
+      const c = classify(r.y);
+      return `${dayjs(r.t).toISOString()},${r.y},${c.name}`;
+    });
+    const csv = [header, ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${kind}-export-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   // Resolve address for header: prefer .env address, fallback to reverse geocode
   useEffect(() => {
@@ -221,6 +261,57 @@ export default function DashboardPage() {
     station?.data?.latitude,
     station?.data?.longitude,
   ]);
+
+  // Fetch table data once on mount
+  useEffect(() => {
+    let cancelled = false;
+    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+    async function runDaily() {
+      setLoadingDaily(true);
+      try {
+        const r = await fetch(new URL('/api/viz-data', base));
+        const j = await r.json();
+        if (!cancelled) setDailyRows(Array.isArray(j.series) ? j.series : []);
+      } catch { /* ignore */ } finally { if (!cancelled) setLoadingDaily(false); }
+    }
+    async function runHourly() {
+      setLoadingHourly(true);
+      try {
+        const r = await fetch(new URL('/api/pm10-data', base));
+        const j = await r.json();
+        if (!cancelled) setHourlyRows(Array.isArray(j.series) ? j.series : []);
+      } catch { /* ignore */ } finally { if (!cancelled) setLoadingHourly(false); }
+    }
+    runDaily();
+    runHourly();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Apply sorting (recent first) + optional range filtering
+  const dailyVisible = useMemo(() => {
+    let rows = [...dailyRows];
+    rows.sort((a,b)=> dayjs(b.t).valueOf() - dayjs(a.t).valueOf());
+    if (dailyRange && Array.isArray(dailyRange) && dailyRange[0] && dailyRange[1]) {
+      const [start,end] = dailyRange;
+      rows = rows.filter(r => {
+        const ts = dayjs(r.t);
+        return (!start || !ts.isBefore(start, 'day')) && (!end || !ts.isAfter(end, 'day'));
+      });
+    }
+    return rows;
+  }, [dailyRows, dailyRange]);
+  const hourlyVisible = useMemo(() => {
+    let rows = [...hourlyRows];
+    rows.sort((a,b)=> dayjs(b.t).valueOf() - dayjs(a.t).valueOf());
+    if (hourlyRange && Array.isArray(hourlyRange) && hourlyRange[0] && hourlyRange[1]) {
+      const [start,end] = hourlyRange;
+      rows = rows.filter(r => {
+        const ts = dayjs(r.t);
+        return (!start || !ts.isBefore(start)) && (!end || !ts.isAfter(end));
+      });
+    }
+    return rows;
+  }, [hourlyRows, hourlyRange]);
 
   return (
     <div className="space-y-4">
@@ -401,6 +492,12 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+      { (aqi.refreshing || station.refreshing || forecast.refreshing) && (
+        <div className="aqm-subline" style={{ marginTop: 4 }}>
+          <span className="aqm-dot blink-soft" style={{ background: 'var(--aqm-muted)' }} />
+          Tiles updated — charts will update in a moment…
+        </div>
+      )}
       {/* Air Quality Monitoring Graph */}
       <VizChart
         variant="tile"
@@ -409,6 +506,99 @@ export default function DashboardPage() {
 
       {/* PM10 chart below the Air Quality Monitoring Graph */}
       <Pm10Chart title="Hourly Station Reading (µg/Ncm)" />
+
+      {/* Data tables under charts */}
+      <div className="grid lg:grid-cols-2 gap-4 mt-2">
+        <Card
+          size="small"
+          title={<span style={{ color: 'var(--aqm-muted)' }}>Daily Average Data</span>}
+          extra={
+            <div className="flex items-center gap-2">
+              <DatePicker.RangePicker
+                size="small"
+                value={dailyRange}
+                onChange={(v)=> setDailyRange(v)}
+                allowClear
+              />
+              <Button size="small" onClick={()=> exportCSV('daily', dailyVisible)}>Export CSV</Button>
+            </div>
+          }
+          style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
+          bodyStyle={{ padding: 0, background: 'transparent' }}
+        >
+          <Table
+            size="small"
+            columns={[
+              { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+              { title: 'Average (µg/Ncm)', dataIndex: 'y', key: 'y', width: 160, sorter: (a,b)=> Number(a.y) - Number(b.y) },
+              { title: 'Status', key: 'status', width: 160, render: (_, r) => {
+                  const y = Number(r?.y);
+                  let name = '—', color = 'default';
+                  if (isFinite(y)) {
+                    if (y >= 301) { name = 'EMERGENCY'; color = '#a8071a'; }
+                    else if (y >= 201) { name = 'ACUTELY UNHEALTHY'; color = '#722ed1'; }
+                    else if (y >= 151) { name = 'VERY UNHEALTHY'; color = '#f5222d'; }
+                    else if (y >= 101) { name = 'UNHEALTHY'; color = '#fa8c16'; }
+                    else if (y >= 51) { name = 'FAIR'; color = '#d4b106'; }
+                    else { name = 'GOOD'; color = '#52c41a'; }
+                  }
+                  return <Tag color={color}>{name}</Tag>;
+                }
+              },
+            ]}
+            dataSource={dailyVisible.map((r,i)=>({ ...r, key: i }))}
+            loading={loadingDaily}
+            pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
+            scroll={{ y: 260 }}
+            style={{ background: 'transparent', fontSize: 12 }}
+          />
+        </Card>
+        <Card
+          size="small"
+          title={<span style={{ color: 'var(--aqm-muted)' }}>Hourly Readings</span>}
+          extra={
+            <div className="flex items-center gap-2">
+              <DatePicker.RangePicker
+                size="small"
+                showTime={{ format: 'HH:00' }}
+                value={hourlyRange}
+                onChange={(v)=> setHourlyRange(v)}
+                allowClear
+              />
+              <Button size="small" onClick={()=> exportCSV('hourly', hourlyVisible)}>Export CSV</Button>
+            </div>
+          }
+          style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
+          bodyStyle={{ padding: 0, background: 'transparent' }}
+        >
+          <Table
+            size="small"
+            columns={[
+              { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+              { title: 'Reading (µg/Ncm)', dataIndex: 'y', key: 'y', width: 170, sorter: (a,b)=> Number(a.y) - Number(b.y) },
+              { title: 'Status', key: 'status', width: 160, render: (_, r) => {
+                  const y = Number(r?.y);
+                  let name = '—', color = 'default';
+                  if (isFinite(y)) {
+                    if (y >= 301) { name = 'EMERGENCY'; color = '#a8071a'; }
+                    else if (y >= 201) { name = 'ACUTELY UNHEALTHY'; color = '#722ed1'; }
+                    else if (y >= 151) { name = 'VERY UNHEALTHY'; color = '#f5222d'; }
+                    else if (y >= 101) { name = 'UNHEALTHY'; color = '#fa8c16'; }
+                    else if (y >= 51) { name = 'FAIR'; color = '#d4b106'; }
+                    else { name = 'GOOD'; color = '#52c41a'; }
+                  }
+                  return <Tag color={color}>{name}</Tag>;
+                }
+              },
+            ]}
+            dataSource={hourlyVisible.map((r,i)=>({ ...r, key: i }))}
+            loading={loadingHourly}
+            pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
+            scroll={{ y: 260 }}
+            style={{ background: 'transparent', fontSize: 12 }}
+          />
+        </Card>
+      </div>
     </div>
   );
 }

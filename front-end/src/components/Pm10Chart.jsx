@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { Card, Alert, Spin, Select, Button } from "antd";
+import { Card, Alert, Spin, Select, Button, DatePicker } from "antd";
 import {
   ResponsiveContainer,
   LineChart,
@@ -35,7 +35,7 @@ function usePm10Data(yKey) {
       }
     }
     run();
-    const id = setInterval(run, 60_000); // refresh every minute
+  const id = setInterval(run, 300_000); // refresh every 5 minutes
     return () => { cancelled = true; clearInterval(id); };
   }, [yKey]);
   return state;
@@ -58,22 +58,23 @@ function formatDateTime(ts) {
   }
 }
 
-export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", yKey }) {
+export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", yKey, defaultRange }) {
   const { loading, refreshing, error, data, meta } = usePm10Data(yKey);
-  const [range, setRange] = useState('all'); // range ignored when month/year chosen
+  const [range, setRange] = useState(defaultRange || '1w'); // default to Last 1 week to avoid bulk loading
+  const [customRange, setCustomRange] = useState(null); // dayjs[] | null overrides other filters
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState('all'); // 1..12 or 'all'
   const firstX = (data && data.length) ? data[0].t : undefined;
   const lastX = (data && data.length) ? data[data.length - 1].t : undefined;
 
-  // Threshold coloring similar to main chart (visual guidance)
-  const THRESHOLDS = [
-    { name: 'GOOD', min: 0.0, max: 50.99, color: '#52c41a' }, // green
-    { name: 'FAIR', min: 51.0, max: 100.99, color: '#d4b106' }, // yellow
-    { name: 'UNHEALTHY', min: 101.0, max: 150.99, color: '#fa8c16' }, // orange
-    { name: 'VERY UNHEALTHY', min: 151.0, max: 200.99, color: '#f5222d' }, // red
-    { name: 'ACUTELY UNHEALTHY', min: 201.0, max: 300.99, color: '#722ed1' }, // purple
-    { name: 'EMERGENCY', min: 301.0, max: 400.99, color: '#a8071a' }, // maroon
+  // Threshold coloring baseline (will extend last band dynamically if needed)
+  const BASE_THRESHOLDS = [
+    { name: 'GOOD', min: 0.0, max: 50.99, color: '#52c41a' },
+    { name: 'FAIR', min: 51.0, max: 100.99, color: '#d4b106' },
+    { name: 'UNHEALTHY', min: 101.0, max: 150.99, color: '#fa8c16' },
+    { name: 'VERY UNHEALTHY', min: 151.0, max: 200.99, color: '#f5222d' },
+    { name: 'ACUTELY UNHEALTHY', min: 201.0, max: 300.99, color: '#722ed1' },
+    { name: 'EMERGENCY', min: 301.0, max: 400.99, color: '#a8071a' },
   ];
 
   function classify(val) {
@@ -137,9 +138,30 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
   const base = (selectedYear !== 'all' || selectedMonth !== 'all')
     ? filterByMonthYear(data, selectedYear, selectedMonth)
     : data;
-  const filtered = (selectedYear !== 'all' || selectedMonth !== 'all')
-    ? base
-    : filterByRange(base, range);
+
+  function filterByCustom(arr, dr) {
+    if (!Array.isArray(arr) || arr.length === 0) return arr || [];
+    if (!dr || !dr[0] || !dr[1]) return arr;
+    try {
+  const start = dr[0].startOf('day').valueOf();
+  const end = dr[1].endOf('day').valueOf();
+      return arr.filter(it => {
+        const ts = typeof it.t === 'number' ? it.t : Date.parse(it.t);
+        return isFinite(ts) && ts >= start && ts <= end;
+      });
+    } catch { return arr; }
+  }
+
+  const filtered = (range === 'custom' && customRange)
+    ? filterByCustom(data, customRange)
+    : ((selectedYear !== 'all' || selectedMonth !== 'all')
+        ? base
+        : filterByRange(base, range));
+
+  // Reset brush when switching custom range for clarity
+  useEffect(() => {
+    setBrushRange(null);
+  }, [customRange]);
   const lastPoint = (filtered && filtered.length > 0) ? filtered[filtered.length - 1] : null;
   const lastClass = classify(lastPoint?.y);
   // Removed gradient/clip id: switching to multiple Line series for threshold colors
@@ -162,6 +184,18 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
   }, [range, selectedYear, selectedMonth]);
 
   // Augment data with per-threshold series for colored segments
+  // Dynamic max for current filtered dataset
+  const filteredMax = useMemo(() => {
+    const vals = filtered.map(p => Number(p.y)).filter(v => isFinite(v));
+    return vals.length ? Math.max(...vals) : 0;
+  }, [filtered]);
+  const THRESHOLDS = useMemo(() => {
+    const last = BASE_THRESHOLDS[BASE_THRESHOLDS.length - 1];
+    if (filteredMax > last.max) {
+      return BASE_THRESHOLDS.map((t, idx) => idx === BASE_THRESHOLDS.length - 1 ? { ...t, max: filteredMax * 1.05 } : t);
+    }
+    return BASE_THRESHOLDS;
+  }, [filteredMax]);
   const segmented = useMemo(() => filtered.map((p) => {
     const o = { ...p };
     THRESHOLDS.forEach((b, i) => {
@@ -169,25 +203,34 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
       o[key] = (p.y >= b.min && p.y <= b.max) ? p.y : null;
     });
     return o;
-  }), [filtered]);
+  }), [filtered, THRESHOLDS]);
+
+  // Build gradient stops across the x-axis so the stroke blends between categories
+  const gradientStops = useMemo(() => {
+    if (!filtered || filtered.length === 0) return [];
+    const n = filtered.length - 1;
+    return filtered.map((pt, i) => {
+      const cls = classify(Number(pt.y));
+      const offset = n === 0 ? 0 : (i / n) * 100; // percentage along the x-axis
+      return { offset: `${offset.toFixed(3)}%`, color: cls.color };
+    });
+  }, [filtered]);
 
   // Floating tile state
   const containerRef = useRef(null);
   const tileRef = useRef(null);
   const positionedRef = useRef(false);
-  const [tilePos, setTilePos] = useState({ left: 8, top: 12 });
+  const [tilePos, setTilePos] = useState({ left: 24, top: 12 }); // increased initial left margin
 
   useEffect(() => {
     if (!containerRef.current || !tileRef.current || positionedRef.current || !lastPoint) return;
     const c = containerRef.current;
     const t = tileRef.current;
-  const cw = c.clientWidth || 0;
-  const tw = t.clientWidth || 0;
-  const safeLeftMargin = 13;
-    const rightMargin = 12;
-    const proposed = Math.round(cw * 0.18);
-    const maxLeft = Math.max(safeLeftMargin, cw - tw - rightMargin);
-    const left = Math.max(safeLeftMargin, Math.min(proposed, maxLeft));
+    const cw = c.clientWidth || 0;
+    const tw = t.clientWidth || 0;
+    const safeLeftMargin = 24; // minimum distance from left edge
+    const rightMargin = 15; // distance from right edge
+    const left = Math.max(safeLeftMargin, cw - tw - rightMargin); // push to right side
     const top = 12;
     setTilePos({ left, top });
     positionedRef.current = true;
@@ -206,7 +249,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
     const ch = c.clientHeight || 0;
     const tw = t.clientWidth || 0;
     const th = t.clientHeight || 0;
-  const safeLeftMargin = 13;
+  const safeLeftMargin = 24; // increased left drag boundary
     const safeTopMargin = 8;
     const minLeft = safeLeftMargin, minTop = safeTopMargin, maxLeft = Math.max(safeLeftMargin, cw - tw - 4), maxTop = Math.max(safeTopMargin, ch - th - 4);
     function move(ev) {
@@ -267,14 +310,14 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
               { value: 12, label: 'December' },
             ]}
           />
-          {/* Range selector: selecting a range clears Month/Year filters */}
+          {/* Range selector: selecting a range clears Month/Year filters (except custom) */}
           <Select
             size="small"
             value={range}
             onChange={(v) => {
               setRange(v);
-              // Ensure range takes effect immediately
-              if (selectedYear !== 'all' || selectedMonth !== 'all') {
+              if (v !== 'custom') setCustomRange(null);
+              if (v !== 'custom' && (selectedYear !== 'all' || selectedMonth !== 'all')) {
                 setSelectedYear('all');
                 setSelectedMonth('all');
               }
@@ -286,7 +329,27 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
               { value: '1w', label: 'Last 1 week' },
               { value: '1m', label: 'Last 1 month' },
               { value: 'all', label: 'All data' },
+              { value: 'custom', label: 'Custom range' },
             ]}
+          />
+          <DatePicker.RangePicker
+            allowClear
+            size="small"
+            style={{ width: 220 }}
+            value={customRange}
+            onChange={(vals) => {
+              if (vals && vals[0] && vals[1]) {
+                setCustomRange(vals);
+                setRange('custom');
+                if (selectedYear !== 'all' || selectedMonth !== 'all') {
+                  setSelectedYear('all');
+                  setSelectedMonth('all');
+                }
+              } else {
+                setCustomRange(null);
+                if (range === 'custom') setRange('1w'); // default to last week on clear
+              }
+            }}
           />
         </div>
       }
@@ -300,9 +363,21 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: 'var(--aqm-muted)' }}>
             {(() => {
-              const label = (selectedYear !== 'all' && selectedMonth !== 'all')
-                ? `Showing: ${['January','February','March','April','May','June','July','August','September','October','November','December'][selectedMonth-1]} ${selectedYear}`
-                : 'Showing: All data';
+              const label = (() => {
+                if (range === 'custom' && customRange && customRange[0] && customRange[1]) {
+                  const s = customRange[0].format('MM/DD/YYYY');
+                  const e = customRange[1].format('MM/DD/YYYY');
+                  return `Showing: Custom ${s} – ${e}`;
+                }
+                if (selectedYear !== 'all' && selectedMonth !== 'all') {
+                  return `Showing: ${['January','February','March','April','May','June','July','August','September','October','November','December'][selectedMonth-1]} ${selectedYear}`;
+                }
+                if (range === '12h') return 'Showing: Last 12 hours';
+                if (range === '1d') return 'Showing: Last 1 day';
+                if (range === '1w') return 'Showing: Last 1 week';
+                if (range === '1m') return 'Showing: Last 1 month';
+                return 'Showing: All data';
+              })();
               const pts = filtered || [];
               if (!pts.length) return label;
               const nums = pts.map(p => Number(p.y)).filter(Number.isFinite);
@@ -358,15 +433,29 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
           )}
           <ResponsiveContainer>
             <LineChart data={segmented} margin={{ top: 10, right: 8, bottom: 12, left: 0 }}>
+              {/* Dynamic gradient definition for category transitions */}
+              <defs>
+                <linearGradient id="pm10Gradient" x1="0" y1="0" x2="1" y2="0">
+                  {gradientStops.map((s) => (
+                    <stop key={s.offset} offset={s.offset} stopColor={s.color} />
+                  ))}
+                </linearGradient>
+              </defs>
               
               {/* Threshold bands as background shading */}
               {THRESHOLDS.map((b, idx) => (
-                <ReferenceArea key={idx} y1={b.min} y2={b.max} fill={b.color} fillOpacity={0.08} strokeOpacity={0} />
+                <ReferenceArea key={b.name+idx} y1={b.min} y2={b.max} fill={b.color} fillOpacity={0.08} strokeOpacity={0} />
               ))}
 
               <CartesianGrid strokeDasharray="3 3" stroke="var(--aqm-panel-border)" strokeOpacity={0.5} />
               <XAxis dataKey="t" tickFormatter={formatDateTime} minTickGap={32} stroke="var(--aqm-panel-border)" tick={{ fill: 'var(--aqm-muted)', fontSize: 10 }} />
-              <YAxis width={64} domain={[0, 400.99]} stroke="var(--aqm-panel-border)" tick={{ fill: 'var(--aqm-muted)', fontSize: 11 }} label={{ value: 'µg/Ncm', angle: -90, position: 'insideLeft', offset: 10, fill: 'var(--aqm-muted)' }} />
+              <YAxis
+                width={64}
+                domain={[0, (dataMax) => Math.ceil((dataMax || 0) * 1.05) || 10]}
+                stroke="var(--aqm-panel-border)"
+                tick={{ fill: 'var(--aqm-muted)', fontSize: 11 }}
+                label={{ value: 'µg/Ncm', angle: -90, position: 'insideLeft', offset: 10, fill: 'var(--aqm-muted)' }}
+              />
               <Tooltip
                 content={(props) => {
                   function SingleValueTooltip({ active, label, payload }) {
@@ -396,38 +485,22 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
                 wrapperStyle={{ outline: 'none' }}
               />
               {/* Threshold separators */}
-              {[50.99, 100.99, 150.99, 200.99, 300.99, 400.99].map((y, i) => (
-                <ReferenceLine key={i} y={y} stroke="var(--aqm-panel-border)" strokeDasharray="3 3" strokeOpacity={0.8} />
+              {THRESHOLDS.map((b,i) => (
+                <ReferenceLine key={b.name+"-sep"} y={b.max} stroke="var(--aqm-panel-border)" strokeDasharray="3 3" strokeOpacity={0.5} />
               ))}
 
-              {/* Removed neutral baseline to avoid duplicate tooltip values */}
-
+              {/* Single gradient stroke line so transitions between categories are colored, not gray */}
               <Line
                 type="monotone"
                 dataKey="y"
                 name={(!meta?.yLabel || /_+EMPTY/i.test(meta.yLabel) || /EMPTY/i.test(meta.yLabel)) ? 'Hourly Reading:' : meta?.yLabel}
-                stroke="var(--aqm-primary)"
-                strokeOpacity={0.45}
-                strokeWidth={1.5}
+                stroke="url(#pm10Gradient)"
+                strokeWidth={2.2}
                 connectNulls
                 dot={<BlinkingLastDot enabled={!!lastPoint} dataLength={filtered.length} color={lastClass.color} />}
                 activeDot={{ r: 3 }}
                 isAnimationActive={false}
               />
-
-              {/* Per-threshold colored lines using segmented series */}
-              {THRESHOLDS.map((b, i) => (
-                <Line
-                  key={`segline-${i}`}
-                  type="monotone"
-                  dataKey={`y_b${i}`}
-                  stroke={b.color}
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-              ))}
 
               {lastPoint && (
                 <Customized

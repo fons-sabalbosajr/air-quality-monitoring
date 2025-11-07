@@ -49,42 +49,42 @@ function ThemedLayout({
   // Simple weather fetch for header theming (separate from badge for now)
   const [weatherCode, setWeatherCode] = useState(null);
   const [weatherWind, setWeatherWind] = useState(null);
-    useEffect(() => {
-      let cancelled = false;
-      let lat = null;
-      let lon = null;
-      let timer;
+  useEffect(() => {
+    let cancelled = false;
+    let lat = null;
+    let lon = null;
+    let timer;
 
-      async function fetchHeaderWeather() {
-        if (lat == null || lon == null) return;
-        try {
-          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
-          const res = await fetch(url);
-          const data = await res.json();
-          const code = data?.current_weather?.weathercode ?? null;
-          const wind = data?.current_weather?.windspeed ?? null;
-          if (!cancelled) {
-            setWeatherCode(code);
-            setWeatherWind(wind);
-          }
-        } catch {}
-      }
+    async function fetchHeaderWeather() {
+      if (lat == null || lon == null) return;
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const code = data?.current_weather?.weathercode ?? null;
+        const wind = data?.current_weather?.windspeed ?? null;
+        if (!cancelled) {
+          setWeatherCode(code);
+          setWeatherWind(wind);
+        }
+      } catch {}
+    }
 
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          lat = pos.coords.latitude;
-          lon = pos.coords.longitude;
-          fetchHeaderWeather();
-          timer = setInterval(fetchHeaderWeather, 120000); // refresh every 2 minutes
-        },
-        () => {}
-      );
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+        fetchHeaderWeather();
+        timer = setInterval(fetchHeaderWeather, 120000); // refresh every 2 minutes
+      },
+      () => {}
+    );
 
-      return () => {
-        cancelled = true;
-        if (timer) clearInterval(timer);
-      };
-    }, []);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
 
   function weatherGradient(code, isDark) {
     // Map Open-Meteo codes to animated gradient backgrounds
@@ -137,7 +137,10 @@ function ThemedLayout({
       : "linear-gradient(120deg, #e0f2fe, #bae6fd)";
   }
 
-  const headerAnimatedBg = weatherCode != null ? weatherGradient(weatherCode, dark) : headerBg;
+  const headerAnimatedBg =
+    weatherCode != null ? weatherGradient(weatherCode, dark) : headerBg;
+  const siderBgResolved =
+    weatherCode != null ? weatherGradient(weatherCode, dark) : siderBg;
 
   function weatherEffect(code, wind) {
     if (code == null) return null;
@@ -146,7 +149,7 @@ function ThemedLayout({
     if ([45, 48].includes(code)) return "fog";
     if ([95, 96, 99].includes(code)) return "rain"; // storm -> rain visual fallback
     if ([1, 2, 3].includes(code)) return "clouds";
-    if (typeof wind === 'number' && wind >= 25) return "wind";
+    if (typeof wind === "number" && wind >= 25) return "wind";
     return null;
   }
   const headerEffect = weatherEffect(weatherCode, weatherWind);
@@ -161,7 +164,8 @@ function ThemedLayout({
         collapsed={collapsed}
         onCollapse={setCollapsed}
         breakpoint="lg"
-        style={{ background: siderBg }}
+        style={{ background: siderBgResolved }}
+        className={weatherCode != null ? "weather-animated" : undefined}
       >
         <div
           className="flex items-center h-16 font-semibold"
@@ -179,14 +183,13 @@ function ThemedLayout({
             <div className="flex flex-col leading-tight min-w-0">
               <span
                 style={{
-                  fontWeight: 600,
-                  fontSize: 16,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  whiteSpace: "normal", // allow wrapping instead of ellipsis
+                  lineHeight: 1.1,
                 }}
               >
-                Air Quality
+                EMBR3 Air Quality
               </span>
               <span
                 style={{
@@ -211,12 +214,21 @@ function ThemedLayout({
       </Sider>
       <Layout style={{ background: colorBgLayout }}>
         <Header
-          style={{ padding: 0, background: headerBgResolved, position: "relative", overflow: "hidden" }}
+          style={{
+            padding: 0,
+            background: headerBgResolved,
+            position: "relative",
+            overflow: "hidden",
+          }}
           className={weatherCode != null ? "weather-animated" : undefined}
         >
           {/* Background layers first: stars and moon (behind values and overlays) */}
-          {headerEffect === "stars" && <div className="weather-layer weather-stars" />}
-          {headerEffect === "stars" && <div className="weather-layer weather-moon" />}
+          {headerEffect === "stars" && (
+            <div className="weather-layer weather-stars" />
+          )}
+          {headerEffect === "stars" && (
+            <div className="weather-layer weather-moon" />
+          )}
 
           {/* Weather visuals split across left, center, right segments */}
           <div className="weather-segment left">
@@ -233,7 +245,9 @@ function ThemedLayout({
                 <div className="cloud" />
               </div>
             )}
-            {headerEffect === "rain" && <div className="weather-layer weather-rain" />}
+            {headerEffect === "rain" && (
+              <div className="weather-layer weather-rain" />
+            )}
             {isStorm && (
               <div className="weather-layer weather-lightning">
                 <div className="flash" />
@@ -251,10 +265,14 @@ function ThemedLayout({
                 <div className="flake" />
               </div>
             )}
-            {headerEffect === "wind" && <div className="weather-layer weather-wind" />}
-            {headerEffect === "fog" && <div className="weather-layer weather-fog" />}
+            {headerEffect === "wind" && (
+              <div className="weather-layer weather-wind" />
+            )}
+            {headerEffect === "fog" && (
+              <div className="weather-layer weather-fog" />
+            )}
           </div>
-          
+
           <div className="weather-segment center">
             {headerEffect === "clouds" && (
               <div className="weather-layer weather-clouds">
@@ -269,7 +287,9 @@ function ThemedLayout({
                 <div className="cloud" />
               </div>
             )}
-            {headerEffect === "rain" && <div className="weather-layer weather-rain" />}
+            {headerEffect === "rain" && (
+              <div className="weather-layer weather-rain" />
+            )}
             {isStorm && (
               <div className="weather-layer weather-lightning">
                 <div className="flash" />
@@ -287,10 +307,14 @@ function ThemedLayout({
                 <div className="flake" />
               </div>
             )}
-            {headerEffect === "wind" && <div className="weather-layer weather-wind" />}
-            {headerEffect === "fog" && <div className="weather-layer weather-fog" />}
+            {headerEffect === "wind" && (
+              <div className="weather-layer weather-wind" />
+            )}
+            {headerEffect === "fog" && (
+              <div className="weather-layer weather-fog" />
+            )}
           </div>
-          
+
           <div className="weather-segment right">
             {headerEffect === "clouds" && (
               <div className="weather-layer weather-clouds">
@@ -305,7 +329,9 @@ function ThemedLayout({
                 <div className="cloud" />
               </div>
             )}
-            {headerEffect === "rain" && <div className="weather-layer weather-rain" />}
+            {headerEffect === "rain" && (
+              <div className="weather-layer weather-rain" />
+            )}
             {isStorm && (
               <div className="weather-layer weather-lightning">
                 <div className="flash" />
@@ -323,12 +349,18 @@ function ThemedLayout({
                 <div className="flake" />
               </div>
             )}
-            {headerEffect === "wind" && <div className="weather-layer weather-wind" />}
-            {headerEffect === "fog" && <div className="weather-layer weather-fog" />}
+            {headerEffect === "wind" && (
+              <div className="weather-layer weather-wind" />
+            )}
+            {headerEffect === "fog" && (
+              <div className="weather-layer weather-fog" />
+            )}
           </div>
-          
 
-          <div className="flex items-center justify-end px-4 h-16" style={{ position: "relative", zIndex: 2 }}>
+          <div
+            className="flex items-center justify-end px-4 h-16"
+            style={{ position: "relative", zIndex: 2 }}
+          >
             <div className="flex items-center gap-3">
               <WeatherBadge />
               <Switch
@@ -368,7 +400,7 @@ function ThemedLayout({
             color: colorTextSecondary,
           }}
         >
-          Air Quality Monitoring © {new Date().getFullYear()}
+          EMBR3 Air Quality Monitoring © {new Date().getFullYear()}
         </Footer>
       </Layout>
     </Layout>
@@ -412,9 +444,7 @@ function App() {
       key: "stations",
       icon: <DashboardOutlined />,
       label: "Stations",
-      children: [
-        { key: "/station/clark", label: "Clark Station" },
-      ],
+      children: [{ key: "/station/clark", label: "Clark Station" }],
     },
     { key: "/map", icon: <EnvironmentOutlined />, label: "Map" },
     { key: "/settings", icon: <SettingOutlined />, label: "Settings" },
@@ -430,6 +460,12 @@ function App() {
       ) || "/";
   const selectedKeys = [selectedKey];
 
+  // Set dynamic document title to requested app name with current year
+  useEffect(() => {
+    const y = new Date().getFullYear();
+    document.title = `EMBR3 Air Quality Monitoring (${y})`;
+  }, []);
+
   return (
     <ConfigProvider
       theme={{
@@ -438,8 +474,8 @@ function App() {
           Layout: dark
             ? {}
             : {
-                headerBg: '#f7f9fc',
-                siderBg: '#f3f6fb',
+                headerBg: "#f7f9fc",
+                siderBg: "#f3f6fb",
               },
           Menu: dark
             ? {
@@ -453,10 +489,10 @@ function App() {
                 itemBorderRadius: 8,
                 itemPaddingInline: 12,
                 fontSize: 13,
-                itemSelectedBg: '#e6f4ff',
-                itemSelectedColor: '#1677ff',
-                itemHoverBg: '#f0f7ff',
-                itemColor: '#334155',
+                itemSelectedBg: "#e6f4ff",
+                itemSelectedColor: "#1677ff",
+                itemHoverBg: "#f0f7ff",
+                itemColor: "#334155",
               },
         },
       }}
