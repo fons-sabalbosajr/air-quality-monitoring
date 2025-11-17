@@ -48,24 +48,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
-
-      <Card size="small" title={<span style={{ color: 'var(--aqm-muted)' }}>Theme</span>} style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}>
-        <div className="flex flex-col gap-4">
-          <Select
-            size="small"
-            value={theme}
-            onChange={setTheme}
-            style={{ width: 200 }}
-            options={[
-              { value: 'default', label: 'Default' },
-              { value: 'high-contrast', label: 'High Contrast' },
-              { value: 'night', label: 'Night Mode' },
-            ]}
-          />
-          <Divider style={{ margin: '0 0 4px' }} />
-          <p className="text-xs text-gray-500 dark:text-gray-400">These preferences are local only. Clearing browser storage resets them.</p>
-        </div>
-      </Card>
     </div>
   );
 }

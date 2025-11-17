@@ -519,12 +519,14 @@ export default function DashboardPage() {
                 value={dailyRange}
                 onChange={(v)=> setDailyRange(v)}
                 allowClear
+                style={{ width: 220 }}
               />
               <Button size="small" onClick={()=> exportCSV('daily', dailyVisible)}>Export CSV</Button>
             </div>
           }
-          style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
-          bodyStyle={{ padding: 0, background: 'transparent' }}
+          style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
+          styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
+          bodyStyle={{ padding: 0 }}
         >
           <Table
             size="small"
@@ -550,7 +552,8 @@ export default function DashboardPage() {
             loading={loadingDaily}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
             scroll={{ y: 260 }}
-            style={{ background: 'transparent', fontSize: 12 }}
+            style={{ background: 'transparent', fontSize: 11 }}
+            className="compact-table"
           />
         </Card>
         <Card
@@ -564,12 +567,14 @@ export default function DashboardPage() {
                 value={hourlyRange}
                 onChange={(v)=> setHourlyRange(v)}
                 allowClear
+                style={{ width: 260 }}
               />
               <Button size="small" onClick={()=> exportCSV('hourly', hourlyVisible)}>Export CSV</Button>
             </div>
           }
-          style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
-          bodyStyle={{ padding: 0, background: 'transparent' }}
+          style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
+          styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
+          bodyStyle={{ padding: 0 }}
         >
           <Table
             size="small"
@@ -595,7 +600,8 @@ export default function DashboardPage() {
             loading={loadingHourly}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
             scroll={{ y: 260 }}
-            style={{ background: 'transparent', fontSize: 12 }}
+            style={{ background: 'transparent', fontSize: 11 }}
+            className="compact-table"
           />
         </Card>
       </div>

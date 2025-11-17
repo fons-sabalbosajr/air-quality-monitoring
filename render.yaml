@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: aqm-server
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      # Excel file source. Provide a direct-download URL or absolute path on disk if using a Render Disk.
+      - key: EXCEL_FILE_PATH
+        value: ""
+      # Optional: Station metadata and coordinates for weather widgets
+      - key: STATION_NAME
+        value: ""
+      - key: STATION_ADDRESS
+        value: ""
+      - key: STATION_LAT
+        value: ""
+      - key: STATION_LON
+        value: ""
+      # Optional: OpenWeatherMap key for tile layers proxy
+      - key: OWM_API_KEY
+        value: ""
+      - key: OPENWEATHERMAP_API_KEY
+        value: ""
+      # Optional: Microsoft Graph client credentials (if using private SharePoint/OneDrive links)
+      - key: GRAPH_TENANT_ID
+        value: ""
+      - key: GRAPH_CLIENT_ID
+        value: ""
+      - key: GRAPH_CLIENT_SECRET
+        value: ""
+
+  - type: static_site
+    name: aqm-frontend
+    env: static
+    plan: free
+    rootDir: front-end
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    envVars:
+      # Point the frontend to the server's public URL
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: aqm-server
+          property: url
+    routes:
+      # Single Page App rewrite so client-side routes work on refresh
+      - type: rewrite
+        source: /*
+        destination: /index.html

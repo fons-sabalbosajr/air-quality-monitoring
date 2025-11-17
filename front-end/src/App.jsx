@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Layout, Menu, theme, ConfigProvider, Switch } from "antd";
+import { Layout, Menu, theme, ConfigProvider, Switch, Tooltip } from "antd";
 import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import {
   DashboardOutlined,
@@ -38,6 +38,49 @@ function ThemedLayout({
     },
   } = theme.useToken();
   const currentYear = new Date().getFullYear();
+  const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+
+  // Latest AQI to drive legend glow
+  const [aqiValue, setAqiValue] = useState(null);
+  const [activeLegendKey, setActiveLegendKey] = useState(null);
+  const legendMeta = {
+    GOOD: { color: "#52c41a", rgb: "82,196,26" },
+    FAIR: { color: "#d4b106", rgb: "212,177,6" },
+    "UNHEALTHY": { color: "#fa8c16", rgb: "250,140,22" },
+    "VERY UNHEALTHY": { color: "#f5222d", rgb: "245,34,45" },
+    "ACUTELY UNHEALTHY": { color: "#722ed1", rgb: "114,46,209" },
+    EMERGENCY: { color: "#a8071a", rgb: "168,7,26" },
+  };
+  function mapValueToLegend(v) {
+    if (v <= 50) return "GOOD";
+    if (v <= 100) return "FAIR";
+    if (v <= 150) return "UNHEALTHY";
+    if (v <= 200) return "VERY UNHEALTHY";
+    if (v <= 300) return "ACUTELY UNHEALTHY";
+    return "EMERGENCY";
+  }
+  useEffect(() => {
+    let stop = false;
+    async function load() {
+      try {
+        const r = await fetch(new URL("/api/aqi/latest", base));
+        if (!r.ok) return;
+        const j = await r.json();
+        if (stop) return;
+        const v = Number(j?.value);
+        if (isFinite(v)) {
+          setAqiValue(v);
+          setActiveLegendKey(mapValueToLegend(v));
+        }
+      } catch {}
+    }
+    load();
+    const t = setInterval(load, 60000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [base]);
 
   // Light theme custom brand colors (soft, not pure white)
   const headerBg = dark ? colorBgElevated : "#f7f9fc"; // subtle light header
@@ -164,53 +207,148 @@ function ThemedLayout({
         collapsed={collapsed}
         onCollapse={setCollapsed}
         breakpoint="lg"
-        style={{ background: siderBgResolved }}
+        style={{ background: siderBgResolved, position: 'relative' }}
         className={weatherCode != null ? "weather-animated" : undefined}
       >
-        <div
-          className="flex items-center h-16 font-semibold"
-          style={{
-            background: brandBg,
-            color: colorText,
-            justifyContent: collapsed ? "center" : "flex-start",
-            paddingLeft: collapsed ? 0 : 30,
-            paddingRight: collapsed ? 0 : 10,
-            gap: collapsed ? 0 : 6,
-          }}
-        >
-          <img src={embLogo} alt="EMB Logo" width={30} height={30} />
-          {!collapsed && (
-            <div className="flex flex-col leading-tight min-w-0">
-              <span
-                style={{
-                  fontWeight: 700,
-                  fontSize: 14,
-                  whiteSpace: "normal", // allow wrapping instead of ellipsis
-                  lineHeight: 1.1,
-                }}
-              >
-                EMBR3 Air Quality
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: colorTextSecondary,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Monitoring {currentYear}
-              </span>
-            </div>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div
+            className="flex items-center h-16 font-semibold"
+            style={{
+              background: brandBg,
+              color: colorText,
+              justifyContent: collapsed ? "center" : "flex-start",
+              paddingLeft: collapsed ? 0 : 30,
+              paddingRight: collapsed ? 0 : 10,
+              gap: collapsed ? 0 : 6,
+            }}
+          >
+            <img src={embLogo} alt="EMB Logo" width={30} height={30} />
+            {!collapsed && (
+              <div className="flex flex-col leading-tight min-w-0">
+                <span
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 14,
+                    whiteSpace: "normal",
+                    lineHeight: 1.1,
+                  }}
+                >
+                  EMBR3 Air Quality
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: colorTextSecondary,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Monitoring {currentYear}
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <Menu
+              theme={dark ? "dark" : "light"}
+              mode="inline"
+              selectedKeys={selectedKeys}
+              items={items}
+              style={{ background: "transparent", borderInlineEnd: "none" }}
+              onClick={({ key }) => navigate(key)}
+            />
+            {!collapsed ? (
+              <div className="aqm-sider-card" role="note" aria-label="AQI Categories and guidance">
+                <div className="aqm-sider-card-title">AQI Categories</div>
+                <div className="aqm-sider-card-items">
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'GOOD' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta.GOOD.color, ['--glow-rgb']: legendMeta.GOOD.rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">GOOD</div>
+                      <div className="aqm-sider-desc">Air quality is considered satisfactory, and air pollution poses little or no risk to public health.</div>
+                    </div>
+                  </div>
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'FAIR' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta.FAIR.color, ['--glow-rgb']: legendMeta.FAIR.rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">FAIR</div>
+                      <div className="aqm-sider-desc">People with respiratory problems, older adults, and children may experience health effects, but the general public is unlikely to be affected.</div>
+                    </div>
+                  </div>
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'UNHEALTHY' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta['UNHEALTHY'].color, ['--glow-rgb']: legendMeta['UNHEALTHY'].rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">UNHEALTHY</div>
+                      <div className="aqm-sider-desc">People with respiratory disease, such as asthma, should limit outdoor exertion.</div>
+                    </div>
+                  </div>
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'VERY UNHEALTHY' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta['VERY UNHEALTHY'].color, ['--glow-rgb']: legendMeta['VERY UNHEALTHY'].rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">VERY UNHEALTHY</div>
+                      <div className="aqm-sider-desc">Everyone may begin to experience adverse health effects, and members of sensitive groups may experience more serious effects.</div>
+                    </div>
+                  </div>
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'ACUTELY UNHEALTHY' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta['ACUTELY UNHEALTHY'].color, ['--glow-rgb']: legendMeta['ACUTELY UNHEALTHY'].rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">ACUTELY UNHEALTHY</div>
+                      <div className="aqm-sider-desc">People should limit outdoor exertion. People with heart or respiratory disease such as asthma should stay indoors and rest as much as possible.</div>
+                    </div>
+                  </div>
+                  <div className="aqm-sider-item">
+                    <span
+                      className={`aqm-sider-dot${activeLegendKey === 'EMERGENCY' ? ' aqm-glow' : ''}`}
+                      style={{ background: legendMeta.EMERGENCY.color, ['--glow-rgb']: legendMeta.EMERGENCY.rgb }}
+                    />
+                    <div className="aqm-sider-text">
+                      <div className="aqm-sider-name">EMERGENCY</div>
+                      <div className="aqm-sider-desc">Health alert: everyone may experience serious effects. Avoid outdoor activity and stay indoors with clean, filtered air.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="aqm-sider-tiles" aria-label="AQI legend">
+                {[
+                  { name: 'GOOD', ...legendMeta.GOOD, desc: 'Air quality is considered satisfactory, and air pollution poses little or no risk to public health.' },
+                  { name: 'FAIR', ...legendMeta.FAIR, desc: 'People with respiratory problems, older adults, and children may experience health effects, but the general public is unlikely to be affected.' },
+                  { name: 'UNHEALTHY', ...legendMeta['UNHEALTHY'], desc: 'People with respiratory disease, such as asthma, should limit outdoor exertion.' },
+                  { name: 'VERY UNHEALTHY', ...legendMeta['VERY UNHEALTHY'], desc: 'Everyone may begin to experience adverse health effects, and members of sensitive groups may experience more serious effects.' },
+                  { name: 'ACUTELY UNHEALTHY', ...legendMeta['ACUTELY UNHEALTHY'], desc: 'People should limit outdoor exertion. People with heart or respiratory disease such as asthma should stay indoors and rest as much as possible.' },
+                  { name: 'EMERGENCY', ...legendMeta.EMERGENCY, desc: 'Health alert: everyone may experience serious effects. Avoid outdoor activity and stay indoors with clean, filtered air.' },
+                ].map((it) => (
+                  <Tooltip key={it.name} placement="right" title={
+                    <div style={{ maxWidth: 260 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>{it.name}</div>
+                      <div style={{ fontSize: 12, lineHeight: 1.3 }}>{it.desc}</div>
+                    </div>
+                  }>
+                    <div
+                      className={`aqm-sider-mini${activeLegendKey === it.name ? ' aqm-glow' : ''}`}
+                      style={{ background: it.color, ['--glow-rgb']: it.rgb }}
+                      aria-label={it.name}
+                    />
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <Menu
-          theme={dark ? "dark" : "light"}
-          mode="inline"
-          selectedKeys={selectedKeys}
-          items={items}
-          style={{ background: "transparent", borderInlineEnd: "none" }}
-          onClick={({ key }) => navigate(key)}
-        />
       </Sider>
       <Layout style={{ background: colorBgLayout }}>
         <Header

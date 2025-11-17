@@ -9,6 +9,7 @@
 	--aqm-panel-border: rgba(0, 0, 0, 0.06);
 	--aqm-panel-shadow: rgba(0, 0, 0, 0.06);
 	--aqm-muted: #64748b; /* slate-500 */
+	--aqm-strong: #0f172a; /* slate-900 for headings on light */
 }
 
 .dark {
@@ -17,4 +18,5 @@
 	--aqm-panel-border: rgba(148, 163, 184, 0.22); /* slate-400 alpha */
 	--aqm-panel-shadow: rgba(0, 0, 0, 0.3);
 	--aqm-muted: #94a3b8; /* slate-400 */
+	--aqm-strong: #e2e8f0; /* slate-200 for headings on dark */
 }
