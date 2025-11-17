@@ -686,23 +686,6 @@ body {
   cursor: default;
 }
 
-/* Pulsing glow for active AQI status in the sider */
-.aqm-glow {
-  box-shadow: 0 0 0 0 rgba(var(--glow-rgb), 0.7);
-  animation: aqm-pulse 1.6s ease-in-out infinite;
-}
-@keyframes aqm-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(var(--glow-rgb), 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 12px rgba(var(--glow-rgb), 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(var(--glow-rgb), 0);
-  }
-}
-
 /* Compact tables under PM10 chart */
 .compact-table .ant-table {
   font-size: 11px;

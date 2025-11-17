@@ -33,13 +33,12 @@ services:
       - key: GRAPH_CLIENT_SECRET
         value: ""
 
-  - type: static_site
+  - type: static
     name: aqm-frontend
-    env: static
     plan: free
     rootDir: front-end
     buildCommand: npm ci && npm run build
-    staticPublishPath: dist
+    publishPath: dist
     autoDeploy: true
     envVars:
       # Point the frontend to the server's public URL
