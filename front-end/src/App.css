@@ -5,6 +5,94 @@ body {
   margin: 0;
 }
 
+/* Responsive layout helpers */
+.aqm-tiles {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  align-items: stretch;
+}
+@media (min-width: 1400px) {
+  /* Wider screens (≥1400px) allow slightly larger min tiles */
+  .aqm-tiles { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+}
+@media (max-width: 900px) {
+  .aqm-tiles { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .aqm-tiles { grid-template-columns: 1fr; }
+  .aqm-tile { min-width: 0; }
+}
+
+/* Ensure cards and tables can scroll horizontally on narrow screens */
+.aqm-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+@media (max-width: 900px) {
+  .aqm-scroll-x { margin-bottom: 4px; padding-bottom: 4px; }
+  .aqm-scroll-x::-webkit-scrollbar { height: 8px; }
+  .aqm-scroll-x::-webkit-scrollbar-track { background: transparent; }
+  .aqm-scroll-x::-webkit-scrollbar-thumb { background: rgba(120,120,120,0.3); border-radius: 4px; }
+}
+
+/* Optional fade edges to hint horizontal scroll */
+.aqm-scroll-fade { position: relative; }
+.aqm-scroll-fade::before, .aqm-scroll-fade::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 2;
+}
+.aqm-scroll-fade::before { left: 0; background: linear-gradient(to right, var(--aqm-bg, rgba(0,0,0,0.06)) 0%, rgba(0,0,0,0) 100%); }
+.aqm-scroll-fade::after { right: 0; background: linear-gradient(to left, var(--aqm-bg, rgba(0,0,0,0.06)) 0%, rgba(0,0,0,0) 100%); }
+@media (prefers-color-scheme: dark) {
+  .aqm-scroll-fade::before { background: linear-gradient(to right, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 100%); }
+  .aqm-scroll-fade::after { background: linear-gradient(to left, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 100%); }
+}
+
+/* Responsive chart container heights */
+.aqm-chart-height { height: clamp(260px, 45vh, 420px); }
+.aqm-chart-height-hourly { height: clamp(260px, 50vh, 460px); }
+@media (max-height: 780px) {
+  .aqm-chart-height, .aqm-chart-height-hourly { height: clamp(240px, 50vh, 380px); }
+}
+@media (max-width: 640px) {
+  .aqm-chart-height, .aqm-chart-height-hourly { height: 320px; }
+}
+
+/* Map + globe responsive grid */
+.aqm-map-grid { display: grid; grid-template-columns: 7fr 3fr; gap: 12px; }
+@media (max-width: 1100px) { .aqm-map-grid { grid-template-columns: 1fr; } }
+
+/* Improve table compactness on small screens */
+@media (max-width: 640px) {
+  .compact-table .ant-table { font-size: 11px; }
+  .compact-table .ant-table-thead > tr > th { padding: 6px 8px; }
+  .compact-table .ant-table-tbody > tr > td { padding: 6px 8px; }
+}
+
+/* Unified filter row styling */
+.aqm-filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.aqm-filter-row .aqm-fluid { flex: 1 1 220px; min-width: 160px; }
+@media (max-width: 900px) {
+  .aqm-filter-row .aqm-fluid { flex: 1 1 100%; }
+  .aqm-filter-row button:not(.ant-picker-clear) { flex: 1 1 auto; }
+}
+@media (max-width: 640px) {
+  .aqm-filter-row { gap: 6px; }
+  .aqm-filter-row .aqm-fluid { flex: 1 1 100%; min-width: 0; }
+  .aqm-filter-row .ant-picker, .aqm-filter-row .ant-select, .aqm-filter-row button { width: 100% !important; }
+}
+
+/* Collapsible filter group behavior */
+.aqm-filters-collapsible { position: relative; }
+@media (max-width: 640px) {
+  .aqm-filters-collapsible .aqm-filter-row { display: none; }
+  .aqm-filters-collapsible.open .aqm-filter-row { display: flex; animation: aqm-fadein 180ms ease-in; }
+  .aqm-filters-toggle-btn { width: 100%; margin-bottom: 6px; }
+}
+@keyframes aqm-fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
 #root {
   width: 100%;
 }

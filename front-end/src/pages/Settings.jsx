@@ -1,17 +1,18 @@
 import { Card, Switch, Select, Divider } from 'antd';
 import { useState, useEffect } from 'react';
+import { secureStorage } from '../utils/secureStorage';
 
 function useStored(key, initial) {
   const [val, setVal] = useState(initial);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('aqm_'+key);
+      const raw = secureStorage.getItem('aqm_'+key);
       if (raw != null) setVal(JSON.parse(raw));
     } catch {}
   }, [key]);
   function update(v) {
     setVal(v);
-    try { localStorage.setItem('aqm_'+key, JSON.stringify(v)); } catch {}
+    try { secureStorage.setItem('aqm_'+key, JSON.stringify(v)); } catch {}
   }
   return [val, update];
 }

@@ -296,15 +296,7 @@ export default function MapPage() {
 
       {/* Vertical stack: Map (70%) then 3D Globe (30%) */}
       {/* One-line layout: 2D map (70%) left, 3D globe (30%) right */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "7fr 3fr",
-          gap: 12,
-          width: "100%",
-          alignItems: "stretch",
-        }}
-      >
+      <div className="aqm-map-grid" style={{ width: '100%' }}>
         <div style={{ minWidth: 0 }}>
           <Card
             size="small"

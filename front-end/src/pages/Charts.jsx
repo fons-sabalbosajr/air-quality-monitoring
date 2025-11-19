@@ -1,6 +1,7 @@
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
 import { Table, Card, Tag, DatePicker, Button, Alert } from "antd";
+import FilterGroup from "@components/FilterGroup.jsx";
 import { useMemo, useState, useEffect } from "react";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
@@ -54,12 +55,12 @@ export default function ChartsPage() {
     return { name: 'GOOD', color: '#52c41a' };
   }
   const dailyColumns = useMemo(() => [
-    { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+    { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
     { title: 'Average (µg/Ncm)', dataIndex: 'y', key: 'y', width: 140, sorter: (a,b)=> Number(a.y) - Number(b.y) },
     { title: 'Status', key: 'status', width: 160, render: (_, r) => { const c = classify(r.y); return <Tag color={c.color}>{c.name}</Tag>; }},
   ], []);
   const hourlyColumns = useMemo(() => [
-    { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+    { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
     { title: 'Reading (µg/Ncm)', dataIndex: 'y', key: 'y', width: 150, sorter: (a,b)=> Number(a.y) - Number(b.y) },
     { title: 'Status', key: 'status', width: 160, render: (_, r) => { const c = classify(r.y); return <Tag color={c.color}>{c.name}</Tag>; }},
   ], []);
@@ -123,19 +124,21 @@ export default function ChartsPage() {
       <VizChart defaultRange="7d" />
       <Pm10Chart defaultRange="1w" />
       <div className="grid lg:grid-cols-2 gap-4 mt-6">
+        <div className="aqm-scroll-x aqm-scroll-fade">
         <Card
           size="small"
           title={<span style={{ color: 'var(--aqm-muted)' }}>Daily Average Data</span>}
           extra={
-            <div className="flex items-center gap-2">
+            <FilterGroup label="Daily Filters">
               <DatePicker.RangePicker
                 size="small"
                 value={dailyRange}
                 onChange={(v)=> setDailyRange(v)}
                 allowClear
+                className="aqm-fluid"
               />
               <Button size="small" onClick={()=> exportCSV('daily', dailyVisible)}>Export CSV</Button>
-            </div>
+            </FilterGroup>
           }
           style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
           bodyStyle={{ padding: 0, background: 'transparent' }}
@@ -146,24 +149,27 @@ export default function ChartsPage() {
             dataSource={dailyVisible.map((r,i)=>({ ...r, key: i }))}
             loading={loadingDaily}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ y: 260 }}
+            scroll={{ x: 'max-content', y: 260 }}
             style={{ background: 'transparent', fontSize: 12 }}
           />
         </Card>
+        </div>
+        <div className="aqm-scroll-x aqm-scroll-fade">
         <Card
           size="small"
           title={<span style={{ color: 'var(--aqm-muted)' }}>Hourly Readings</span>}
           extra={
-            <div className="flex items-center gap-2">
+            <FilterGroup label="Hourly Filters">
               <DatePicker.RangePicker
                 size="small"
                 showTime={{ format: 'HH:00' }}
                 value={hourlyRange}
                 onChange={(v)=> setHourlyRange(v)}
                 allowClear
+                className="aqm-fluid"
               />
               <Button size="small" onClick={()=> exportCSV('hourly', hourlyVisible)}>Export CSV</Button>
-            </div>
+            </FilterGroup>
           }
           style={{ background: 'transparent', border: '1px solid var(--aqm-panel-border)' }}
           bodyStyle={{ padding: 0, background: 'transparent' }}
@@ -174,10 +180,11 @@ export default function ChartsPage() {
             dataSource={hourlyVisible.map((r,i)=>({ ...r, key: i }))}
             loading={loadingHourly}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ y: 260 }}
+            scroll={{ x: 'max-content', y: 260 }}
             style={{ background: 'transparent', fontSize: 12 }}
           />
         </Card>
+        </div>
       </div>
     </div>
   );

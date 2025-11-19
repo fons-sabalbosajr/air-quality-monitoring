@@ -1300,11 +1300,13 @@ function ThemedLayout({
 
 //
 
+import { secureStorage } from './utils/secureStorage';
+
 function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [dark, setDark] = useState(() => {
     try {
-      const saved = localStorage.getItem("aqm-theme");
+      const saved = secureStorage.getItem("aqm-theme");
       if (saved === "dark") return true;
       if (saved === "light") return false;
       return (
@@ -1325,7 +1327,7 @@ function App() {
       root.classList.remove("dark");
     }
     try {
-      localStorage.setItem("aqm-theme", dark ? "dark" : "light");
+      secureStorage.setItem("aqm-theme", dark ? "dark" : "light");
     } catch {}
   }, [dark]);
   // tokens are consumed inside ThemedLayout under ConfigProvider

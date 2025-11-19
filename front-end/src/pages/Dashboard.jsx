@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 // getApiBase no longer needed here; API base handled by hook
 import { Skeleton, Alert, Spin, Table, Card, Tag, DatePicker, Button } from "antd";
+import FilterGroup from "@components/FilterGroup.jsx";
 import dayjs from "dayjs";
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
@@ -218,7 +219,7 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-      <div className="aqm-tiles">
+      <div className="aqm-tiles aqm-scroll-x" style={{ overflowX: 'visible' }}>
         {/* Latest AQI Category (PM10) */}
         <AQITile
           loading={aqi.loading}
@@ -399,20 +400,21 @@ export default function DashboardPage() {
 
       {/* Data tables under charts */}
       <div className="grid lg:grid-cols-2 gap-4 mt-2">
+        <div className="aqm-scroll-x aqm-scroll-fade">
         <Card
           size="small"
           title={<span style={{ color: 'var(--aqm-muted)' }}>Daily Average Data</span>}
           extra={
-            <div className="flex items-center gap-2">
+            <FilterGroup label="Daily Filters">
               <DatePicker.RangePicker
                 size="small"
                 value={dailyRange}
                 onChange={(v)=> setDailyRange(v)}
                 allowClear
-                style={{ width: 220 }}
+                className="aqm-fluid"
               />
               <Button size="small" onClick={()=> exportCSV('daily', dailyVisible)}>Export CSV</Button>
-            </div>
+            </FilterGroup>
           }
           style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
           styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
@@ -421,7 +423,7 @@ export default function DashboardPage() {
           <Table
             size="small"
             columns={[
-              { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+              { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
               { title: 'Average (µg/Ncm)', dataIndex: 'y', key: 'y', width: 160, sorter: (a,b)=> Number(a.y) - Number(b.y) },
               { title: 'Status', key: 'status', width: 160, render: (_, r) => {
                   const y = Number(r?.y);
@@ -441,26 +443,28 @@ export default function DashboardPage() {
             dataSource={dailyVisible.map((r,i)=>({ ...r, key: i }))}
             loading={dailyData.loading || dailyData.refreshing}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ y: 260 }}
+            scroll={{ x: 'max-content', y: 260 }}
             style={{ background: 'transparent', fontSize: 11 }}
             className="compact-table"
           />
         </Card>
+        </div>
+        <div className="aqm-scroll-x aqm-scroll-fade">
         <Card
           size="small"
           title={<span style={{ color: 'var(--aqm-muted)' }}>Hourly Readings</span>}
           extra={
-            <div className="flex items-center gap-2">
+            <FilterGroup label="Hourly Filters">
               <DatePicker.RangePicker
                 size="small"
                 showTime={{ format: 'HH:00' }}
                 value={hourlyRange}
                 onChange={(v)=> setHourlyRange(v)}
                 allowClear
-                style={{ width: 260 }}
+                className="aqm-fluid"
               />
               <Button size="small" onClick={()=> exportCSV('hourly', hourlyVisible)}>Export CSV</Button>
-            </div>
+            </FilterGroup>
           }
           style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
           styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
@@ -469,7 +473,7 @@ export default function DashboardPage() {
           <Table
             size="small"
             columns={[
-              { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
+              { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
               { title: 'Reading (µg/Ncm)', dataIndex: 'y', key: 'y', width: 170, sorter: (a,b)=> Number(a.y) - Number(b.y) },
               { title: 'Status', key: 'status', width: 160, render: (_, r) => {
                   const y = Number(r?.y);
@@ -489,11 +493,12 @@ export default function DashboardPage() {
             dataSource={hourlyVisible.map((r,i)=>({ ...r, key: i }))}
             loading={hourlyData.loading || hourlyData.refreshing}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ y: 260 }}
+            scroll={{ x: 'max-content', y: 260 }}
             style={{ background: 'transparent', fontSize: 11 }}
             className="compact-table"
           />
         </Card>
+        </div>
       </div>
     </div>
   );

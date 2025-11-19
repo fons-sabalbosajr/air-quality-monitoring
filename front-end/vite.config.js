@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import path from 'path'
 import react from '@vitejs/plugin-react'
 import mkcert from 'vite-plugin-mkcert'
 
@@ -32,6 +33,9 @@ export default defineConfig({
   resolve: {
     // Ensure a single Three.js instance is used across all dependencies
     dedupe: ['three'],
+    alias: {
+      '@components': path.resolve(__dirname, 'src/components'),
+    }
   },
   optimizeDeps: {
     include: ['three', 'globe.gl'],

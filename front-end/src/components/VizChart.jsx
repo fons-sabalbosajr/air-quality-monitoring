@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useApiEndpoint } from "../util/apiClient";
 import { getApiBase } from "../util/apiBase";
 import { Card, Alert, Spin, Skeleton, Select, DatePicker, Button } from "antd";
+import FilterGroup from "@components/FilterGroup.jsx";
 import { useRef } from "react";
 import {
   ResponsiveContainer,
@@ -479,7 +480,7 @@ export default function VizChart({
               }).`;
             })()}
           </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
+          <FilterGroup label="Daily Range" defaultOpen={true}>
             <Select
               size="small"
               value={range}
@@ -487,7 +488,7 @@ export default function VizChart({
                 setRange(v);
                 if (v !== 'custom') setCustomRange(null);
               }}
-              style={{ width: 160 }}
+              className="aqm-fluid"
               options={[
                 { value: "all", label: "All data" },
                 { value: "7d", label: "Last 7 days" },
@@ -498,7 +499,7 @@ export default function VizChart({
             <DatePicker.RangePicker
               allowClear
               size="small"
-              style={{ marginLeft: 8 }}
+              className="aqm-fluid"
               value={customRange}
               onChange={(vals) => {
                 if (vals && vals[0] && vals[1]) {
@@ -510,7 +511,7 @@ export default function VizChart({
                 }
               }}
             />
-          </div>
+          </FilterGroup>
         </div>
       )}
 
@@ -523,9 +524,9 @@ export default function VizChart({
         filtered.length > 0 && (
           <div
             ref={containerRef}
+            className="aqm-chart-height"
             style={{
               width: "100%",
-              height: 360,
               position: "relative",
               minWidth: 0,
             }}

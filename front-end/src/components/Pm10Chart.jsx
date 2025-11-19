@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useApiEndpoint } from "../util/apiClient";
 import { Card, Alert, Spin, Select, Button, DatePicker } from "antd";
+import FilterGroup from "@components/FilterGroup.jsx";
 import {
   ResponsiveContainer,
   LineChart,
@@ -261,13 +262,13 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
       style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
       styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
       extra={
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap' }}>
+        <FilterGroup label="Hourly Range" defaultOpen={true}>
           {/* Year selector */}
           <Select
             size="small"
             value={selectedYear}
             onChange={setSelectedYear}
-            style={{ width: 110 }}
+            className="aqm-fluid"
             options={(() => {
               const years = Array.from(new Set((data || []).map((d) => new Date(d.t).getFullYear()))).sort((a,b)=>a-b);
               return [{ value: 'all', label: 'All years' }, ...years.map((y) => ({ value: y, label: String(y) }))];
@@ -278,7 +279,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
             size="small"
             value={selectedMonth}
             onChange={setSelectedMonth}
-            style={{ width: 130 }}
+            className="aqm-fluid"
             options={[
               { value: 'all', label: 'All months' },
               { value: 1, label: 'January' },
@@ -307,7 +308,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
                 setSelectedMonth('all');
               }
             }}
-            style={{ width: 140 }}
+            className="aqm-fluid"
             options={[
               { value: '12h', label: 'Last 12 hours' },
               { value: '1d', label: 'Last 1 day' },
@@ -320,7 +321,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
           <DatePicker.RangePicker
             allowClear
             size="small"
-            style={{ width: 220 }}
+            className="aqm-fluid"
             value={customRange}
             onChange={(vals) => {
               if (vals && vals[0] && vals[1]) {
@@ -336,7 +337,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
               }
             }}
           />
-        </div>
+        </FilterGroup>
       }
     >
       {error && (
@@ -396,7 +397,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
       )}
 
       {!error && filtered.length > 0 && (
-        <div ref={containerRef} style={{ width: '100%', height: 360, position: 'relative', minWidth: 0 }}>
+        <div ref={containerRef} className="aqm-chart-height-hourly" style={{ width: '100%', position: 'relative', minWidth: 0 }}>
           {lastPoint && (
             <div
               ref={tileRef}
