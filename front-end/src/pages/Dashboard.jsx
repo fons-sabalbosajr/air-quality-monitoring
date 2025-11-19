@@ -70,8 +70,8 @@ export default function DashboardPage() {
   const [addrState, setAddrState] = useState({ loading: false, display: null });
   // Data for tables below charts
   // Tables data via resilient API hook
-  const dailyData = useApiEndpoint('/api/viz-data', { retries: 3, timeoutMs: 45000, cacheTtlMs: 120000 });
-  const hourlyData = useApiEndpoint('/api/pm10-data', { retries: 3, timeoutMs: 45000, cacheTtlMs: 90000 });
+  const dailyData = useApiEndpoint('/api/viz-data', { retries: 3, timeoutMs: 60000, cacheTtlMs: 120000 });
+  const hourlyData = useApiEndpoint('/api/pm10-data', { retries: 3, timeoutMs: 60000, cacheTtlMs: 90000 });
   const dailyRows = useMemo(() => Array.isArray(dailyData.data) ? dailyData.data : [], [dailyData.data]);
   const hourlyRows = useMemo(() => Array.isArray(hourlyData.data) ? hourlyData.data : [], [hourlyData.data]);
   // Date range filters (null = no filter)

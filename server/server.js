@@ -33,8 +33,11 @@ const OWM_API_KEY =
 
 // Caching to avoid repeated remote downloads/parsing
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
+const DISK_CACHE_ENABLED = process.env.DISABLE_DISK_CACHE === '1' ? false : true;
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', '.cache');
-try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+if (DISK_CACHE_ENABLED) {
+  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+}
 const _wbCache = new Map(); // key -> { ts, buf }
 const _vizCache = new Map(); // key -> { ts, result }
 
@@ -68,7 +71,7 @@ async function fetchWithRetry(url, { retries = 2, timeoutMs = 15000, backoffBase
 }
 
 // Buffer (binary) fetch with retry and timeout
-async function fetchBufferWithRetry(url, { retries = 2, timeoutMs = 30000, backoffBase = 800, backoffFactor = 1.9, headers, method, body } = {}) {
+async function fetchBufferWithRetry(url, { retries = 2, timeoutMs = 60000, backoffBase = 800, backoffFactor = 1.9, headers, method, body } = {}) {
   let attempt = 0;
   let lastErr;
   while (attempt <= retries) {
@@ -285,21 +288,23 @@ async function loadWorkbook(p) {
       return XLSX.read(cached.buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
     }
     // Try fresh-enough disk cache
-    try {
-      const st = fs.statSync(diskPath);
-      if (st && (Date.now() - st.mtimeMs) < CACHE_TTL_MS) {
-        const buf = fs.readFileSync(diskPath);
-        _wbCache.set(p, { ts: Date.now(), buf });
-        return XLSX.read(buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
-      }
-    } catch {}
+    if (DISK_CACHE_ENABLED) {
+      try {
+        const st = fs.statSync(diskPath);
+        if (st && (Date.now() - st.mtimeMs) < CACHE_TTL_MS) {
+          const buf = fs.readFileSync(diskPath);
+          _wbCache.set(p, { ts: Date.now(), buf });
+          return XLSX.read(buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
+        }
+      } catch {}
+    }
 
     // 1) Attempt anonymous fetch (works if link is "anyone with the link" and points to direct download)
     try {
       // Attempt anonymous direct bytes with retry
       const buf = await fetchBufferWithRetry(p, { retries: 1, timeoutMs: 25000 });
         _wbCache.set(p, { ts: Date.now(), buf });
-        try { fs.writeFileSync(diskPath, buf); } catch {}
+        if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf); } catch {} }
         // If it's an Excel/zip/octet-stream it's likely the file. Try to parse regardless; if it fails, we'll fall back to Graph below.
         try {
           return XLSX.read(buf, {
@@ -336,7 +341,7 @@ async function loadWorkbook(p) {
           const buf2 = await fetchBufferWithRetry(dlUrl1, { retries: 1, timeoutMs: 25000 }).catch(async () => {
             return await fetchBufferWithRetry(dlUrl2, { retries: 1, timeoutMs: 25000 });
           });
-          try { fs.writeFileSync(diskPath, buf2); } catch {}
+          if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf2); } catch {} }
           return XLSX.read(buf2, {
             type: "buffer",
             cellDates: true,
@@ -359,7 +364,7 @@ async function loadWorkbook(p) {
         buf = await downloadFromSharePointViaGraph(url.href);
       }
       _wbCache.set(p, { ts: Date.now(), buf });
-      try { fs.writeFileSync(diskPath, buf); } catch {}
+      if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf); } catch {} }
       return XLSX.read(buf, {
         type: "buffer",
         cellDates: true,
@@ -1098,5 +1103,21 @@ app.listen(PORT, () => {
     setTimeout(() => {
       loadWorkbook(wbPath).catch(() => {});
     }, 10);
+    // Periodically refresh caches in background so requests serve hot data
+    let warming = false;
+    const intervalMs = Math.max(60000, Number(CACHE_TTL_MS) || 60000);
+    setInterval(async () => {
+      if (warming) return;
+      warming = true;
+      try {
+        await loadWorkbook(wbPath);
+        // Prime computed series caches
+        await Promise.allSettled([
+          readVizData(),
+          readSheetSeries('PM10'),
+        ]);
+      } catch {}
+      warming = false;
+    }, intervalMs);
   } catch {}
 });

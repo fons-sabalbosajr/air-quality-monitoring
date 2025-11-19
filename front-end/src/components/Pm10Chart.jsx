@@ -20,7 +20,7 @@ function usePm10Data(yKey) {
     params: yKey ? { yKey } : undefined,
     refreshMs: 300000,
     retries: 3,
-    timeoutMs: 45000,
+    timeoutMs: 60000,
     cacheKey: yKey ? `pm10:${yKey}` : 'pm10:default',
     cacheTtlMs: 90000,
   });
