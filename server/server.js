@@ -1096,7 +1096,12 @@ app.get("/api/reverse-geocode", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+  const external = process.env.RENDER_EXTERNAL_URL || process.env.VITE_API_BASE || '';
+  if (external) {
+    console.log(`Server ready on port ${PORT} (${external})`);
+  } else {
+    console.log(`Server ready on port ${PORT}`);
+  }
   // Pre-warm workbook cache asynchronously to reduce first-request latency
   try {
     const wbPath = resolveWorkbookPath();
