@@ -1,4 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
+import { useApiEndpoint } from "../util/apiClient";
+import { getApiBase } from "../util/apiBase";
 import { Card, Alert, Spin, Skeleton, Select, DatePicker, Button } from "antd";
 import { useRef } from "react";
 import {
@@ -16,55 +18,14 @@ import {
 } from "recharts";
 
 function useVizData(yKey) {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: [],
-    meta: null,
+  return useApiEndpoint('/api/viz-data', {
+    params: yKey ? { yKey } : undefined,
+    refreshMs: 300000,
+    retries: 3,
+    timeoutMs: 25000,
+    cacheKey: yKey ? `viz:${yKey}` : 'viz:default',
+    cacheTtlMs: 120000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data && s.data.length ? false : true,
-        refreshing: s.data && s.data.length ? true : false,
-        error: null,
-      }));
-      try {
-        const url = new URL("/api/viz-data", base);
-        if (yKey) url.searchParams.set("yKey", yKey);
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(`API ${res.status}`);
-        const json = await res.json();
-        if (!cancelled)
-          setState({
-            loading: false,
-            refreshing: false,
-            error: null,
-            data: json.series || [],
-            meta: json.meta || null,
-          });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 300_000); // refresh every 5 minutes
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [yKey]);
-  return state;
 }
 
 function formatDateMMDDYYYY(ts) {

@@ -32,6 +32,7 @@ import SettingsPage from "./pages/Settings";
 import embLogo from "./assets/emblogo.svg";
 import WeatherBadge from "./components/WeatherBadge";
 import { AqiProvider, useAqi } from "./context/AqiContext";
+import { getApiBase } from "./util/apiBase";
 
 function ThemedLayout({
   dark,
@@ -295,97 +296,16 @@ function ThemedLayout({
             });
           }
           setWeatherForecast(fc);
-          // Reverse geocoding with robust fallback
+          // Reverse geocoding via backend proxy to avoid client-side CORS issues
           let place = null;
           try {
-            const geoUrl = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(
-              latitude
-            )}&longitude=${encodeURIComponent(
-              longitude
-            )}&language=en&format=json`;
-            const gr = await fetch(geoUrl);
-            if (gr.ok) {
-              const gj = await gr.json();
-              const rec = gj?.results?.[0] || {};
-              const name =
-                rec.name ||
-                rec.city ||
-                rec.locality ||
-                rec.town ||
-                rec.village ||
-                null;
-              const region = rec.admin2 || rec.admin1 || rec.country || null;
-              const display = name
-                ? region && region !== name
-                  ? `${name}, ${region}`
-                  : name
-                : region || null;
-              place = { name, region, display };
+            const rgUrl = new URL(`/api/reverse-geocode?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`, getApiBase()).toString();
+            const rg = await fetch(rgUrl);
+            if (rg.ok) {
+              const j = await rg.json();
+              place = { name: j.name || null, region: j.region || null, display: j.display || null };
             }
           } catch {}
-          // Fallback to BigDataCloud if Open-Meteo fails or yields nothing
-          if (!place || !place.display) {
-            try {
-              const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(
-                latitude
-              )}&longitude=${encodeURIComponent(
-                longitude
-              )}&localityLanguage=en`;
-              const br = await fetch(bdcUrl);
-              if (br.ok) {
-                const bj = await br.json();
-                const name =
-                  bj.locality ||
-                  bj.city ||
-                  bj.principalSubdivision ||
-                  bj.localityInfo?.administrative?.[0]?.name ||
-                  null;
-                const region =
-                  bj.principalSubdivision ||
-                  bj.countryName ||
-                  bj.countryCode ||
-                  null;
-                const display = name
-                  ? region && region !== name
-                    ? `${name}, ${region}`
-                    : name
-                  : region || null;
-                place = { name, region, display };
-              }
-            } catch {}
-          }
-          // Third fallback to OpenStreetMap Nominatim
-          if (!place || !place.display) {
-            try {
-              const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
-                latitude
-              )}&lon=${encodeURIComponent(
-                longitude
-              )}&zoom=10&addressdetails=1&accept-language=en`;
-              const nr = await fetch(nomUrl, {
-                headers: { Referer: window.location.origin },
-              });
-              if (nr.ok) {
-                const nj = await nr.json();
-                const addr = nj.address || {};
-                const name =
-                  addr.city ||
-                  addr.town ||
-                  addr.village ||
-                  addr.suburb ||
-                  addr.county ||
-                  null;
-                const region =
-                  addr.state || addr.region || addr.country || null;
-                const display = name
-                  ? region && region !== name
-                    ? `${name}, ${region}`
-                    : name
-                  : region || nj.display_name || null;
-                place = { name, region, display };
-              }
-            } catch {}
-          }
 
           setWeatherData({
             location:

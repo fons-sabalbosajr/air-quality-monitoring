@@ -1,154 +1,39 @@
 import { useEffect, useState, useMemo } from "react";
+// getApiBase no longer needed here; API base handled by hook
 import { Skeleton, Alert, Spin, Table, Card, Tag, DatePicker, Button } from "antd";
 import dayjs from "dayjs";
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
 import { useAqi } from "../context/AqiContext";
+import { useApiEndpoint } from "../util/apiClient";
+import FallbackPanel from "../components/FallbackPanel";
 
 function useLatestAQI() {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/aqi/latest', {
+    refreshMs: 60000,
+    retries: 2,
+    timeoutMs: 12000,
+    cacheTtlMs: 15000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const res = await fetch(new URL("/api/aqi/latest", base));
-        if (!res.ok) throw new Error(`API ${res.status}`);
-        const json = await res.json();
-        if (!cancelled)
-          setState({
-            loading: false,
-            refreshing: false,
-            error: null,
-            data: json,
-          });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return state;
 }
 
 function useStationCurrent() {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/station/current', {
+    refreshMs: 60000,
+    retries: 2,
+    timeoutMs: 10000,
+    cacheTtlMs: 20000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const res = await fetch(new URL("/api/station/current", base));
-        if (!res.ok) throw new Error(await res.text());
-        const json = await res.json();
-        if (!cancelled)
-          setState({
-            loading: false,
-            refreshing: false,
-            error: null,
-            data: json,
-          });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return state;
 }
 
 function useStationForecast(days = 3) {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/station/forecast', {
+    params: { days },
+    refreshMs: 600000, // 10 minutes
+    retries: 2,
+    timeoutMs: 12000,
+    cacheTtlMs: 60000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const url = new URL("/api/station/forecast", base);
-        url.searchParams.set("days", String(days));
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(await res.text());
-        const json = await res.json();
-        if (!cancelled)
-          setState({
-            loading: false,
-            refreshing: false,
-            error: null,
-            data: json,
-          });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 60_000 * 10); // refresh every 10 minutes
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [days]);
-  return state;
 }
 
 function categoryTint(category) {
@@ -184,10 +69,11 @@ export default function DashboardPage() {
   const meta = useStationMeta();
   const [addrState, setAddrState] = useState({ loading: false, display: null });
   // Data for tables below charts
-  const [dailyRows, setDailyRows] = useState([]);
-  const [hourlyRows, setHourlyRows] = useState([]);
-  const [loadingDaily, setLoadingDaily] = useState(true);
-  const [loadingHourly, setLoadingHourly] = useState(true);
+  // Tables data via resilient API hook
+  const dailyData = useApiEndpoint('/api/viz-data', { retries: 3, timeoutMs: 25000, cacheTtlMs: 120000 });
+  const hourlyData = useApiEndpoint('/api/pm10-data', { retries: 3, timeoutMs: 20000, cacheTtlMs: 90000 });
+  const dailyRows = useMemo(() => Array.isArray(dailyData.data) ? dailyData.data : [], [dailyData.data]);
+  const hourlyRows = useMemo(() => Array.isArray(hourlyData.data) ? hourlyData.data : [], [hourlyData.data]);
   // Date range filters (null = no filter)
   const [dailyRange, setDailyRange] = useState(null); // [startDayjs, endDayjs]
   const [hourlyRange, setHourlyRange] = useState(null);
@@ -231,71 +117,36 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Resolve address for header: prefer .env address, fallback to reverse geocode
+  // Resolve address for header: prefer .env address, fallback to reverse geocode via backend
+  const lat = meta?.data?.latitude ?? station?.data?.latitude;
+  const lon = meta?.data?.longitude ?? station?.data?.longitude;
+  const rev = useApiEndpoint('/api/reverse-geocode', {
+    params: { lat, lon },
+    enabled: Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && !(meta?.data?.address && meta.data.address.trim().length > 0),
+    retries: 1,
+    timeoutMs: 9000,
+    cacheTtlMs: 300000,
+    refreshMs: 0,
+  });
   useEffect(() => {
-    let cancelled = false;
-    async function maybeGeocode() {
-      const hasAddr =
-        !!meta?.data?.address && meta.data.address.trim().length > 0;
-      const lat = meta?.data?.latitude ?? station?.data?.latitude;
-      const lon = meta?.data?.longitude ?? station?.data?.longitude;
-      if (hasAddr || !isFinite(Number(lat)) || !isFinite(Number(lon))) {
-        setAddrState({
-          loading: false,
-          display: hasAddr ? meta.data.address : null,
-        });
-        return;
-      }
-      try {
-        setAddrState({ loading: true, display: null });
-        const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-        const url = new URL("/api/reverse-geocode", base);
-        url.searchParams.set("lat", String(lat));
-        url.searchParams.set("lon", String(lon));
-        const r = await fetch(url.toString());
-        const j = r.ok ? await r.json() : null;
-        if (!cancelled)
-          setAddrState({ loading: false, display: j?.display || null });
-      } catch {
-        if (!cancelled) setAddrState({ loading: false, display: null });
-      }
-    }
-    maybeGeocode();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    meta?.data?.address,
-    meta?.data?.latitude,
-    meta?.data?.longitude,
-    station?.data?.latitude,
-    station?.data?.longitude,
-  ]);
+    const hasAddr = !!meta?.data?.address && meta.data.address.trim().length > 0;
+    const display = hasAddr ? meta.data.address : (rev?.data?.display || null);
+    setAddrState({ loading: !hasAddr && !!rev.loading, display });
+  }, [meta?.data?.address, rev.loading, rev?.data?.display]);
 
-  // Fetch table data once on mount
+  // (Removed manual fetch; using hooks above)
+
+  // Worst-case fallback: if core data does not load within 25s, show Power BI link with retry
+  const [showFallback, setShowFallback] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function runDaily() {
-      setLoadingDaily(true);
-      try {
-        const r = await fetch(new URL('/api/viz-data', base));
-        const j = await r.json();
-        if (!cancelled) setDailyRows(Array.isArray(j.series) ? j.series : []);
-      } catch { /* ignore */ } finally { if (!cancelled) setLoadingDaily(false); }
-    }
-    async function runHourly() {
-      setLoadingHourly(true);
-      try {
-        const r = await fetch(new URL('/api/pm10-data', base));
-        const j = await r.json();
-        if (!cancelled) setHourlyRows(Array.isArray(j.series) ? j.series : []);
-      } catch { /* ignore */ } finally { if (!cancelled) setLoadingHourly(false); }
-    }
-    runDaily();
-    runHourly();
-    return () => { cancelled = true; };
-  }, []);
+    const id = setTimeout(() => {
+      const noTables = dailyRows.length === 0 && hourlyRows.length === 0;
+      const aqiFailed = !!aqi.error;
+      const stationFailed = !!station.error && !!forecast.error;
+      if (noTables && (aqiFailed || stationFailed)) setShowFallback(true);
+    }, 25000);
+    return () => clearTimeout(id);
+  }, [dailyRows.length, hourlyRows.length, aqi.error, station.error, forecast.error]);
 
   // Apply sorting (recent first) + optional range filtering
   const dailyVisible = useMemo(() => {
@@ -325,6 +176,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
+      {showFallback && (
+        <FallbackPanel
+          powerBiUrl="https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA"
+          onRetry={() => window.location.reload()}
+        />
+      )}
       {/* Header: Station Name (left) • Address (right) */}
       <div className="flex items-center justify-between gap-4">
         <div
@@ -559,7 +416,7 @@ export default function DashboardPage() {
               },
             ]}
             dataSource={dailyVisible.map((r,i)=>({ ...r, key: i }))}
-            loading={loadingDaily}
+            loading={dailyData.loading || dailyData.refreshing}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
             scroll={{ y: 260 }}
             style={{ background: 'transparent', fontSize: 11 }}
@@ -607,7 +464,7 @@ export default function DashboardPage() {
               },
             ]}
             dataSource={hourlyVisible.map((r,i)=>({ ...r, key: i }))}
-            loading={loadingHourly}
+            loading={hourlyData.loading || hourlyData.refreshing}
             pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
             scroll={{ y: 260 }}
             style={{ background: 'transparent', fontSize: 11 }}
@@ -889,94 +746,20 @@ function pressureContainerStyle(v) {
 }
 
 function useAqiLastDays(days = 3) {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/aqi/last-days', {
+    params: { days },
+    refreshMs: 600000, // 10 minutes
+    retries: 2,
+    timeoutMs: 12000,
+    cacheTtlMs: 60000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const url = new URL("/api/aqi/last-days", base);
-        url.searchParams.set("days", String(days));
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(await res.text());
-        const json = await res.json();
-        if (!cancelled)
-          setState({
-            loading: false,
-            refreshing: false,
-            error: null,
-            data: json,
-          });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 60_000 * 10); // refresh every 10 minutes
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [days]);
-  return state;
 }
 
 function useStationMeta() {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/station/meta', {
+    refreshMs: 600000, // 10 minutes
+    retries: 2,
+    timeoutMs: 10000,
+    cacheTtlMs: 600000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const r = await fetch(new URL("/api/station/meta", base));
-        if (!r.ok) throw new Error(await r.text());
-        const j = await r.json();
-        if (!cancelled)
-          setState({ loading: false, refreshing: false, error: null, data: j });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 60_000 * 10);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return state;
 }

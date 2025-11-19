@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getApiBase } from "../util/apiBase";
+import { useApiEndpoint } from "../util/apiClient";
 import { Card, Skeleton, Alert, Descriptions, Tag, Select } from "antd";
 import {
   MapContainer,
@@ -31,89 +33,21 @@ function useDarkTheme() {
   return dark;
 }
 function useStationMeta() {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/station/meta', {
+    refreshMs: 600000,
+    retries: 2,
+    timeoutMs: 10000,
+    cacheTtlMs: 600000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const r = await fetch(new URL("/api/station/meta", base));
-        if (!r.ok) throw new Error(await r.text());
-        const j = await r.json();
-        if (!cancelled)
-          setState({ loading: false, refreshing: false, error: null, data: j });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 600_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return state;
 }
 
 function useStationCurrent() {
-  const [state, setState] = useState({
-    loading: true,
-    refreshing: false,
-    error: null,
-    data: null,
+  return useApiEndpoint('/api/station/current', {
+    refreshMs: 300000,
+    retries: 2,
+    timeoutMs: 10000,
+    cacheTtlMs: 20000,
   });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({
-        ...s,
-        loading: s.data ? false : true,
-        refreshing: !!s.data,
-        error: null,
-      }));
-      try {
-        const r = await fetch(new URL("/api/station/current", base));
-        if (!r.ok) throw new Error(await r.text());
-        const j = await r.json();
-        if (!cancelled)
-          setState({ loading: false, refreshing: false, error: null, data: j });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({
-            ...s,
-            loading: false,
-            refreshing: false,
-            error: e.message || "Failed to load",
-          }));
-      }
-    }
-    run();
-    const id = setInterval(run, 300_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return state;
 }
 
 function useStationWeather(lat, lon) {
@@ -202,7 +136,7 @@ export default function MapPage() {
 
   const pin = useMemo(() => makePinIcon(), []);
   // We proxy OWM tiles through the server now; front-end no longer needs the API key.
-  const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+  const apiBase = getApiBase();
   const owmKey = true; // proxy hides actual key; keep truthy to show overlays
 
   // Draggable overlay card state for Leaflet map
@@ -218,6 +152,7 @@ export default function MapPage() {
     const startY = e.clientY;
   const startLeft = overlayPos.left;
   const startTop = overlayPos.top;
+    const cw = c.clientWidth || 0;
     const ch = c.clientHeight || 0;
     const tw = t.clientWidth || 0;
     const th = t.clientHeight || 0;

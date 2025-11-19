@@ -24,8 +24,46 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 const DEFAULT_RELATIVE = path.join(__dirname, "data", "aqi.xlsm");
+// OpenWeatherMap API key (multiple possible env variable names including Vite prefix)
 const OWM_API_KEY =
-  process.env.OWM_API_KEY || process.env.OPENWEATHERMAP_API_KEY || null;
+  process.env.OWM_API_KEY ||
+  process.env.OPENWEATHERMAP_API_KEY ||
+  process.env.VITE_OWM_API_KEY ||
+  null;
+
+// Caching to avoid repeated remote downloads/parsing
+const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
+const _wbCache = new Map(); // key -> { ts, buf }
+const _vizCache = new Map(); // key -> { ts, result }
+
+// Generic resilient upstream fetch with timeout + limited retries
+async function fetchWithRetry(url, { retries = 2, timeoutMs = 8000, backoffBase = 500, backoffFactor = 1.8 } = {}) {
+  let attempt = 0;
+  let lastErr;
+  while (attempt <= retries) {
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ac.signal });
+      clearTimeout(tid);
+      if (!res.ok) {
+        // retry on 5xx / network only
+        if (res.status >= 500 && attempt < retries) throw new Error(`HTTP ${res.status}`);
+        return { ok: res.ok, status: res.status, data: await res.json().catch(() => null) };
+      }
+      const data = await res.json();
+      return { ok: true, status: res.status, data };
+    } catch (e) {
+      clearTimeout(tid);
+      lastErr = e;
+      if (attempt >= retries) break;
+      const backoff = backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 150;
+      await new Promise(r => setTimeout(r, backoff));
+    }
+    attempt += 1;
+  }
+  return { ok: false, status: 0, error: lastErr?.message || 'upstream failed' };
+}
 
 function resolveWorkbookPath() {
   const p = process.env.EXCEL_FILE_PATH || DEFAULT_RELATIVE;
@@ -208,15 +246,25 @@ async function loadWorkbook(p) {
       process.env.GRAPH_CLIENT_SECRET
     );
 
+    // Cache by URL
+    const cached = _wbCache.get(p);
+    if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+      return XLSX.read(cached.buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
+    }
+
     // 1) Attempt anonymous fetch (works if link is "anyone with the link" and points to direct download)
-    let anonTried = false;
     try {
-      anonTried = true;
-      const resp = await fetch(p);
+      const resp = await fetchWithRetry(p, { retries: 1, timeoutMs: 12000 });
       if (resp.ok) {
-        const ct = resp.headers.get("content-type") || "";
-        const ab = await resp.arrayBuffer();
+        const ct = (resp.data && resp.data.type) || "";
+        const ab = await (async () => {
+          // If fetchWithRetry returned parsed JSON, this path won't run; use a direct fetch for bytes
+          const raw = await fetch(p);
+          if (!raw.ok) throw new Error('Anonymous download failed');
+          return await raw.arrayBuffer();
+        })();
         const buf = Buffer.from(ab);
+        _wbCache.set(p, { ts: Date.now(), buf });
         // If it's an Excel/zip/octet-stream it's likely the file. Try to parse regardless; if it fails, we'll fall back to Graph below.
         try {
           return XLSX.read(buf, {
@@ -283,7 +331,14 @@ async function loadWorkbook(p) {
 
     // 3) Fallback to Graph for SharePoint hosts when credentials are present
     if (isSP && hasGraph) {
-      const buf = await downloadFromSharePointViaGraph(url.href);
+      // If this is a share link (/:x:/g/...), use Graph shares API; else use site/drive path
+      let buf;
+      if (/\/:[a-z]:\/g\//i.test(url.pathname)) {
+        buf = await downloadFromShareLinkViaGraph(url.href);
+      } else {
+        buf = await downloadFromSharePointViaGraph(url.href);
+      }
+      _wbCache.set(p, { ts: Date.now(), buf });
       return XLSX.read(buf, {
         type: "buffer",
         cellDates: true,
@@ -384,8 +439,33 @@ async function downloadFromSharePointViaGraph(spUrl) {
   return Buffer.from(ab);
 }
 
+// Download using Graph from a SharePoint/OneDrive share link (/:x:/g/...)
+function encodeShareUrlForGraph(url) {
+  // base64url of the full URL, prefixed by 'u!'
+  const b64 = Buffer.from(url, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return 'u!' + b64;
+}
+async function downloadFromShareLinkViaGraph(shareUrl) {
+  const token = await graphClientCredentialsToken();
+  const encoded = encodeShareUrlForGraph(shareUrl);
+  const contentResp = await fetch(`https://graph.microsoft.com/v1.0/shares/${encoded}/driveItem/content`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!contentResp.ok) {
+    const t = await contentResp.text().catch(() => "");
+    throw new Error(`Failed to download share content via Graph (${contentResp.status}): ${t}`);
+  }
+  const ab = await contentResp.arrayBuffer();
+  return Buffer.from(ab);
+}
+
 async function readVizData(yKeyOverride) {
   const wbPath = resolveWorkbookPath();
+  const cacheKey = `${wbPath}|viz|${yKeyOverride || ''}`;
+  const cached = _vizCache.get(cacheKey);
+  if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+    return cached.result;
+  }
   const wb = await loadWorkbook(wbPath);
   const sheetName =
     wb.SheetNames.find((n) => n.toLowerCase() === "viz_data") ||
@@ -671,36 +751,57 @@ app.get("/api/station/current", async (req, res) => {
     const lat = process.env.STATION_LAT;
     const lon = process.env.STATION_LON;
     if (!lat || !lon) {
-      return res
-        .status(400)
-        .json({ error: "STATION_LAT and STATION_LON must be set in .env" });
+      return res.status(400).json({ error: "STATION_LAT and STATION_LON must be set in .env" });
     }
-    const url = new URL("https://api.open-meteo.com/v1/forecast");
-    url.searchParams.set("latitude", lat);
-    url.searchParams.set("longitude", lon);
-    url.searchParams.set(
-      "current",
-      "temperature_2m,relative_humidity_2m,pressure_msl"
-    );
-    url.searchParams.set("timezone", "auto");
-    const r = await fetch(url.toString());
-    if (!r.ok)
-      return res.status(502).json({ error: `Weather upstream ${r.status}` });
-    const j = await r.json();
-    const cur = j?.current ?? {};
+    // Primary: Open-Meteo
+    const om = new URL("https://api.open-meteo.com/v1/forecast");
+    om.searchParams.set("latitude", lat);
+    om.searchParams.set("longitude", lon);
+    om.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl");
+    om.searchParams.set("timezone", "auto");
+    const omResp = await fetchWithRetry(om.toString(), { retries: 2, timeoutMs: 7000 });
+
+    let temperature = null, humidity = null, pressure = null, time = null, units = null;
+    if (omResp.ok && omResp.data?.current) {
+      temperature = omResp.data.current.temperature_2m ?? null;
+      humidity = omResp.data.current.relative_humidity_2m ?? null;
+      pressure = omResp.data.current.pressure_msl ?? null;
+      time = omResp.data.current.time ?? null;
+      units = omResp.data.current_units ?? null;
+    }
+
+    // Fallback: OpenWeatherMap (needs API key) if any of primary metrics missing
+    if ((!temperature || !humidity || !pressure) && OWM_API_KEY) {
+      const owmUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&units=metric&appid=${encodeURIComponent(OWM_API_KEY)}`;
+      const owResp = await fetchWithRetry(owmUrl, { retries: 2, timeoutMs: 7000 });
+      if (owResp.ok && owResp.data) {
+        const main = owResp.data.main || {};
+        temperature = temperature ?? (main.temp != null ? Math.round(main.temp * 10) / 10 : null);
+        humidity = humidity ?? main.humidity ?? null;
+        pressure = pressure ?? main.pressure ?? null;
+        time = time ?? (owResp.data.dt ? new Date(owResp.data.dt * 1000).toISOString() : null);
+        units = units || { temperature_2m: "°C", relative_humidity_2m: "%", pressure_msl: "hPa" };
+      }
+    }
+
+    if (temperature == null && humidity == null && pressure == null) {
+      return res.status(502).json({ error: omResp.error || `All upstream sources failed` });
+    }
     res.json({
       latitude: Number(lat),
       longitude: Number(lon),
-      temperature_2m: cur.temperature_2m ?? null,
-      relative_humidity_2m: cur.relative_humidity_2m ?? null,
-      pressure_msl: cur.pressure_msl ?? null,
-      time: cur.time ?? null,
-      units: j?.current_units ?? null,
+      temperature_2m: temperature,
+      relative_humidity_2m: humidity,
+      pressure_msl: pressure,
+      time,
+      units,
+      upstream: {
+        openMeteoStatus: omResp.status,
+        openWeatherUsed: !!OWM_API_KEY && (temperature == null || humidity == null || pressure == null ? true : false)
+      }
     });
   } catch (e) {
-    res
-      .status(500)
-      .json({ error: e.message || "Failed to fetch station weather" });
+    res.status(500).json({ error: e.message || "Failed to fetch station weather" });
   }
 });
 

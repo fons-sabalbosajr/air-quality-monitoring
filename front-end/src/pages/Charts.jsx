@@ -3,6 +3,7 @@ import Pm10Chart from "../components/Pm10Chart";
 import { Table, Card, Tag, DatePicker, Button } from "antd";
 import { useMemo, useState, useEffect } from "react";
 import dayjs from "dayjs";
+import { getApiBase } from "../util/apiBase";
 
 export default function ChartsPage() {
   // We'll render charts first; tables will reuse their data via window caches if exposed later
@@ -15,7 +16,7 @@ export default function ChartsPage() {
   const [loadingHourly, setLoadingHourly] = useState(true);
   const [dailyRange, setDailyRange] = useState(null);
   const [hourlyRange, setHourlyRange] = useState(null);
-  const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+  const base = getApiBase();
 
   useEffect(() => {
     let cancelled = false;

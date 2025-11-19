@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
+import { useApiEndpoint } from "../util/apiClient";
 import { Card, Alert, Spin, Select, Button, DatePicker } from "antd";
 import {
   ResponsiveContainer,
@@ -15,30 +16,14 @@ import {
 } from "recharts";
 
 function usePm10Data(yKey) {
-  const [state, setState] = useState({ loading: true, refreshing: false, error: null, data: [], meta: null });
-  useEffect(() => {
-    let cancelled = false;
-    const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-    async function run() {
-      setState((s) => ({ ...s, loading: (s.data && s.data.length) ? false : true, refreshing: (s.data && s.data.length) ? true : false, error: null }));
-      try {
-        const url = new URL("/api/pm10-data", base);
-        if (yKey) url.searchParams.set("yKey", yKey);
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(`API ${res.status}`);
-        const json = await res.json();
-        if (!cancelled)
-          setState({ loading: false, refreshing: false, error: null, data: json.series || [], meta: json.meta || null });
-      } catch (e) {
-        if (!cancelled)
-          setState((s) => ({ ...s, loading: false, refreshing: false, error: e.message || "Failed to load" }));
-      }
-    }
-    run();
-  const id = setInterval(run, 300_000); // refresh every 5 minutes
-    return () => { cancelled = true; clearInterval(id); };
-  }, [yKey]);
-  return state;
+  return useApiEndpoint('/api/pm10-data', {
+    params: yKey ? { yKey } : undefined,
+    refreshMs: 300000,
+    retries: 3,
+    timeoutMs: 20000,
+    cacheKey: yKey ? `pm10:${yKey}` : 'pm10:default',
+    cacheTtlMs: 90000,
+  });
 }
 
 function formatDateTime(ts) {

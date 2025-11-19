@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { theme } from "antd";
+import { getApiBase } from "../util/apiBase";
 
 function codeToCondition(code) {
   // Open-Meteo weather codes mapping (simplified)
@@ -97,88 +98,15 @@ export default function WeatherBadge() {
 
         let cityName = null;
         if (doReverseGeo) {
-          // Try Open-Meteo reverse geocoding first
           try {
-            const geoUrl = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(
-              lat
-            )}&longitude=${encodeURIComponent(lon)}&language=en&format=json`;
-            const gr = await fetch(geoUrl);
-            if (gr.ok) {
-              const gj = await gr.json();
-              const rec = gj?.results?.[0] || {};
-              const name =
-                rec.name ||
-                rec.city ||
-                rec.locality ||
-                rec.town ||
-                rec.village ||
-                null;
-              const region = rec.admin2 || rec.admin1 || rec.country || null;
-              cityName = name
-                ? region && region !== name
-                  ? `${name}, ${region}`
-                  : name
-                : region || null;
+            const base = getApiBase();
+            const rgUrl = new URL(`/api/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, base).toString();
+            const rg = await fetch(rgUrl);
+            if (rg.ok) {
+              const j = await rg.json();
+              cityName = j.display || j.name || null;
             }
           } catch {}
-          // Fallback to BigDataCloud if needed
-          if (!cityName) {
-            try {
-              const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(
-                lat
-              )}&longitude=${encodeURIComponent(lon)}&localityLanguage=en`;
-              const br = await fetch(bdcUrl);
-              if (br.ok) {
-                const bj = await br.json();
-                const name =
-                  bj.locality ||
-                  bj.city ||
-                  bj.principalSubdivision ||
-                  bj.localityInfo?.administrative?.[0]?.name ||
-                  null;
-                const region =
-                  bj.principalSubdivision ||
-                  bj.countryName ||
-                  bj.countryCode ||
-                  null;
-                cityName = name
-                  ? region && region !== name
-                    ? `${name}, ${region}`
-                    : name
-                  : region || null;
-              }
-            } catch {}
-          }
-          // Third fallback: OpenStreetMap Nominatim
-          if (!cityName) {
-            try {
-              const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
-                lat
-              )}&lon=${encodeURIComponent(
-                lon
-              )}&zoom=10&addressdetails=1&accept-language=en`;
-              const nr = await fetch(nomUrl, {
-                headers: { Referer: window.location.origin },
-              });
-              if (nr.ok) {
-                const nj = await nr.json();
-                const addr = nj.address || {};
-                const name =
-                  addr.city ||
-                  addr.town ||
-                  addr.village ||
-                  addr.suburb ||
-                  addr.county ||
-                  null;
-                const region = addr.state || addr.region || addr.country || null;
-                cityName = name
-                  ? region && region !== name
-                    ? `${name}, ${region}`
-                    : name
-                  : region || nj.display_name || null;
-              }
-            } catch {}
-          }
         }
 
         // Prepare partial update; only set city when reverse geocoding is requested
