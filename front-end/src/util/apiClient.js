@@ -76,6 +76,9 @@ export async function fetchJson(endpointOrUrl, opts = {}) {
     } catch (e) {
       clearTimeout(tId);
       lastErr = e;
+      if (e && (e.name === 'AbortError' || /aborted/i.test(e.message))) {
+        lastErr = new Error('Request timed out');
+      }
       if (attempt >= retries) break;
       // Backoff with jitter
       const backoffMs = backoffBase * Math.pow(backoffFactor, attempt);
@@ -114,7 +117,8 @@ export function useApiEndpoint(endpoint, options = {}) {
     timeoutMs,
   } = options;
 
-  const [state, setState] = useState({ loading: true, refreshing: false, error: null, data: null, meta: null, updatedAt: null, attempt: 0 });
+  const [state, setState] = useState({ loading: true, refreshing: false, error: null, data: null, meta: null, updatedAt: null, attempt: 0, retrying: false });
+  const [nonce, setNonce] = useState(0); // increment to force refetch
   const mountedRef = useRef(true);
   const controllerRef = useRef(null);
 
@@ -129,19 +133,19 @@ export function useApiEndpoint(endpoint, options = {}) {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    async function load(first = false) {
+    async function load(first = false, force = false) {
       if (cancelled) return;
       controllerRef.current?.abort();
       const ac = new AbortController();
       controllerRef.current = ac;
-      setState(s => ({ ...s, loading: first && !s.data, refreshing: !first && !!s.data, error: first ? null : s.error }));
-      const result = await fetchJson(endpoint, { params, cacheKey, cacheTtlMs, retries, timeoutMs, signal: ac.signal });
+      setState(s => ({ ...s, loading: first && !s.data, refreshing: !first && !!s.data, error: first ? null : s.error, retrying: force }));
+      const result = await fetchJson(endpoint, { params, cacheKey, cacheTtlMs: force ? 0 : cacheTtlMs, retries, timeoutMs, signal: ac.signal });
       if (cancelled) return;
       if (result.data) {
         const transformed = transformRef.current ? transformRef.current(result.data) : result.data;
-        setState({ loading: false, refreshing: false, error: null, data: transformed?.data || transformed?.series || transformed, meta: transformed?.meta || null, updatedAt: Date.now(), attempt: result.attempt || 0 });
+        setState({ loading: false, refreshing: false, error: null, data: transformed?.data || transformed?.series || transformed, meta: transformed?.meta || null, updatedAt: Date.now(), attempt: result.attempt || 0, retrying: false });
       } else {
-        setState(s => ({ ...s, loading: false, refreshing: false, error: result.error || 'Failed', attempt: result.attempt || (s.attempt+1) }));
+        setState(s => ({ ...s, loading: false, refreshing: false, error: result.error || 'Failed', attempt: result.attempt || (s.attempt+1), retrying: false }));
       }
     }
     load(true);
@@ -150,7 +154,13 @@ export function useApiEndpoint(endpoint, options = {}) {
       return () => { cancelled = true; clearInterval(id); };
     }
     return () => { cancelled = true; };
-  }, [endpoint, paramsHash, cacheKey, cacheTtlMs, refreshMs, enabled, retries, timeoutMs]);
+  }, [endpoint, paramsHash, cacheKey, cacheTtlMs, refreshMs, enabled, retries, timeoutMs, nonce]);
 
-  return state;
+  function retry() {
+    // Force refetch bypassing cache and marking retrying
+    setNonce(n => n + 1);
+    setState(s => ({ ...s, retrying: true }));
+  }
+
+  return { ...state, retry };
 }

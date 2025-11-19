@@ -1,6 +1,6 @@
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
-import { Table, Card, Tag, DatePicker, Button } from "antd";
+import { Table, Card, Tag, DatePicker, Button, Alert } from "antd";
 import { useMemo, useState, useEffect } from "react";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
@@ -108,9 +108,18 @@ export default function ChartsPage() {
     URL.revokeObjectURL(url);
   }
 
+  const hasAnyError = (!loadingDaily && dailyRows.length === 0) || (!loadingHourly && hourlyRows.length === 0);
+  const powerBiUrl = "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA";
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Charts</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Charts</h2>
+        {hasAnyError && (
+          <Button type="default" size="small" href={powerBiUrl} target="_blank" rel="noopener noreferrer">
+            Open Legacy Power BI
+          </Button>
+        )}
+      </div>
       <VizChart defaultRange="7d" />
       <Pm10Chart defaultRange="1w" />
       <div className="grid lg:grid-cols-2 gap-4 mt-6">

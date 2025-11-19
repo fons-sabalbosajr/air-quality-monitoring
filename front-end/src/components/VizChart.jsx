@@ -76,7 +76,7 @@ export default function VizChart({
   defaultRange,
   autoRefresh = true,
 }) {
-  const { loading, refreshing, error, data } = useVizData(yKey, autoRefresh);
+  const { loading, refreshing, error, data, retry, retrying } = useVizData(yKey, autoRefresh);
   const displayYLabel = "24 HR AQI Value";
   const BASE_THRESHOLDS = [
     { name: "GOOD", min: 0.0, max: 50.99, color: "#52c41a" },
@@ -362,12 +362,15 @@ export default function VizChart({
         return null;
       })()}
       {error && (
-        <Alert
-          type="error"
-          message="Failed to load viz_data"
-          description={error}
-          showIcon
-        />
+        <div style={{ marginBottom: 12 }}>
+          <Alert
+            type="error"
+            message="Failed to load daily average data"
+            description={error}
+            showIcon
+            action={<Button size="small" onClick={retry} loading={retrying}>Retry</Button>}
+          />
+        </div>
       )}
       {!error && loading && (!data || data.length === 0) && (
         <div className="flex items-center gap-2">
@@ -378,9 +381,10 @@ export default function VizChart({
       {!loading && !error && data.length === 0 && (
         <Alert
           type="warning"
-          message="No data"
-          description="Could not find rows in the viz_data sheet."
+          message="No daily average data"
+          description="No rows found in viz_data sheet."
           showIcon
+          action={<Button size="small" onClick={retry} loading={retrying}>Retry</Button>}
         />
       )}
       {/* Threshold indicators at top */}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase } from "../util/apiBase";
 import { useApiEndpoint } from "../util/apiClient";
-import { Card, Skeleton, Alert, Descriptions, Tag, Select } from "antd";
+import { Card, Skeleton, Alert, Descriptions, Tag, Select, Button } from "antd";
 import {
   MapContainer,
   TileLayer,
@@ -219,9 +219,18 @@ export default function MapPage() {
   // Globe basemap selector (auto -> theme, or force a specific one)
   const [globeBase, setGlobeBase] = useState("satellite"); // default to satellite for Google Earth-like look
 
+  const powerBiUrl = "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA";
+  const hasAnyError = [meta.error, current.error, wx.error].some(Boolean);
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Station Map</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Station Map</h2>
+        {hasAnyError && (
+          <Button type="default" size="small" href={powerBiUrl} target="_blank" rel="noopener noreferrer">
+            Open Legacy Power BI
+          </Button>
+        )}
+      </div>
 
       <Card
         size="small"

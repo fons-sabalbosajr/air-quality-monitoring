@@ -148,6 +148,10 @@ export default function DashboardPage() {
     return () => clearTimeout(id);
   }, [dailyRows.length, hourlyRows.length, aqi.error, station.error, forecast.error]);
 
+  // Show Power BI fallback button if ANY key data source has an error (soft fallback)
+  const hasAnyError = [aqi.error, station.error, forecast.error, aqiDays.error, meta.error, dailyData.error, hourlyData.error].some(Boolean);
+  const powerBiUrl = "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA";
+
   // Apply sorting (recent first) + optional range filtering
   const dailyVisible = useMemo(() => {
     let rows = [...dailyRows];
@@ -181,6 +185,13 @@ export default function DashboardPage() {
           powerBiUrl="https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA"
           onRetry={() => window.location.reload()}
         />
+      )}
+      {!showFallback && hasAnyError && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button type="default" size="small" href={powerBiUrl} target="_blank" rel="noopener noreferrer">
+            Open Legacy Power BI Dashboard
+          </Button>
+        </div>
       )}
       {/* Header: Station Name (left) • Address (right) */}
       <div className="flex items-center justify-between gap-4">
@@ -220,6 +231,9 @@ export default function DashboardPage() {
           daysRefreshing={aqiDays.refreshing}
           daysError={aqiDays.error}
           daysItems={aqiDays.data?.items || []}
+          onRetry={aqi.retry}
+          retrying={aqi.retrying}
+          onDaysRetry={aqiDays.retry}
         />
 
         {/* Outdoor Temperature */}
@@ -243,6 +257,9 @@ export default function DashboardPage() {
                 description={station.error}
                 showIcon
               />
+              <div style={{ marginTop: 8 }}>
+                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
+              </div>
             </div>
           ) : (
             <div className="aqm-tile-body">
@@ -288,6 +305,9 @@ export default function DashboardPage() {
                 description={station.error}
                 showIcon
               />
+              <div style={{ marginTop: 8 }}>
+                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
+              </div>
             </div>
           ) : (
             <div className="aqm-tile-body">
@@ -335,6 +355,9 @@ export default function DashboardPage() {
                 description={station.error}
                 showIcon
               />
+              <div style={{ marginTop: 8 }}>
+                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
+              </div>
             </div>
           ) : (
             <div className="aqm-tile-body">
@@ -487,6 +510,9 @@ function AQITile({
   daysRefreshing,
   daysError,
   daysItems,
+  onRetry,
+  retrying,
+  onDaysRetry,
 }) {
   const tint = categoryTint(category);
   const catUpper = String(category || "").toUpperCase();
@@ -564,6 +590,11 @@ function AQITile({
             description={error}
             showIcon
           />
+          {onRetry && (
+            <div style={{ marginTop: 8 }}>
+              <Button size="small" onClick={onRetry} loading={retrying}>Retry</Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="aqm-tile-body">
@@ -612,7 +643,12 @@ function AQITile({
           {daysLoading ? (
             <div className="aqm-subline">Loading previous days…</div>
           ) : daysError ? (
-            <div className="aqm-subline">{daysError}</div>
+            <div className="aqm-subline" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>{daysError}</span>
+              {onDaysRetry && (
+                <Button size="small" type="link" onClick={onDaysRetry}>Retry</Button>
+              )}
+            </div>
           ) : (
             <AqiMini items={daysItems} />
           )}

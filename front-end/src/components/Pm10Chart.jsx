@@ -44,7 +44,7 @@ function formatDateTime(ts) {
 }
 
 export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", yKey, defaultRange }) {
-  const { loading, refreshing, error, data, meta } = usePm10Data(yKey);
+  const { loading, refreshing, error, data, meta, retry, retrying } = usePm10Data(yKey);
   const [range, setRange] = useState(defaultRange || '1w'); // default to Last 1 week to avoid bulk loading
   const [customRange, setCustomRange] = useState(null); // dayjs[] | null overrides other filters
   const [selectedYear, setSelectedYear] = useState('all');
@@ -339,7 +339,17 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
         </div>
       }
     >
-      {error && <Alert type="error" message="Failed to load PM10" description={error} showIcon />}
+      {error && (
+        <div style={{ marginBottom: 12 }}>
+          <Alert
+            type="error"
+            message="Failed to load hourly station data"
+            description={error}
+            showIcon
+            action={<Button size="small" onClick={retry} loading={retrying}>Retry</Button>}
+          />
+        </div>
+      )}
       {!error && loading && (
         <div className="flex items-center gap-2"><Spin size="small" /><span>Loading chart…</span></div>
       )}
