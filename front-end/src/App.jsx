@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import {
   Layout,
   Menu,
@@ -25,10 +25,11 @@ import {
   MailOutlined,
 } from "@ant-design/icons";
 import "./App.css";
-import DashboardPage from "./pages/Dashboard";
-import ChartsPage from "./pages/Charts";
-import MapPage from "./pages/Map";
-import SettingsPage from "./pages/Settings";
+// Route-level code splitting via React.lazy
+const DashboardPage = lazy(() => import("./pages/Dashboard"));
+const ChartsPage = lazy(() => import("./pages/Charts"));
+const MapPage = lazy(() => import("./pages/Map"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
 import embLogo from "./assets/emblogo.svg";
 import WeatherBadge from "./components/WeatherBadge";
 import { AqiProvider, useAqi } from "./context/AqiContext";
@@ -1217,14 +1218,22 @@ function ThemedLayout({
               color: colorText,
             }}
           >
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/station/clark" element={<DashboardPage />} />
-              {/* Charts route can remain accessible directly if needed */}
-              <Route path="/charts" element={<ChartsPage />} />
-              <Route path="/map" element={<MapPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
+            <Suspense
+              fallback={
+                <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+                  <Spin size="large" />
+                </div>
+              }
+            >
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/station/clark" element={<DashboardPage />} />
+                {/* Charts route can remain accessible directly if needed */}
+                <Route path="/charts" element={<ChartsPage />} />
+                <Route path="/map" element={<MapPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </Suspense>
           </div>
         </Content>
         <Footer

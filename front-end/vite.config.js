@@ -8,6 +8,20 @@ export default defineConfig({
     // Include common local names & current LAN IP; add hostname if needed
     hosts: ['localhost', '127.0.0.1', '10.14.77.107']
   })],
+  build: {
+    chunkSizeWarningLimit: 1400,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          antd: ['antd', '@ant-design/icons'],
+          recharts: ['recharts'],
+          leaflet: ['leaflet', 'react-leaflet'],
+          globe: ['globe.gl', 'three'],
+        }
+      }
+    }
+  },
   server: {
     // Bind explicitly to all interfaces so other LAN devices can reach it
     host: '0.0.0.0',
