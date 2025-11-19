@@ -50,6 +50,7 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
   const [customRange, setCustomRange] = useState(null); // dayjs[] | null overrides other filters
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState('all'); // 1..12 or 'all'
+  const [isMobile, setIsMobile] = useState(false);
   const firstX = (data && data.length) ? data[0].t : undefined;
   const lastX = (data && data.length) ? data[data.length - 1].t : undefined;
 
@@ -120,6 +121,16 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
     setSelectedYear(d.getFullYear());
     setSelectedMonth(d.getMonth() + 1);
   }, [data]);
+
+  // Mobile detection for relocating filters
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 640);
+    }
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const base = (selectedYear !== 'all' || selectedMonth !== 'all')
     ? filterByMonthYear(data, selectedYear, selectedMonth)
@@ -255,48 +266,10 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
     window.addEventListener('mouseup', up);
   }
 
-  return (
-    <Card
-      title={<span style={{ color: 'var(--aqm-muted)' }}>{title}</span>}
-      size="small"
-      style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
-      styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
-      extra={
-        <FilterGroup label="Hourly Range" defaultOpen={true}>
-          {/* Year selector */}
-          <Select
-            size="small"
-            value={selectedYear}
-            onChange={setSelectedYear}
-            className="aqm-fluid"
-            options={(() => {
-              const years = Array.from(new Set((data || []).map((d) => new Date(d.t).getFullYear()))).sort((a,b)=>a-b);
-              return [{ value: 'all', label: 'All years' }, ...years.map((y) => ({ value: y, label: String(y) }))];
-            })()}
-          />
-          {/* Month selector */}
-          <Select
-            size="small"
-            value={selectedMonth}
-            onChange={setSelectedMonth}
-            className="aqm-fluid"
-            options={[
-              { value: 'all', label: 'All months' },
-              { value: 1, label: 'January' },
-              { value: 2, label: 'February' },
-              { value: 3, label: 'March' },
-              { value: 4, label: 'April' },
-              { value: 5, label: 'May' },
-              { value: 6, label: 'June' },
-              { value: 7, label: 'July' },
-              { value: 8, label: 'August' },
-              { value: 9, label: 'September' },
-              { value: 10, label: 'October' },
-              { value: 11, label: 'November' },
-              { value: 12, label: 'December' },
-            ]}
-          />
-          {/* Range selector: selecting a range clears Month/Year filters (except custom) */}
+  function renderFilters(inlineStyles) {
+    return (
+      <FilterGroup label="Filters" defaultOpen={!isMobile}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', minWidth: 240, ...inlineStyles }}>
           <Select
             size="small"
             value={range}
@@ -308,38 +281,103 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
                 setSelectedMonth('all');
               }
             }}
-            className="aqm-fluid"
+            style={{ minWidth: 110 }}
             options={[
-              { value: '12h', label: 'Last 12 hours' },
-              { value: '1d', label: 'Last 1 day' },
-              { value: '1w', label: 'Last 1 week' },
-              { value: '1m', label: 'Last 1 month' },
-              { value: 'all', label: 'All data' },
-              { value: 'custom', label: 'Custom range' },
+              { value: '12h', label: 'Last 12h' },
+              { value: '1d', label: 'Last 1d' },
+              { value: '1w', label: 'Last 1w' },
+              { value: '1m', label: 'Last 1m' },
+              { value: 'all', label: 'All' },
+              { value: 'custom', label: 'Custom' },
             ]}
           />
-          <DatePicker.RangePicker
-            allowClear
-            size="small"
-            className="aqm-fluid"
-            value={customRange}
-            onChange={(vals) => {
-              if (vals && vals[0] && vals[1]) {
-                setCustomRange(vals);
-                setRange('custom');
-                if (selectedYear !== 'all' || selectedMonth !== 'all') {
-                  setSelectedYear('all');
-                  setSelectedMonth('all');
+          {range !== 'custom' && (
+            <>
+              <Select
+                size="small"
+                value={selectedYear}
+                onChange={setSelectedYear}
+                style={{ minWidth: 100 }}
+                options={(() => {
+                  const years = Array.from(new Set((data || []).map((d) => new Date(d.t).getFullYear()))).sort((a,b)=>a-b);
+                  return [{ value: 'all', label: 'Years' }, ...years.map((y) => ({ value: y, label: String(y) }))];
+                })()}
+              />
+              <Select
+                size="small"
+                value={selectedMonth}
+                onChange={setSelectedMonth}
+                style={{ minWidth: 100 }}
+                options={[
+                  { value: 'all', label: 'Months' },
+                  { value: 1, label: 'Jan' },
+                  { value: 2, label: 'Feb' },
+                  { value: 3, label: 'Mar' },
+                  { value: 4, label: 'Apr' },
+                  { value: 5, label: 'May' },
+                  { value: 6, label: 'Jun' },
+                  { value: 7, label: 'Jul' },
+                  { value: 8, label: 'Aug' },
+                  { value: 9, label: 'Sep' },
+                  { value: 10, label: 'Oct' },
+                  { value: 11, label: 'Nov' },
+                  { value: 12, label: 'Dec' },
+                ]}
+              />
+            </>
+          )}
+          {range === 'custom' && (
+            <DatePicker.RangePicker
+              allowClear
+              size="small"
+              style={{ minWidth: 210 }}
+              value={customRange}
+              onChange={(vals) => {
+                if (vals && vals[0] && vals[1]) {
+                  setCustomRange(vals);
+                  setRange('custom');
+                  if (selectedYear !== 'all' || selectedMonth !== 'all') {
+                    setSelectedYear('all');
+                    setSelectedMonth('all');
+                  }
+                } else {
+                  setCustomRange(null);
+                  if (range === 'custom') setRange('1w');
                 }
-              } else {
-                setCustomRange(null);
-                if (range === 'custom') setRange('1w'); // default to last week on clear
-              }
+              }}
+            />
+          )}
+          <Button
+            size="small"
+            type="default"
+            onClick={() => {
+              setRange('1w');
+              setCustomRange(null);
+              setSelectedYear('all');
+              setSelectedMonth('all');
             }}
-          />
-        </FilterGroup>
-      }
+            style={{ minWidth: 70 }}
+          >
+            Clear
+          </Button>
+        </div>
+      </FilterGroup>
+    );
+  }
+
+  return (
+    <Card
+      title={<span style={{ color: 'var(--aqm-muted)' }}>{title}</span>}
+      size="small"
+      style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
+      styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
+      extra={!isMobile ? renderFilters() : undefined}
     >
+      {isMobile && (
+        <div style={{ marginBottom: 8 }}>
+          {renderFilters({})}
+        </div>
+      )}
       {error && (
         <div style={{ marginBottom: 12 }}>
           <Alert

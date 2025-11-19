@@ -101,6 +101,14 @@ export default function VizChart({
 
   const [range, setRange] = useState(defaultRange || "all"); // 'all' | '7d' | '30d' | 'custom'
   const [customRange, setCustomRange] = useState(null); // [dayjs, dayjs] | null
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function handleResize() { setIsMobile(window.innerWidth <= 640); }
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   function filterByRange(arr, r) {
     if (!Array.isArray(arr) || arr.length === 0) return arr || [];
@@ -163,6 +171,64 @@ export default function VizChart({
   const filtered = (range === 'custom' && customRange)
     ? filterByCustom(data, customRange)
     : filterByRange(data, range);
+  // Summary text & filter renderer
+  const summaryText = useMemo(() => {
+    const rangeLabel = (() => {
+      if (range === 'custom' && customRange && customRange[0] && customRange[1]) {
+        const s = customRange[0].format('MM/DD/YYYY');
+        const e = customRange[1].format('MM/DD/YYYY');
+        return `Custom: ${s} – ${e}`;
+      }
+      if (range === '7d') return 'Last 7 days';
+      if (range === '30d') return 'Last 30 days';
+      return 'All data';
+    })();
+    const pts = filtered || [];
+    if (!pts.length) return `Showing: ${rangeLabel}`;
+    const nums = pts.map(p => Number(p.y)).filter(Number.isFinite);
+    if (!nums.length) return `Showing: ${rangeLabel}`;
+    const sum = nums.reduce((a,b)=>a+b,0);
+    const avg = sum/nums.length;
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const last = nums[nums.length-1];
+    const c = classify(last);
+    return `Showing: ${rangeLabel} — ${nums.length} daily readings. Average ${avg.toFixed(1)} µg/Ncm (min ${min}, max ${max}). Latest daily average: ${last} µg/Ncm (${c.name}).`;
+  }, [range, customRange, filtered]);
+
+  function renderFilters(inlineStyles) {
+    return (
+      <FilterGroup label="Range" defaultOpen={!isMobile}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', minWidth: 220, ...inlineStyles }}>
+          <Select
+            size="small"
+            value={range}
+            onChange={(v) => { setRange(v); if (v !== 'custom') setCustomRange(null); }}
+            style={{ minWidth: 130 }}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: '7d', label: 'Last 7d' },
+              { value: '30d', label: 'Last 30d' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+          />
+          {range === 'custom' && (
+            <DatePicker.RangePicker
+              allowClear
+              size="small"
+              style={{ minWidth: 210 }}
+              value={customRange}
+              onChange={(vals) => {
+                if (vals && vals[0] && vals[1]) { setCustomRange(vals); setRange('custom'); }
+                else { setCustomRange(null); if (range === 'custom') setRange('all'); }
+              }}
+            />
+          )}
+          <Button size="small" type="default" onClick={() => { setRange('all'); setCustomRange(null); }} style={{ minWidth: 68 }}>Clear</Button>
+        </div>
+      </FilterGroup>
+    );
+  }
   // Dynamic Y-axis max based on highest reading in current filtered range (ignores static threshold cap)
   const filteredMax = useMemo(() => {
     const vals = filtered.map((p) => Number(p.y)).filter((v) => isFinite(v));
@@ -308,60 +374,6 @@ export default function VizChart({
 
   const ChartBody = (
     <>
-      {/* Custom single-value tooltip to avoid duplicate entries from base and segmented lines */}
-      {(() => {
-        // Define once per render; used by Tooltip below
-        function SingleValueTooltip({ active, label, payload }) {
-          if (!active || !payload || payload.length === 0) return null;
-          // Prefer the base 'y' item; fallback to any non-null segmented value
-          const itemY = payload.find(
-            (p) => p && p.dataKey === "y" && p.value != null
-          );
-          const itemSeg = payload.find(
-            (p) => p && /^y_b\d+$/.test(String(p.dataKey)) && p.value != null
-          );
-          const item =
-            itemY || itemSeg || payload.find((p) => p && p.value != null);
-          if (!item) return null;
-          const value = item.value;
-          const color = item.color || item.stroke || "var(--aqm-primary)";
-          const when =
-            variant === "card"
-              ? formatDateTime(label)
-              : formatDateMMDDYYYY(label);
-          return (
-            <div
-              style={{
-                background: "var(--aqm-panel-bg)",
-                border: "1px solid var(--aqm-panel-border)",
-                borderRadius: 8,
-                padding: 8,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--aqm-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                {when}
-              </div>
-              <div style={{ fontSize: 12 }}>
-                <span style={{ color: "var(--aqm-muted)", marginRight: 6 }}>
-                  {displayYLabel}:
-                </span>
-                <strong style={{ color }}>{value}</strong>
-                <span style={{ color: "var(--aqm-muted)", marginLeft: 4 }}>
-                  µg/Ncm
-                </span>
-              </div>
-            </div>
-          );
-        }
-        // Keep a reference to silence lints; actual render happens below
-        return null;
-      })()}
       {error && (
         <div style={{ marginBottom: 12 }}>
           <Alert
@@ -388,137 +400,17 @@ export default function VizChart({
           action={<Button size="small" onClick={retry} loading={retrying}>Retry</Button>}
         />
       )}
-      {/* Threshold indicators at top */}
+      {isMobile && !error && (
+        <div style={{ marginBottom: 8 }}>{renderFilters()}</div>
+      )}
       {!error && (
-        <div
-          className="mt-2"
-          style={{
-            display: "flex",
-            flexWrap: "nowrap",
-            gap: 6,
-            background: "var(--aqm-panel-bg)",
-            border: "1px solid var(--aqm-panel-border)",
-            borderRadius: 10,
-            padding: "6px 8px",
-            whiteSpace: "nowrap",
-            overflowX: "auto",
-            overflowY: "hidden",
-            marginBottom: 8,
-          }}
-        >
-          {THRESHOLDS.map((b) => (
-            <div
-              key={b.name}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "3px 6px",
-                borderRadius: 9999,
-                background: `linear-gradient(135deg, rgba(0,0,0,0) 0%, ${b.color}18 100%)`,
-                border: `1px solid ${b.color}44`,
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 9999,
-                  background: b.color,
-                  display: "inline-block",
-                }}
-              />
-              <span style={{ fontSize: 11, fontWeight: 600 }}>{b.name}</span>
-              <span style={{ fontSize: 10, color: "var(--aqm-muted)" }}>
-                ({b.min}–{b.max})
-              </span>
-            </div>
-          ))}
+        <div style={{ fontSize: 12, color: "var(--aqm-muted)", marginBottom: 8 }}>
+          {summaryText}
         </div>
       )}
-
-      {/* Header row: summary left, dropdown right */}
-      {!error && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 8,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ fontSize: 12, color: "var(--aqm-muted)" }}>
-            {(() => {
-              const rangeLabel = (() => {
-                if (range === 'custom' && customRange && customRange[0] && customRange[1]) {
-                  const s = customRange[0].format('MM/DD/YYYY');
-                  const e = customRange[1].format('MM/DD/YYYY');
-                  return `Custom: ${s} – ${e}`;
-                }
-                if (range === '7d') return 'Last 7 days';
-                if (range === '30d') return 'Last 30 days';
-                return 'All data';
-              })();
-              const pts = filtered || [];
-              if (!pts.length) return `Showing: ${rangeLabel}`;
-              const nums = pts.map((p) => Number(p.y)).filter(Number.isFinite);
-              if (!nums.length) return `Showing: ${rangeLabel}`;
-              const sum = nums.reduce((a, b) => a + b, 0);
-              const avg = sum / nums.length;
-              const min = Math.min(...nums);
-              const max = Math.max(...nums);
-              const last = nums[nums.length - 1];
-              const c = classify(last);
-              return `Showing: ${rangeLabel} — ${
-                nums.length
-              } daily readings. Average ${avg.toFixed(
-                1
-              )} µg/Ncm (min ${min}, max ${max}). Latest daily average: ${last} µg/Ncm (${
-                c.name
-              }).`;
-            })()}
-          </div>
-          <FilterGroup label="Daily Range" defaultOpen={true}>
-            <Select
-              size="small"
-              value={range}
-              onChange={(v) => {
-                setRange(v);
-                if (v !== 'custom') setCustomRange(null);
-              }}
-              className="aqm-fluid"
-              options={[
-                { value: "all", label: "All data" },
-                { value: "7d", label: "Last 7 days" },
-                { value: "30d", label: "Last 30 days" },
-                { value: "custom", label: "Custom range" },
-              ]}
-            />
-            <DatePicker.RangePicker
-              allowClear
-              size="small"
-              className="aqm-fluid"
-              value={customRange}
-              onChange={(vals) => {
-                if (vals && vals[0] && vals[1]) {
-                  setCustomRange(vals);
-                  setRange('custom');
-                } else {
-                  setCustomRange(null);
-                  if (range === 'custom') setRange('all');
-                }
-              }}
-            />
-          </FilterGroup>
-        </div>
-      )}
-
       {!loading && !error && filtered.length === 0 && (
         <Alert type="warning" message="No data in selected range" showIcon />
       )}
-
       {(!loading || (filtered && filtered.length > 0)) &&
         !error &&
         filtered.length > 0 && (
@@ -904,8 +796,6 @@ export default function VizChart({
             </ResponsiveContainer>
           </div>
         )}
-
-      {/* Move last point details into floating tile above */}
     </>
   );
 
@@ -914,7 +804,10 @@ export default function VizChart({
       <div className="aqm-tile">
         <div className="aqm-tile-header">{title}</div>
         {refreshing && <Spin size="small" className="aqm-tile-spinner" />}
-        <div className="aqm-tile-body">{ChartBody}</div>
+        <div className="aqm-tile-body">
+          {!error && renderFilters({ marginBottom: 8 })}
+          {ChartBody}
+        </div>
       </div>
     );
   }
@@ -934,6 +827,7 @@ export default function VizChart({
         },
         body: { background: "var(--aqm-panel-bg)" },
       }}
+      extra={!isMobile ? renderFilters() : undefined}
     >
       {ChartBody}
     </Card>
