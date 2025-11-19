@@ -22,7 +22,7 @@ function useVizData(yKey) {
     params: yKey ? { yKey } : undefined,
     refreshMs: 300000,
     retries: 3,
-    timeoutMs: 25000,
+    timeoutMs: 45000,
     cacheKey: yKey ? `viz:${yKey}` : 'viz:default',
     cacheTtlMs: 120000,
   });

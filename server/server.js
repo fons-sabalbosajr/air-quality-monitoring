@@ -33,18 +33,20 @@ const OWM_API_KEY =
 
 // Caching to avoid repeated remote downloads/parsing
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
+const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', '.cache');
+try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 const _wbCache = new Map(); // key -> { ts, buf }
 const _vizCache = new Map(); // key -> { ts, result }
 
 // Generic resilient upstream fetch with timeout + limited retries
-async function fetchWithRetry(url, { retries = 2, timeoutMs = 8000, backoffBase = 500, backoffFactor = 1.8 } = {}) {
+async function fetchWithRetry(url, { retries = 2, timeoutMs = 15000, backoffBase = 700, backoffFactor = 1.9, init } = {}) {
   let attempt = 0;
   let lastErr;
   while (attempt <= retries) {
     const ac = new AbortController();
     const tid = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { signal: ac.signal });
+      const res = await fetch(url, { signal: ac.signal, ...(init||{}) });
       clearTimeout(tid);
       if (!res.ok) {
         // retry on 5xx / network only
@@ -63,6 +65,35 @@ async function fetchWithRetry(url, { retries = 2, timeoutMs = 8000, backoffBase 
     attempt += 1;
   }
   return { ok: false, status: 0, error: lastErr?.message || 'upstream failed' };
+}
+
+// Buffer (binary) fetch with retry and timeout
+async function fetchBufferWithRetry(url, { retries = 2, timeoutMs = 30000, backoffBase = 800, backoffFactor = 1.9, headers, method, body } = {}) {
+  let attempt = 0;
+  let lastErr;
+  while (attempt <= retries) {
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ac.signal, headers, method, body });
+      clearTimeout(tid);
+      if (!res.ok) {
+        if (res.status >= 500 && attempt < retries) throw new Error(`HTTP ${res.status}`);
+        const txt = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${txt}`);
+      }
+      const ab = await res.arrayBuffer();
+      return Buffer.from(ab);
+    } catch (e) {
+      clearTimeout(tid);
+      lastErr = e;
+      if (attempt >= retries) break;
+      const backoff = backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 200;
+      await new Promise(r => setTimeout(r, backoff));
+    }
+    attempt += 1;
+  }
+  throw new Error(lastErr?.message || 'buffer fetch failed');
 }
 
 function resolveWorkbookPath() {
@@ -246,25 +277,29 @@ async function loadWorkbook(p) {
       process.env.GRAPH_CLIENT_SECRET
     );
 
-    // Cache by URL
+    // Cache by URL (memory + disk)
     const cached = _wbCache.get(p);
+    const diskKey = Buffer.from(p, 'utf8').toString('base64').replace(/\W/g, '_') + '.xlsm';
+    const diskPath = path.join(CACHE_DIR, diskKey);
     if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
       return XLSX.read(cached.buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
     }
+    // Try fresh-enough disk cache
+    try {
+      const st = fs.statSync(diskPath);
+      if (st && (Date.now() - st.mtimeMs) < CACHE_TTL_MS) {
+        const buf = fs.readFileSync(diskPath);
+        _wbCache.set(p, { ts: Date.now(), buf });
+        return XLSX.read(buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
+      }
+    } catch {}
 
     // 1) Attempt anonymous fetch (works if link is "anyone with the link" and points to direct download)
     try {
-      const resp = await fetchWithRetry(p, { retries: 1, timeoutMs: 12000 });
-      if (resp.ok) {
-        const ct = (resp.data && resp.data.type) || "";
-        const ab = await (async () => {
-          // If fetchWithRetry returned parsed JSON, this path won't run; use a direct fetch for bytes
-          const raw = await fetch(p);
-          if (!raw.ok) throw new Error('Anonymous download failed');
-          return await raw.arrayBuffer();
-        })();
-        const buf = Buffer.from(ab);
+      // Attempt anonymous direct bytes with retry
+      const buf = await fetchBufferWithRetry(p, { retries: 1, timeoutMs: 25000 });
         _wbCache.set(p, { ts: Date.now(), buf });
+        try { fs.writeFileSync(diskPath, buf); } catch {}
         // If it's an Excel/zip/octet-stream it's likely the file. Try to parse regardless; if it fails, we'll fall back to Graph below.
         try {
           return XLSX.read(buf, {
@@ -274,15 +309,8 @@ async function loadWorkbook(p) {
             cellText: false,
           });
         } catch (e) {
-          // If response looked like HTML (share page), let fallback handle it.
-          if (/html/i.test(ct)) {
-            // continue to fallback
-          } else {
-            // content-type suggests a binary but parse failed; rethrow to surface a clearer error below
-            throw e;
-          }
+          // continue to fallback
         }
-      }
     } catch (_) {
       // ignore and try fallback when applicable
     }
@@ -305,24 +333,16 @@ async function loadWorkbook(p) {
           url.hostname
         }/_layouts/15/download.aspx?share=${encodeURIComponent(shareId)}`;
         try {
-          let r2 = await fetch(dlUrl1);
-          if (!r2.ok) {
-            r2 = await fetch(dlUrl2);
-          }
-          if (r2.ok) {
-            const ab2 = await r2.arrayBuffer();
-            const buf2 = Buffer.from(ab2);
-            try {
-              return XLSX.read(buf2, {
-                type: "buffer",
-                cellDates: true,
-                cellNF: false,
-                cellText: false,
-              });
-            } catch (_) {
-              // continue
-            }
-          }
+          const buf2 = await fetchBufferWithRetry(dlUrl1, { retries: 1, timeoutMs: 25000 }).catch(async () => {
+            return await fetchBufferWithRetry(dlUrl2, { retries: 1, timeoutMs: 25000 });
+          });
+          try { fs.writeFileSync(diskPath, buf2); } catch {}
+          return XLSX.read(buf2, {
+            type: "buffer",
+            cellDates: true,
+            cellNF: false,
+            cellText: false,
+          });
         } catch (_) {
           // continue to next fallback
         }
@@ -339,6 +359,7 @@ async function loadWorkbook(p) {
         buf = await downloadFromSharePointViaGraph(url.href);
       }
       _wbCache.set(p, { ts: Date.now(), buf });
+      try { fs.writeFileSync(diskPath, buf); } catch {}
       return XLSX.read(buf, {
         type: "buffer",
         cellDates: true,
@@ -371,16 +392,11 @@ async function graphClientCredentialsToken() {
   body.set("client_id", clientId);
   body.set("client_secret", clientSecret);
   body.set("scope", "https://graph.microsoft.com/.default");
-  const resp = await fetch(authority, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => "");
-    throw new Error(`Failed to acquire Graph token (${resp.status}): ${txt}`);
+  const resp = await fetchWithRetry(authority, { timeoutMs: 12000, retries: 2, init: { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body } });
+  if (!resp.ok || !resp.data?.access_token) {
+    throw new Error(`Failed to acquire Graph token (${resp.status || 'n/a'})`);
   }
-  const json = await resp.json();
+  const json = resp.data;
   return json.access_token;
 }
 
@@ -406,37 +422,17 @@ async function downloadFromSharePointViaGraph(spUrl) {
   const envFilePath = process.env.SHAREPOINT_FILE_PATH || filePath;
 
   // Resolve site id
-  const siteResp = await fetch(
-    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(
-      envHost
-    )}:${encodeURI(envSitePath)}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  const siteResp = await fetchWithRetry(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(envHost)}:${encodeURI(envSitePath)}`, { retries: 2, timeoutMs: 15000, init: { headers: { Authorization: `Bearer ${token}` } } });
   if (!siteResp.ok) {
-    const t = await siteResp.text().catch(() => "");
-    throw new Error(
-      `Failed to resolve SharePoint site (${siteResp.status}): ${t}`
-    );
+    throw new Error(`Failed to resolve SharePoint site (${siteResp.status})`);
   }
-  const siteJson = await siteResp.json();
+  const siteJson = siteResp.data;
   const siteId = siteJson.id;
   if (!siteId) throw new Error("SharePoint site id not found");
 
   // Download file content
-  const contentResp = await fetch(
-    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(
-      siteId
-    )}/drive/root:${encodeURI(envFilePath)}:/content`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!contentResp.ok) {
-    const t = await contentResp.text().catch(() => "");
-    throw new Error(
-      `Failed to download file via Graph (${contentResp.status}): ${t}`
-    );
-  }
-  const ab = await contentResp.arrayBuffer();
-  return Buffer.from(ab);
+  const buf = await fetchBufferWithRetry(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(siteId)}/drive/root:${encodeURI(envFilePath)}:/content`, { retries: 2, timeoutMs: 30000, headers: { Authorization: `Bearer ${token}` } });
+  return buf;
 }
 
 // Download using Graph from a SharePoint/OneDrive share link (/:x:/g/...)
@@ -448,15 +444,8 @@ function encodeShareUrlForGraph(url) {
 async function downloadFromShareLinkViaGraph(shareUrl) {
   const token = await graphClientCredentialsToken();
   const encoded = encodeShareUrlForGraph(shareUrl);
-  const contentResp = await fetch(`https://graph.microsoft.com/v1.0/shares/${encoded}/driveItem/content`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!contentResp.ok) {
-    const t = await contentResp.text().catch(() => "");
-    throw new Error(`Failed to download share content via Graph (${contentResp.status}): ${t}`);
-  }
-  const ab = await contentResp.arrayBuffer();
-  return Buffer.from(ab);
+  const buf = await fetchBufferWithRetry(`https://graph.microsoft.com/v1.0/shares/${encoded}/driveItem/content`, { retries: 2, timeoutMs: 30000, headers: { Authorization: `Bearer ${token}` } });
+  return buf;
 }
 
 async function readVizData(yKeyOverride) {
@@ -1103,4 +1092,11 @@ app.get("/api/reverse-geocode", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
+  // Pre-warm workbook cache asynchronously to reduce first-request latency
+  try {
+    const wbPath = resolveWorkbookPath();
+    setTimeout(() => {
+      loadWorkbook(wbPath).catch(() => {});
+    }, 10);
+  } catch {}
 });
