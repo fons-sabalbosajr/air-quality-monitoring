@@ -14,6 +14,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Basic health & root info endpoints for deployment platforms (e.g., Render)
+app.get('/', (req, res) => {
+  res.status(200).json({ service: 'aqm-server', status: 'ok' });
+});
+app.get('/health', (req, res) => {
+  res.status(200).json({ health: 'ok', timestamp: Date.now() });
+});
+
 const PORT = process.env.PORT || 3001;
 const DEFAULT_RELATIVE = path.join(__dirname, "data", "aqi.xlsm");
 const OWM_API_KEY =

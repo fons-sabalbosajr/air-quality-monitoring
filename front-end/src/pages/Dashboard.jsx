@@ -3,6 +3,7 @@ import { Skeleton, Alert, Spin, Table, Card, Tag, DatePicker, Button } from "ant
 import dayjs from "dayjs";
 import VizChart from "../components/VizChart";
 import Pm10Chart from "../components/Pm10Chart";
+import { useAqi } from "../context/AqiContext";
 
 function useLatestAQI() {
   const [state, setState] = useState({
@@ -175,6 +176,7 @@ function hexToRgba(hex, alpha) {
 }
 
 export default function DashboardPage() {
+  const { setCategory } = useAqi() || { setCategory: () => {} };
   const aqi = useLatestAQI();
   const station = useStationCurrent();
   const forecast = useStationForecast(3);
@@ -189,6 +191,14 @@ export default function DashboardPage() {
   // Date range filters (null = no filter)
   const [dailyRange, setDailyRange] = useState(null); // [startDayjs, endDayjs]
   const [hourlyRange, setHourlyRange] = useState(null);
+
+  // Push latest AQI category to context for global UI (e.g., legend dot pulse)
+  useEffect(() => {
+    try {
+      const cat = aqi?.data?.category || null;
+      setCategory && setCategory(cat);
+    } catch {}
+  }, [aqi?.data?.category]);
 
   // Helpers
   function classify(y) {
@@ -622,15 +632,63 @@ function AQITile({
   daysItems,
 }) {
   const tint = categoryTint(category);
+  const catUpper = String(category || "").toUpperCase();
+  const shouldPulse = [
+    "FAIR",
+    "UNHEALTHY",
+    "VERY UNHEALTHY",
+    "ACUTELY UNHEALTHY",
+    "EMERGENCY",
+    "HAZARD",
+  ].some((k) => catUpper.includes(k));
+  // Severity mapping for ring size and speed
+  let ringSize = 6; // px
+  let pulseDuration = 2.6; // seconds
+  if (catUpper.includes("UNHEALTHY") && !catUpper.includes("VERY")) {
+    ringSize = 10; pulseDuration = 2.4;
+  }
+  if (catUpper.includes("VERY UNHEALTHY")) {
+    ringSize = 14; pulseDuration = 2.1;
+  }
+  if (catUpper.includes("ACUTELY")) {
+    ringSize = 16; pulseDuration = 1.9;
+  }
+  if (catUpper.includes("EMERGENCY") || catUpper.includes("HAZARD")) {
+    ringSize = 20; pulseDuration = 1.6;
+  }
   const containerStyle = {
     background: `linear-gradient(135deg, ${hexToRgba(
       tint,
       0.08
     )} 0%, var(--aqm-panel-bg) 60%)`,
     borderColor: hexToRgba(tint, 0.25),
+    ...(shouldPulse
+      ? {
+          // pass CSS vars for pulsing colors
+          "--aqi-glow-outer": hexToRgba(tint, 0.22),
+          "--aqi-glow-outer-strong": hexToRgba(tint, 0.38),
+          "--aqi-glow-ring": hexToRgba(tint, 0.18),
+          "--aqi-glow-ring-weak": hexToRgba(tint, 0.08),
+          "--aqi-ring-size": `${ringSize}px`,
+          "--aqi-halo-color": hexToRgba(tint, 0.10),
+          "--aqi-halo-size": `${ringSize + 8}px`,
+        }
+      : {
+          // static subtle glow when not pulsing (GOOD)
+          boxShadow: `0 8px 18px ${hexToRgba(
+            tint,
+            0.18
+          )}, 0 0 0 1px ${hexToRgba(tint, 0.14)}`,
+        }),
   };
   return (
-    <div className="aqm-tile aqi" style={containerStyle}>
+    <div
+      className={`aqm-tile aqi${shouldPulse ? " aqi-pulse aqi-anim-halo" : ""}`}
+      style={{
+        ...containerStyle,
+        ...(shouldPulse ? { animationDuration: `${pulseDuration}s`, "--aqi-anim-duration": `${pulseDuration}s` } : {}),
+      }}
+    >
       <div className="aqm-tile-header">Latest AQI Category (PM10)</div>
       {(refreshing || daysRefreshing) && (
         <Spin size="small" className="aqm-tile-spinner" />

@@ -95,17 +95,90 @@ export default function WeatherBadge() {
         const tmaxY = Math.round(tmaxArr[prevIdx] ?? NaN);
         const tminY = Math.round(tminArr[prevIdx] ?? NaN);
 
-  let cityName = null;
+        let cityName = null;
         if (doReverseGeo) {
-          // Use backend proxy to avoid CORS and unify providers
+          // Try Open-Meteo reverse geocoding first
           try {
-            const base = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-            const r = await fetch(`${base}/api/reverse-geocode?lat=${lat}&lon=${lon}`);
-            if (r.ok) {
-              const j = await r.json();
-              cityName = j.display || j.name || j.region || null;
+            const geoUrl = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(
+              lat
+            )}&longitude=${encodeURIComponent(lon)}&language=en&format=json`;
+            const gr = await fetch(geoUrl);
+            if (gr.ok) {
+              const gj = await gr.json();
+              const rec = gj?.results?.[0] || {};
+              const name =
+                rec.name ||
+                rec.city ||
+                rec.locality ||
+                rec.town ||
+                rec.village ||
+                null;
+              const region = rec.admin2 || rec.admin1 || rec.country || null;
+              cityName = name
+                ? region && region !== name
+                  ? `${name}, ${region}`
+                  : name
+                : region || null;
             }
           } catch {}
+          // Fallback to BigDataCloud if needed
+          if (!cityName) {
+            try {
+              const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(
+                lat
+              )}&longitude=${encodeURIComponent(lon)}&localityLanguage=en`;
+              const br = await fetch(bdcUrl);
+              if (br.ok) {
+                const bj = await br.json();
+                const name =
+                  bj.locality ||
+                  bj.city ||
+                  bj.principalSubdivision ||
+                  bj.localityInfo?.administrative?.[0]?.name ||
+                  null;
+                const region =
+                  bj.principalSubdivision ||
+                  bj.countryName ||
+                  bj.countryCode ||
+                  null;
+                cityName = name
+                  ? region && region !== name
+                    ? `${name}, ${region}`
+                    : name
+                  : region || null;
+              }
+            } catch {}
+          }
+          // Third fallback: OpenStreetMap Nominatim
+          if (!cityName) {
+            try {
+              const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
+                lat
+              )}&lon=${encodeURIComponent(
+                lon
+              )}&zoom=10&addressdetails=1&accept-language=en`;
+              const nr = await fetch(nomUrl, {
+                headers: { Referer: window.location.origin },
+              });
+              if (nr.ok) {
+                const nj = await nr.json();
+                const addr = nj.address || {};
+                const name =
+                  addr.city ||
+                  addr.town ||
+                  addr.village ||
+                  addr.suburb ||
+                  addr.county ||
+                  null;
+                const region = addr.state || addr.region || addr.country || null;
+                cityName = name
+                  ? region && region !== name
+                    ? `${name}, ${region}`
+                    : name
+                  : region || nj.display_name || null;
+              }
+            } catch {}
+          }
         }
 
         // Prepare partial update; only set city when reverse geocoding is requested
@@ -120,8 +193,8 @@ export default function WeatherBadge() {
           tminY,
           iconUrl: null,
         };
-        if (doReverseGeo && cityName) {
-          partial.city = cityName;
+        if (doReverseGeo) {
+          partial.city = cityName || null;
         }
         update(partial);
       } catch (e) {
@@ -324,6 +397,13 @@ export default function WeatherBadge() {
     );
   }
 
+  // Compute a best-effort location line
+  const locLine = city || (
+    Number.isFinite(lat) && Number.isFinite(lon)
+      ? `${lat.toFixed(4)}, ${lon.toFixed(4)}`
+      : null
+  );
+
   return (
     <div style={{ ...pillStyle }}>
       {/* Left: DateTime (single line) */}
@@ -342,8 +422,10 @@ export default function WeatherBadge() {
 
       {/* Right: Weather data group (without date/time) */}
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {text.line1 && (
-          <span style={{ fontWeight: 600, fontSize: 13 }}>{text.line1}</span>
+        {(text.line1 || locLine) && (
+          <span style={{ fontWeight: 600, fontSize: 13 }}>
+            {text.line1 || locLine}
+          </span>
         )}
         <span style={{ fontSize: 12, opacity: 0.95 }}>{text.line2}</span>
         {text.line3 && (
