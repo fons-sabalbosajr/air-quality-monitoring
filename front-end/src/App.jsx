@@ -23,6 +23,8 @@ import {
   GlobalOutlined,
   FacebookFilled,
   MailOutlined,
+  CaretDownOutlined,
+  CaretRightOutlined,
 } from "@ant-design/icons";
 import "./App.css";
 // Route-level code splitting via React.lazy
@@ -35,6 +37,51 @@ import WeatherBadge from "./components/WeatherBadge";
 import { AqiProvider, useAqi } from "./context/AqiContext";
 import { getApiBase } from "./util/apiBase";
 
+const AQI_CATEGORIES = [
+  {
+    name: "GOOD",
+    color: "#52c41a",
+    range: "0 – 50.99 µg/Ncm",
+    desc:
+      "Satisfactory air. Minimal to no risk for the public, great for outdoor plans.",
+  },
+  {
+    name: "FAIR",
+    color: "#d4b106",
+    range: "51 – 100.99 µg/Ncm",
+    desc:
+      "Sensitive groups should pace activities. The air has a slight haze but remains manageable.",
+  },
+  {
+    name: "UNHEALTHY",
+    color: "#fa8c16",
+    range: "101 – 150.99 µg/Ncm",
+    desc:
+      "Limit prolonged exertion outdoors. Asthma sufferers may feel the pinch first.",
+  },
+  {
+    name: "VERY UNHEALTHY",
+    color: "#f5222d",
+    range: "151 – 200.99 µg/Ncm",
+    desc:
+      "Air masks and indoor shelter recommended—air can trigger symptoms quickly.",
+  },
+  {
+    name: "ACUTELY UNHEALTHY",
+    color: "#722ed1",
+    range: "201 – 300.99 µg/Ncm",
+    desc:
+      "Emergency visibility: the air can feel heavy and irritate lungs within minutes.",
+  },
+  {
+    name: "EMERGENCY",
+    color: "#a8071a",
+    range: "301 – 400.99 µg/Ncm",
+    desc:
+      "Everyone should stay indoors. This is the kind of air you can see and almost taste.",
+  },
+];
+
 function ThemedLayout({
   dark,
   setDark,
@@ -46,6 +93,7 @@ function ThemedLayout({
 }) {
   const { category: currentAqiCategory } = useAqi() || {};
   const aqiCat = (currentAqiCategory || "").toUpperCase();
+  const [aqiExpanded, setAqiExpanded] = useState(true);
   const { Header, Sider, Content, Footer } = Layout;
   const {
     token: {
@@ -373,6 +421,18 @@ function ThemedLayout({
     }
   }
 
+  function renderCategoryTooltip(cat) {
+    return (
+      <div style={{ maxWidth: 220 }}>
+        <div style={{ fontWeight: 600, color: cat.color, marginBottom: 4 }}>
+          {cat.name}
+        </div>
+        <div style={{ fontSize: 12, marginBottom: 6 }}>{cat.desc}</div>
+        <div style={{ fontSize: 11, color: "var(--aqm-muted)" }}>{cat.range}</div>
+      </div>
+    );
+  }
+
   return (
     <Layout style={{ minHeight: "100vh", background: colorBgLayout }}>
       <Sider
@@ -384,9 +444,7 @@ function ThemedLayout({
         style={{ background: siderBgResolved, position: "relative" }}
         className={weatherCode != null ? "weather-animated" : undefined}
       >
-        <div
-          style={{ display: "flex", flexDirection: "column", height: "100%" }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <div
             className="flex items-center h-16 font-semibold"
             style={{
@@ -439,182 +497,125 @@ function ThemedLayout({
                   role="note"
                   aria-label="AQI Categories and guidance"
                 >
-                  <div className="aqm-sider-card-title">AQI Categories</div>
-                <div className="aqm-sider-card-items">
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat.includes("GOOD") ? " aqi-dot-pulse" : ""
-                      }`}
-                      style={{
-                        background: "#52c41a",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #52c41a99",
-                        ...(aqiCat.includes("GOOD")
-                          ? {
-                              "--dot-glow": "#52c41acc",
-                              "--dot-glow-strong": "#52c41aff",
-                              "--dot-pulse-duration": "3.2s",
-                            }
-                          : {}),
-                      }}
+                  <div
+                    className="aqm-sider-card-title"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>AQI Categories</span>
+                    <Button
+                      size="small"
+                      type="text"
+                      aria-label={
+                        aqiExpanded
+                          ? "Collapse AQI categories"
+                          : "Expand AQI categories"
+                      }
+                      aria-expanded={aqiExpanded}
+                      onClick={() => setAqiExpanded((v) => !v)}
+                      icon={aqiExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
                     />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">GOOD</div>
-                      <div className="aqm-sider-desc">
-                        Air quality is considered satisfactory, and air
-                        pollution poses little or no risk to public health.
-                      </div>
-                    </div>
                   </div>
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat.includes("FAIR") ? " aqi-dot-pulse" : ""
-                      }`}
+                  {aqiExpanded ? (
+                    <div className="aqm-sider-card-items">
+                      {AQI_CATEGORIES.map((cat) => {
+                        const active =
+                          cat.name === "UNHEALTHY"
+                            ? aqiCat === cat.name
+                            : aqiCat.includes(cat.name);
+                        return (
+                          <Tooltip
+                            key={cat.name}
+                            placement="right"
+                            title={renderCategoryTooltip(cat)}
+                          >
+                            <div className="aqm-sider-item" style={{ cursor: "pointer" }}>
+                              <span
+                                className={`aqm-sider-dot${active ? " aqi-dot-pulse" : ""}`}
+                                style={{
+                                  background: cat.color,
+                                  boxShadow: `0 0 0 2px var(--aqm-panel-bg), 0 0 10px ${cat.color}66`,
+                                  ...(active
+                                    ? {
+                                        "--dot-glow": `${cat.color}cc`,
+                                        "--dot-glow-strong": cat.color,
+                                        "--dot-pulse-duration": "2.8s",
+                                      }
+                                    : {}),
+                                }}
+                              />
+                              <div className="aqm-sider-text">
+                                <div className="aqm-sider-name">{cat.name}</div>
+                                <div className="aqm-sider-desc">{cat.desc}</div>
+                                <div style={{ fontSize: 11, color: "var(--aqm-muted)" }}>{cat.range}</div>
+                              </div>
+                            </div>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
                       style={{
-                        background: "#d4b106",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #d4b10699",
-                        ...(aqiCat.includes("FAIR")
-                          ? {
-                              "--dot-glow": "#d4b106cc",
-                              "--dot-glow-strong": "#d4b106ff",
-                              "--dot-pulse-duration": "3.0s",
-                            }
-                          : {}),
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        paddingTop: 8,
                       }}
-                    />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">FAIR</div>
-                      <div className="aqm-sider-desc">
-                        People with respiratory problems, older adults, and
-                        children may experience health effects, but the general
-                        public is unlikely to be affected.
-                      </div>
+                    >
+                      {AQI_CATEGORIES.map((cat) => {
+                        const active =
+                          cat.name === "UNHEALTHY"
+                            ? aqiCat === cat.name
+                            : aqiCat.includes(cat.name);
+                        return (
+                          <Tooltip
+                            key={cat.name}
+                            placement="right"
+                            title={renderCategoryTooltip(cat)}
+                          >
+                            <div
+                              style={{
+                                border: `1px solid ${cat.color}`,
+                                borderRadius: 999,
+                                padding: "4px 10px",
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: active
+                                  ? "var(--aqm-panel-bg)"
+                                  : cat.color,
+                                background: active ? cat.color : "transparent",
+                                transition: "all 0.2s ease",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {cat.name}
+                            </div>
+                          </Tooltip>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat === "UNHEALTHY" ? " aqi-dot-pulse" : ""
-                      }`}
-                      style={{
-                        background: "#fa8c16",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #fa8c1699",
-                        ...(aqiCat === "UNHEALTHY"
-                          ? {
-                              "--dot-glow": "#fa8c16cc",
-                              "--dot-glow-strong": "#fa8c16ff",
-                              "--dot-pulse-duration": "2.6s",
-                            }
-                          : {}),
-                      }}
-                    />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">UNHEALTHY</div>
-                      <div className="aqm-sider-desc">
-                        People with respiratory disease, such as asthma, should
-                        limit outdoor exertion.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat.includes("VERY") ? " aqi-dot-pulse" : ""
-                      }`}
-                      style={{
-                        background: "#f5222d",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #f5222d99",
-                        ...(aqiCat.includes("VERY")
-                          ? {
-                              "--dot-glow": "#f5222dcc",
-                              "--dot-glow-strong": "#f5222dff",
-                              "--dot-pulse-duration": "2.2s",
-                            }
-                          : {}),
-                      }}
-                    />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">VERY UNHEALTHY</div>
-                      <div className="aqm-sider-desc">
-                        Everyone may begin to experience adverse health effects,
-                        and members of sensitive groups may experience more
-                        serious effects.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat.includes("ACUTELY") ? " aqi-dot-pulse" : ""
-                      }`}
-                      style={{
-                        background: "#722ed1",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #722ed199",
-                        ...(aqiCat.includes("ACUTELY")
-                          ? {
-                              "--dot-glow": "#722ed1cc",
-                              "--dot-glow-strong": "#722ed1ff",
-                              "--dot-pulse-duration": "1.8s",
-                            }
-                          : {}),
-                      }}
-                    />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">ACUTELY UNHEALTHY</div>
-                      <div className="aqm-sider-desc">
-                        People should limit outdoor exertion. People with heart
-                        or respiratory disease such as asthma should stay
-                        indoors and rest as much as possible.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="aqm-sider-item">
-                    <span
-                      className={`aqm-sider-dot${
-                        aqiCat.includes("EMERGENCY") ||
-                        aqiCat.includes("HAZARD")
-                          ? " aqi-dot-pulse"
-                          : ""
-                      }`}
-                      style={{
-                        background: "#a8071a",
-                        boxShadow:
-                          "0 0 0 2px var(--aqm-panel-bg), 0 0 10px #a8071a99",
-                        ...(aqiCat.includes("EMERGENCY") ||
-                        aqiCat.includes("HAZARD")
-                          ? {
-                              "--dot-glow": "#a8071acc",
-                              "--dot-glow-strong": "#a8071aff",
-                              "--dot-pulse-duration": "1.4s",
-                            }
-                          : {}),
-                      }}
-                    />
-                    <div className="aqm-sider-text">
-                      <div className="aqm-sider-name">EMERGENCY</div>
-                      <div className="aqm-sider-desc">
-                        Health alert: everyone may experience serious effects.
-                        Avoid outdoor activity and stay indoors with clean,
-                        filtered air.
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
-                </div>
-                {/* Contact / More Information card */}
                 <div
                   className="aqm-sider-card"
                   role="note"
                   aria-label="Contact information and more resources"
                 >
                   <div className="aqm-sider-card-title">Contact / More Information</div>
-                  <div className="aqm-footer-links" style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
+                  <div
+                    className="aqm-footer-links"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                      fontSize: 12,
+                    }}
+                  >
                     <a
                       href="http://r3.emb.gov.ph/"
                       target="_blank"
@@ -646,56 +647,26 @@ function ThemedLayout({
             ) : (
               <>
                 <div className="aqm-sider-tiles" aria-label="AQI legend">
-                  {[
-                    {
-                      name: "GOOD",
-                      color: "#52c41a",
-                      desc: "Air quality is considered satisfactory, and air pollution poses little or no risk to public health.",
-                    },
-                    {
-                      name: "FAIR",
-                      color: "#d4b106",
-                      desc: "People with respiratory problems, older adults, and children may experience health effects, but the general public is unlikely to be affected.",
-                    },
-                    {
-                      name: "UNHEALTHY",
-                      color: "#fa8c16",
-                      desc: "People with respiratory disease, such as asthma, should limit outdoor exertion.",
-                    },
-                    {
-                      name: "VERY UNHEALTHY",
-                      color: "#f5222d",
-                      desc: "Everyone may begin to experience adverse health effects, and members of sensitive groups may experience more serious effects.",
-                    },
-                    {
-                      name: "ACUTELY UNHEALTHY",
-                      color: "#722ed1",
-                      desc: "People should limit outdoor exertion. People with heart or respiratory disease such as asthma should stay indoors and rest as much as possible.",
-                    },
-                    {
-                      name: "EMERGENCY",
-                      color: "#a8071a",
-                      desc: "Health alert: everyone may experience serious effects. Avoid outdoor activity and stay indoors with clean, filtered air.",
-                    },
-                  ].map((it) => (
+                  {AQI_CATEGORIES.map((cat) => (
                     <Tooltip
-                      key={it.name}
+                      key={cat.name}
                       placement="right"
                       title={
                         <div style={{ maxWidth: 260 }}>
-                          <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                            {it.name}
+                          <div style={{ fontWeight: 700, marginBottom: 4, color: cat.color }}>
+                            {cat.name}
                           </div>
-                          <div style={{ fontSize: 12, lineHeight: 1.3 }}>
-                            {it.desc}
+                          <div style={{ fontSize: 12, lineHeight: 1.3, marginBottom: 6 }}>
+                            {cat.desc}
                           </div>
+                          <div style={{ fontSize: 11, color: "var(--aqm-muted)" }}>{cat.range}</div>
                         </div>
                       }
                     >
                       <div
                         className="aqm-sider-mini"
-                        style={{ background: it.color }}
-                        aria-label={it.name}
+                        style={{ background: cat.color }}
+                        aria-label={cat.name}
                       />
                     </Tooltip>
                   ))}

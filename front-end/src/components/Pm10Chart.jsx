@@ -193,6 +193,15 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
     }
     return BASE_THRESHOLDS;
   }, [filteredMax]);
+  const yDomainMax = useMemo(() => {
+    const expanded = Math.ceil((filteredMax || 0) * 1.05);
+    if (!Number.isFinite(expanded) || expanded <= 0) return 10;
+    return Math.max(expanded, 10);
+  }, [filteredMax]);
+  const peakThreshold = useMemo(() => {
+    if (!isFinite(filteredMax) || filteredMax <= 0) return null;
+    return THRESHOLDS.find((band) => filteredMax >= band.min && filteredMax <= band.max) || null;
+  }, [filteredMax, THRESHOLDS]);
   const segmented = useMemo(() => filtered.map((p) => {
     const o = { ...p };
     THRESHOLDS.forEach((b, i) => {
@@ -477,15 +486,29 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
               </defs>
               
               {/* Threshold bands as background shading */}
-              {THRESHOLDS.map((b, idx) => (
-                <ReferenceArea key={b.name+idx} y1={b.min} y2={b.max} fill={b.color} fillOpacity={0.08} strokeOpacity={0} />
-              ))}
+              {THRESHOLDS.map((b, idx) => {
+                const y1 = Math.max(b.min, 0);
+                const y2 = Math.min(b.max, yDomainMax);
+                if (y1 >= y2) return null;
+                return (
+                  <ReferenceArea key={b.name+idx} y1={y1} y2={y2} fill={b.color} fillOpacity={0.08} strokeOpacity={0} />
+                );
+              })}
+              {peakThreshold && (
+                <ReferenceArea
+                  y1={peakThreshold.min}
+                  y2={Math.min(peakThreshold.max, yDomainMax)}
+                  fill={peakThreshold.color}
+                  fillOpacity={0.18}
+                  strokeOpacity={0}
+                />
+              )}
 
               <CartesianGrid strokeDasharray="3 3" stroke="var(--aqm-panel-border)" strokeOpacity={0.5} />
               <XAxis dataKey="t" tickFormatter={formatDateTime} minTickGap={32} stroke="var(--aqm-panel-border)" tick={{ fill: 'var(--aqm-muted)', fontSize: 10 }} />
               <YAxis
                 width={64}
-                domain={[0, (dataMax) => Math.ceil((dataMax || 0) * 1.05) || 10]}
+                domain={[0, yDomainMax]}
                 stroke="var(--aqm-panel-border)"
                 tick={{ fill: 'var(--aqm-muted)', fontSize: 11 }}
                 label={{ value: 'µg/Ncm', angle: -90, position: 'insideLeft', offset: 10, fill: 'var(--aqm-muted)' }}
@@ -519,9 +542,13 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
                 wrapperStyle={{ outline: 'none' }}
               />
               {/* Threshold separators */}
-              {THRESHOLDS.map((b,i) => (
-                <ReferenceLine key={b.name+"-sep"} y={b.max} stroke="var(--aqm-panel-border)" strokeDasharray="3 3" strokeOpacity={0.5} />
-              ))}
+              {THRESHOLDS.map((b,i) => {
+                const lineY = Math.min(Math.max(b.max, 0), yDomainMax);
+                if (lineY <= 0) return null;
+                return (
+                  <ReferenceLine key={b.name+"-sep"} y={lineY} stroke="var(--aqm-panel-border)" strokeDasharray="3 3" strokeOpacity={0.5} />
+                );
+              })}
 
               {/* Single gradient stroke line so transitions between categories are colored, not gray */}
               <Line

@@ -9,6 +9,8 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const XLSX = require("xlsx");
+const cron = require("node-cron");
+const { MongoClient } = require("mongodb");
 
 const app = express();
 app.use(cors());
@@ -31,6 +33,256 @@ const OWM_API_KEY =
   process.env.VITE_OWM_API_KEY ||
   null;
 
+// Mongo + ingestion configuration
+const DEFAULT_DB_NAME = "db-air_quality_monitoring";
+const MONGO_URI = process.env.MONGO_URI || null;
+const MONGO_DB_NAME = (process.env.MONGO_DB_NAME || "").trim() || null;
+const SERIES_COLLECTION_NAME =
+  process.env.MONGO_COLLECTION_SERIES || "air_data";
+const META_COLLECTION_NAME =
+  process.env.MONGO_COLLECTION_META || `${SERIES_COLLECTION_NAME}_meta`;
+const STATION_COLLECTION_NAME =
+  process.env.MONGO_COLLECTION_STATION || 'station_meta';
+const INGEST_CRON = process.env.INGEST_CRON || "*/15 * * * *"; // default every 15 minutes
+const INGEST_TZ = process.env.INGEST_TZ || undefined;
+const INGEST_ON_START = process.env.INGEST_ON_START === "0" ? false : true;
+
+let _mongoClient = null;
+let _mongoDb = null;
+let _seriesCollection = null;
+let _metaCollection = null;
+let _ingestScheduled = false;
+let _ingestRunning = false;
+let _stationCollection = null;
+
+function inferDbName(uri) {
+  if (!uri) return DEFAULT_DB_NAME;
+  const noQuery = uri.split("?")[0];
+  const parts = noQuery.split("/");
+  const last = parts[parts.length - 1];
+  return last && !last.includes("@") ? last : DEFAULT_DB_NAME;
+}
+
+async function ensureMongo() {
+  if (_mongoDb) return _mongoDb;
+  if (!MONGO_URI) {
+    throw new Error("MONGO_URI is not configured");
+  }
+  _mongoClient = new MongoClient(MONGO_URI, {
+    maxPoolSize: Number(process.env.MONGO_MAX_POOL || 5),
+    serverSelectionTimeoutMS: 8000,
+  });
+  await _mongoClient.connect();
+  const dbName = MONGO_DB_NAME || inferDbName(MONGO_URI) || DEFAULT_DB_NAME;
+  _mongoDb = _mongoClient.db(dbName);
+  _seriesCollection = _mongoDb.collection(SERIES_COLLECTION_NAME);
+  _metaCollection = _mongoDb.collection(META_COLLECTION_NAME);
+  _stationCollection = _mongoDb.collection(STATION_COLLECTION_NAME);
+  try {
+    await Promise.all([
+      _seriesCollection.createIndex({ sheet: 1, epochMs: 1 }, { unique: true }),
+      _seriesCollection.createIndex({ sheet: 1, timestamp: -1 }),
+      _metaCollection.createIndex({ sheet: 1 }, { unique: true }),
+      _stationCollection.createIndex({ key: 1 }, { unique: true }),
+    ]);
+  } catch (e) {
+    console.warn(`[mongo] index creation warning: ${e && e.message}`);
+  }
+  console.log(
+    `[mongo] connected to ${dbName}.${SERIES_COLLECTION_NAME} (ingestion enabled)`
+  );
+  return _mongoDb;
+}
+
+async function getSeriesCollection() {
+  await ensureMongo();
+  return _seriesCollection;
+}
+
+async function getMetaCollection() {
+  await ensureMongo();
+  return _metaCollection;
+}
+
+async function getStationCollection() {
+  await ensureMongo();
+  return _stationCollection;
+}
+
+async function persistStationMeta() {
+  if (!MONGO_URI) return;
+  try {
+    const col = await getStationCollection();
+    const name = process.env.STATION_NAME || null;
+    const address = process.env.STATION_ADDRESS || null;
+    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
+    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
+    const doc = {
+      key: 'default',
+      name,
+      address,
+      latitude: lat,
+      longitude: lon,
+      updatedAt: new Date(),
+      source: 'env'
+    };
+    await col.updateOne({ key: 'default' }, { $set: doc }, { upsert: true });
+  } catch (e) {
+    console.warn(`[mongo] persistStationMeta failed: ${e.message}`);
+  }
+}
+
+async function persistSeriesToMongo(sheetKey, data) {
+  if (!data || !Array.isArray(data.series) || !data.series.length) {
+    return { upserted: 0 };
+  }
+  const seriesCol = await getSeriesCollection();
+  const metaCol = await getMetaCollection();
+  const now = new Date();
+  const ingestionId = `${sheetKey}:${now.toISOString()}`;
+  const ops = data.series.map((pt) => ({
+    updateOne: {
+      filter: { sheet: sheetKey, epochMs: pt.t },
+      update: {
+        $set: {
+          sheet: sheetKey,
+          epochMs: pt.t,
+          timestamp: new Date(pt.t),
+          value: pt.y,
+          metaSnapshot: {
+            sheet: data.meta?.sheet || sheetKey,
+            yKey: data.meta?.yKey || null,
+            yLabel: data.meta?.yLabel || null,
+          },
+          updatedAt: now,
+          ingestionId,
+        },
+      },
+      upsert: true,
+    },
+  }));
+  const chunk = Number(process.env.MONGO_BULK_BATCH || 500);
+  for (let i = 0; i < ops.length; i += chunk) {
+    const slice = ops.slice(i, i + chunk);
+    await seriesCol.bulkWrite(slice, { ordered: false });
+  }
+  const metaPayload = {
+    sheet: sheetKey,
+    meta: {
+      ...data.meta,
+      sheet: data.meta?.sheet || sheetKey,
+      yKey: data.meta?.yKey || null,
+      yLabel: data.meta?.yLabel || null,
+      points: data.series.length,
+    },
+    updatedAt: now,
+    ingestionId,
+  };
+  await metaCol.updateOne(
+    { sheet: sheetKey },
+    { $set: metaPayload },
+    { upsert: true }
+  );
+  return { upserted: data.series.length };
+}
+
+async function fetchSeriesFromMongo(sheetKey) {
+  if (!MONGO_URI) return null;
+  try {
+    const seriesCol = await getSeriesCollection();
+    const metaCol = await getMetaCollection();
+    const docs = await seriesCol
+      .find({ sheet: sheetKey })
+      .sort({ epochMs: 1 })
+      .toArray();
+    if (!docs.length) return null;
+    const metaDoc = await metaCol.findOne({ sheet: sheetKey });
+    const meta = {
+      sheet: sheetKey,
+      ...(metaDoc?.meta || {}),
+      points: docs.length,
+    };
+    return {
+      series: docs.map((d) => ({ t: d.epochMs, y: d.value })),
+      meta,
+    };
+  } catch (err) {
+    console.warn(`[mongo] fetchSeries failed (${sheetKey}): ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchLatestFromMongo(sheetKey) {
+  if (!MONGO_URI) return null;
+  try {
+    const seriesCol = await getSeriesCollection();
+    const metaCol = await getMetaCollection();
+    const doc = await seriesCol
+      .find({ sheet: sheetKey })
+      .sort({ epochMs: -1 })
+      .limit(1)
+      .next();
+    if (!doc) return null;
+    const metaDoc = await metaCol.findOne({ sheet: sheetKey });
+    return { doc, meta: metaDoc?.meta || null };
+  } catch (err) {
+    console.warn(`[mongo] fetchLatest failed (${sheetKey}): ${err.message}`);
+    return null;
+  }
+}
+
+async function runIngestion(reason = "scheduled") {
+  if (!MONGO_URI) {
+    console.warn("[ingest] skipped (MONGO_URI missing)");
+    return;
+  }
+  if (_ingestRunning) {
+    console.log(`[ingest] overlapping run skipped (${reason})`);
+    return;
+  }
+  _ingestRunning = true;
+  const started = Date.now();
+  try {
+    const viz = await readVizData();
+    const pm10 = await readSheetSeries("PM10");
+    await persistSeriesToMongo("viz_data", viz);
+    await persistSeriesToMongo("PM10", pm10);
+    console.log(
+      `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${
+        viz.meta?.points || viz.series.length
+      } pts, pm10:${pm10.meta?.points || pm10.series.length} pts)`
+    );
+  } catch (err) {
+    console.error(`[ingest] run ${reason} failed: ${err.message}`);
+  } finally {
+    _ingestRunning = false;
+  }
+}
+
+function scheduleIngestion() {
+  if (_ingestScheduled || !MONGO_URI) return;
+  try {
+    cron.schedule(
+      INGEST_CRON,
+      () => {
+        runIngestion("cron");
+      },
+      { timezone: INGEST_TZ }
+    );
+    console.log(
+      `[ingest] cron scheduled (${INGEST_CRON}${INGEST_TZ ? ` ${INGEST_TZ}` : ""})`
+    );
+    if (INGEST_ON_START) {
+      runIngestion("startup").catch((err) =>
+        console.error(`[ingest] startup run failed: ${err.message}`)
+      );
+    }
+    _ingestScheduled = true;
+  } catch (err) {
+    console.error(`[ingest] failed to schedule cron: ${err.message}`);
+  }
+}
+
 // Caching to avoid repeated remote downloads/parsing
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
 const DISK_CACHE_ENABLED = process.env.DISABLE_DISK_CACHE === '1' ? false : true;
@@ -40,6 +292,16 @@ if (DISK_CACHE_ENABLED) {
 }
 const _wbCache = new Map(); // key -> { ts, buf }
 const _vizCache = new Map(); // key -> { ts, result }
+
+if (MONGO_URI) {
+  scheduleIngestion();
+  // Persist station meta once after connection
+  persistStationMeta();
+} else {
+  console.warn(
+    "[ingest] MONGO_URI missing. Falling back to direct workbook reads only."
+  );
+}
 
 // Generic resilient upstream fetch with timeout + limited retries
 async function fetchWithRetry(url, { retries = 2, timeoutMs = 15000, backoffBase = 700, backoffFactor = 1.9, init } = {}) {
@@ -266,6 +528,18 @@ function pickKeysFromRows(rows) {
     .filter(([k]) => k !== bestDate)
     .sort((a, b) => b[1] - a[1])[0]?.[0];
   return { xKey: bestDate || null, yKey: bestNum || null };
+}
+
+function inferAqiCategory(v) {
+  const val = Number(v);
+  if (!isFinite(val)) return null;
+  if (val <= 50) return "GOOD";
+  if (val <= 100) return "MODERATE";
+  if (val <= 150) return "UNHEALTHY FOR SENSITIVE GROUPS";
+  if (val <= 200) return "UNHEALTHY";
+  if (val <= 300) return "VERY UNHEALTHY";
+  if (val <= 500) return "HAZARDOUS";
+  return "EMERGENCY";
 }
 
 async function loadWorkbook(p) {
@@ -600,8 +874,14 @@ async function readSheetSeries(sheetName, yKeyOverride) {
 app.get("/api/pm10-data", async (req, res) => {
   try {
     const { yKey } = req.query;
+    if (!yKey) {
+      const stored = await fetchSeriesFromMongo("PM10");
+      if (stored) {
+        return res.json({ ...stored, source: "mongo" });
+      }
+    }
     const data = await readSheetSeries("PM10", yKey);
-    res.json(data);
+    res.json({ ...data, source: yKey ? "excel" : "excel-fallback" });
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to read PM10 sheet" });
   }
@@ -610,8 +890,14 @@ app.get("/api/pm10-data", async (req, res) => {
 app.get("/api/viz-data", async (req, res) => {
   try {
     const { yKey } = req.query;
+    if (!yKey) {
+      const stored = await fetchSeriesFromMongo("viz_data");
+      if (stored) {
+        return res.json({ ...stored, source: "mongo" });
+      }
+    }
     const data = await readVizData(yKey);
-    res.json(data);
+    res.json({ ...data, source: yKey ? "excel" : "excel-fallback" });
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to read viz_data" });
   }
@@ -620,6 +906,20 @@ app.get("/api/viz-data", async (req, res) => {
 // Latest AQI category (from viz_data sheet)
 app.get("/api/aqi/latest", async (req, res) => {
   try {
+    const stored = await fetchLatestFromMongo("viz_data");
+    if (stored?.doc) {
+      const value = stored.doc.value;
+      res.json({
+        parameter: "PM10",
+        value,
+        category: inferAqiCategory(value),
+        time: stored.doc.epochMs,
+        path: stored.meta?.path || resolveWorkbookPath(),
+        source: "mongo",
+      });
+      return;
+    }
+
     const wbPath = resolveWorkbookPath();
     const wb = await loadWorkbook(wbPath);
     const sheetName =
@@ -631,7 +931,6 @@ app.get("/api/aqi/latest", async (req, res) => {
     if (!Array.isArray(rows) || rows.length < 2)
       return res.status(404).json({ error: "No rows in viz_data" });
 
-    // Determine keys from header labels where possible
     const headerRow = rows[0] || {};
     const headerValues = Object.fromEntries(
       Object.keys(headerRow).map((k) => [
@@ -639,7 +938,6 @@ app.get("/api/aqi/latest", async (req, res) => {
         (headerRow[k] || "").toString().trim(),
       ])
     );
-    // Prefer labels containing DATE/TIME for x
     const xKey =
       Object.keys(headerValues).find((k) =>
         /date|time/i.test(headerValues[k] || "")
@@ -647,7 +945,6 @@ app.get("/api/aqi/latest", async (req, res) => {
       (Object.keys(headerValues).includes("Data Visualization Process")
         ? "Data Visualization Process"
         : null);
-    // y (value) preference order
     const yPrefOrder = [
       /24\s*HR\s*ROLLING\s*AQI\s*VALUE/i,
       /^\s*AQI\s*$/i,
@@ -664,24 +961,18 @@ app.get("/api/aqi/latest", async (req, res) => {
         break;
       }
     }
-    // category column
     let categoryKey =
       Object.keys(headerValues).find((k) =>
         /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || "")
       ) || null;
 
-    // Fallbacks using content heuristics if header detection failed
     if (!valueKey || !xKey) {
       const picked = pickKeysFromRows(rows);
-      if (!xKey) valueKey = valueKey; // no-op to keep valueKey
       const fallbackX = picked.xKey;
       const fallbackY = picked.yKey;
-      // only adopt fallback if not already set
       const xUse = xKey || fallbackX;
       const yUse = valueKey || fallbackY;
-      // assign for downstream
       valueKey = yUse;
-      // also try to guess categoryKey as a non-numeric string column
       if (!categoryKey && rows.length > 1) {
         const keys = Object.keys(rows[1] || {});
         categoryKey =
@@ -716,23 +1007,14 @@ app.get("/api/aqi/latest", async (req, res) => {
     }
     if (!last) return res.status(404).json({ error: "No valid AQI row" });
 
-    // If category missing, infer from value using EPA ranges
-    function inferCat(v) {
-      if (v <= 50) return "GOOD";
-      if (v <= 100) return "MODERATE";
-      if (v <= 150) return "UNHEALTHY FOR SENSITIVE GROUPS";
-      if (v <= 200) return "UNHEALTHY";
-      if (v <= 300) return "VERY UNHEALTHY";
-      if (v <= 500) return "HAZARDOUS";
-      return "EMERGENCY";
-    }
-    const category = last.category || inferCat(last.value);
+    const category = last.category || inferAqiCategory(last.value);
     res.json({
       parameter: "PM10",
       value: last.value,
       category,
       time: last.t,
       path: wbPath,
+      source: "excel",
     });
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to read latest AQI" });
@@ -891,14 +1173,21 @@ app.get("/api/aqi/last-days", async (req, res) => {
     let days = Number(req.query.days || 3);
     if (!isFinite(days) || days <= 0) days = 3;
     days = Math.min(Math.max(Math.floor(days), 1), 14);
-    const { series } = await readVizData();
-    if (!Array.isArray(series) || series.length === 0) {
+    let seriesPayload = null;
+    const stored = await fetchSeriesFromMongo("viz_data");
+    if (stored?.series?.length) {
+      seriesPayload = stored.series;
+    } else {
+      const { series } = await readVizData();
+      seriesPayload = series;
+    }
+    if (!Array.isArray(seriesPayload) || seriesPayload.length === 0) {
       return res.status(404).json({ error: "No viz_data series" });
     }
     // map dateKey -> last value for that date (local time). Exclude today.
     const todayKey = new Date().toISOString().slice(0, 10);
     const lastByDate = new Map();
-    for (const pt of series) {
+    for (const pt of seriesPayload) {
       const d = new Date(pt.t);
       const key = new Date(d.getFullYear(), d.getMonth(), d.getDate())
         .toISOString()
@@ -912,20 +1201,11 @@ app.get("/api/aqi/last-days", async (req, res) => {
       .sort((a, b) => (a < b ? 1 : -1))
       .slice(0, days)
       .sort();
-    function inferCat(v) {
-      if (v <= 50) return "GOOD";
-      if (v <= 100) return "MODERATE";
-      if (v <= 150) return "UNHEALTHY FOR SENSITIVE GROUPS";
-      if (v <= 200) return "UNHEALTHY";
-      if (v <= 300) return "VERY UNHEALTHY";
-      if (v <= 500) return "HAZARDOUS";
-      return "EMERGENCY";
-    }
     const items = dates.map((date) => {
       const val = lastByDate.get(date);
-      return { date, value: val, category: inferCat(Number(val)) };
+      return { date, value: val, category: inferAqiCategory(Number(val)) };
     });
-    res.json({ days: items.length, items });
+    res.json({ days: items.length, items, source: stored?.series ? "mongo" : "excel" });
   } catch (e) {
     res
       .status(500)
@@ -933,20 +1213,35 @@ app.get("/api/aqi/last-days", async (req, res) => {
   }
 });
 
-// Station metadata (name/address/coords) from environment with graceful nulls
+// Station metadata served from Mongo when available (fallback to env)
 app.get("/api/station/meta", async (req, res) => {
   try {
+    let record = null;
+    if (MONGO_URI) {
+      try {
+        const col = await getStationCollection();
+        record = await col.findOne({ key: 'default' });
+      } catch (err) {
+        console.warn(`[station-meta] mongo fetch failed: ${err.message}`);
+      }
+    }
+    if (record) {
+      return res.json({
+        name: record.name || null,
+        address: record.address || null,
+        latitude: record.latitude ?? null,
+        longitude: record.longitude ?? null,
+        updatedAt: record.updatedAt || null,
+        source: 'mongo'
+      });
+    }
     const name = process.env.STATION_NAME || null;
     const address = process.env.STATION_ADDRESS || null;
-    const lat = process.env.STATION_LAT
-      ? Number(process.env.STATION_LAT)
-      : null;
-    const lon = process.env.STATION_LON
-      ? Number(process.env.STATION_LON)
-      : null;
-    res.json({ name, address, latitude: lat, longitude: lon });
+    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
+    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
+    res.json({ name, address, latitude: lat, longitude: lon, source: 'env' });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to read station meta" });
+    res.status(500).json({ error: e.message || 'Failed to read station meta' });
   }
 });
 

@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./front-end" },
+    { "path": "./server" }
+  ],
+  "exclude": ["**/node_modules", "dist"]
+}
