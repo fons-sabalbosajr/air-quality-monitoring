@@ -11,9 +11,10 @@ import {
   Descriptions,
   Spin,
 } from "antd";
-import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import {
   DashboardOutlined,
+  TableOutlined,
   AreaChartOutlined,
   EnvironmentOutlined,
   SettingOutlined,
@@ -29,6 +30,7 @@ import {
 import "./App.css";
 // Route-level code splitting via React.lazy
 const DashboardPage = lazy(() => import("./pages/Dashboard"));
+const TabularResultsPage = lazy(() => import("./pages/TabularResults"));
 const ChartsPage = lazy(() => import("./pages/Charts"));
 const MapPage = lazy(() => import("./pages/Map"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
@@ -488,7 +490,9 @@ function ThemedLayout({
               selectedKeys={selectedKeys}
               items={items}
               style={{ background: "transparent", borderInlineEnd: "none" }}
-              onClick={({ key }) => navigate(key)}
+              onClick={({ key }) => {
+                if (typeof key === 'string' && key.startsWith('/')) navigate(key);
+              }}
             />
             {!collapsed ? (
               <>
@@ -1197,8 +1201,10 @@ function ThemedLayout({
               }
             >
               <Routes>
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/station/clark" element={<DashboardPage />} />
+                <Route path="/" element={<Navigate to="/tabular/meycauayan" replace />} />
+                <Route path="/overview" element={<DashboardPage />} />
+                <Route path="/tabular" element={<Navigate to="/tabular/meycauayan" replace />} />
+                <Route path="/tabular/:province" element={<TabularResultsPage />} />
                 {/* Charts route can remain accessible directly if needed */}
                 <Route path="/charts" element={<ChartsPage />} />
                 <Route path="/map" element={<MapPage />} />
@@ -1303,25 +1309,45 @@ function App() {
   }, [dark]);
   // tokens are consumed inside ThemedLayout under ConfigProvider
 
+  const provinces = [
+    { key: 'meycauayan', label: 'Meycauayan' },
+    { key: 'zambales', label: 'Zambales' },
+    { key: 'clark', label: 'Clark' },
+    { key: 'san-fernando', label: 'San Fernando' },
+  ];
+
   const items = [
+    { key: "/overview", icon: <DashboardOutlined />, label: "Overview" },
     {
-      key: "stations",
-      icon: <DashboardOutlined />,
-      label: "Stations",
-      children: [{ key: "/station/clark", label: "Clark Station" }],
+      key: "tabular",
+      icon: <TableOutlined />,
+      label: "Tabular Results",
+      children: provinces.map((p) => ({
+        key: `/tabular/${p.key}`,
+        label: p.label,
+      })),
     },
     { key: "/map", icon: <EnvironmentOutlined />, label: "Map" },
     { key: "/settings", icon: <SettingOutlined />, label: "Settings" },
   ];
 
+  const selectableKeys = [
+    '/overview',
+    ...provinces.map((p) => `/tabular/${p.key}`),
+    '/tabular',
+    '/map',
+    '/settings',
+    '/',
+  ];
+
   const selectedKey =
-    ["/station/clark", "/map", "/settings", "/"]
+    selectableKeys
       .sort((a, b) => b.length - a.length)
       .find(
         (k) =>
           location.pathname === k ||
           (k !== "/" && location.pathname.startsWith(k))
-      ) || "/";
+      ) || "/overview";
   const selectedKeys = [selectedKey];
 
   // Set dynamic document title to requested app name with current year

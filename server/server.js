@@ -11,21 +11,525 @@ const fs = require("fs");
 const XLSX = require("xlsx");
 const cron = require("node-cron");
 const { MongoClient } = require("mongodb");
+const https = require("https");
+const http = require("http");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // Basic health & root info endpoints for deployment platforms (e.g., Render)
-app.get('/', (req, res) => {
-  res.status(200).json({ service: 'aqm-server', status: 'ok' });
+app.get("/", (req, res) => {
+  res.status(200).json({ service: "aqm-server", status: "ok" });
 });
-app.get('/health', (req, res) => {
-  res.status(200).json({ health: 'ok', timestamp: Date.now() });
+app.get("/health", (req, res) => {
+  res.status(200).json({ health: "ok", timestamp: Date.now() });
 });
 
 const PORT = process.env.PORT || 3001;
 const DEFAULT_RELATIVE = path.join(__dirname, "data", "aqi.xlsm");
+
+// --- Tabular (Google Sheets) configuration ---
+const SHEET_CACHE_TTL_MS = Number(process.env.SHEET_CACHE_TTL_MS || 300000);
+const TABULAR_SHEETS = {
+  meycauayan: {
+    pm10: process.env.SHEET_PM10_MEYCAUAYAN_URL || null,
+  },
+  zambales: {
+    pm10: process.env.SHEET_PM10_ZAMBALES_URL || null,
+    pm25: process.env.SHEET_PM25_ZAMBALES_URL || null,
+  },
+  clark: {
+    pm10: process.env.SHEET_PM10_CLARK_URL || null,
+  },
+  "san-fernando": {
+    pm10: process.env.SHEET_PM10_SAN_FERNANDO_URL || null,
+  },
+};
+
+const _sheetCache = new Map(); // key -> { ts, payload }
+
+function extractSpreadsheetId(url) {
+  if (!url) return null;
+  const s = String(url);
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Download the spreadsheet as XLSX (gets ALL worksheet tabs at once),
+ * merge rows from year-named data tabs (e.g. "2025", "2026"),
+ * skip utility tabs like "CHARTS", "Live_Dashboard", etc.
+ */
+async function fetchAllSheetsAsTable(sheetUrl) {
+  const id = extractSpreadsheetId(sheetUrl);
+  if (!id) throw new Error("Cannot extract spreadsheet ID from URL");
+
+  const xlsxUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`;
+
+  // Download as binary buffer with timeout guard
+  let buf;
+  const DOWNLOAD_TIMEOUT_MS = 60000;
+  if (typeof fetch === "function") {
+    const controller = new AbortController();
+    const tId = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch(xlsxUrl, {
+        method: "GET",
+        redirect: "follow",
+        headers: { "User-Agent": "aqm-server/1.0", Accept: "*/*" },
+        signal: controller.signal,
+      });
+      clearTimeout(tId);
+      if (!res.ok) throw new Error(`XLSX download HTTP ${res.status}`);
+      buf = Buffer.from(await res.arrayBuffer());
+    } catch (fetchErr) {
+      clearTimeout(tId);
+      throw new Error(`XLSX download failed: ${fetchErr.message}`);
+    }
+  } else {
+    // Fallback: use fetchText-style redirect handling but collect binary
+    buf = await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("XLSX download timeout")),
+        DOWNLOAD_TIMEOUT_MS,
+      );
+      const u = new URL(xlsxUrl);
+      const lib = u.protocol === "http:" ? http : https;
+      const doReq = (reqUrl, left) => {
+        const uu = new URL(reqUrl);
+        lib
+          .get(
+            {
+              hostname: uu.hostname,
+              path: uu.pathname + uu.search,
+              headers: { "User-Agent": "aqm-server/1.0" },
+            },
+            (res) => {
+              if (
+                [301, 302, 303, 307, 308].includes(res.statusCode) &&
+                res.headers.location &&
+                left > 0
+              ) {
+                doReq(new URL(res.headers.location, uu).toString(), left - 1);
+                return;
+              }
+              const chunks = [];
+              res.on("data", (d) => chunks.push(d));
+              res.on("end", () => {
+                clearTimeout(timer);
+                resolve(Buffer.concat(chunks));
+              });
+            },
+          )
+          .on("error", (e) => {
+            clearTimeout(timer);
+            reject(e);
+          });
+      };
+      doReq(xlsxUrl, 5);
+    });
+  }
+
+  let wb;
+  try {
+    wb = XLSX.read(buf, { type: "buffer" });
+  } catch (parseErr) {
+    throw new Error(`XLSX parse failed: ${parseErr.message}`);
+  }
+  if (!wb || !wb.SheetNames || !wb.SheetNames.length) {
+    throw new Error("XLSX workbook has no sheets");
+  }
+
+  // Identify data tabs: keep only tabs whose name looks like a year (e.g. "2025", "2026")
+  const dataSheetNames = wb.SheetNames.filter((n) => /^\d{4}$/.test(n.trim()));
+  if (!dataSheetNames.length) {
+    // Fallback: if no year-named tabs, use the first tab
+    dataSheetNames.push(wb.SheetNames[0]);
+  }
+  // Sort year tabs chronologically so oldest data is first (important for rolling avg)
+  dataSheetNames.sort((a, b) => Number(a) - Number(b));
+
+  let columns = null;
+  let allRows = [];
+
+  // We only keep raw data columns: Date/Time and Concentration.
+  // Everything else (Rolling Average, AQI & Category, Status) is computed in-app.
+  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i];
+
+  for (const name of dataSheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws) continue; // safety: skip if sheet object missing
+    let matrix;
+    try {
+      matrix = XLSX.utils.sheet_to_json(ws, {
+        header: 1,
+        raw: false,
+        defval: null,
+      });
+    } catch (sheetErr) {
+      console.warn(`[tabular] Skipping sheet "${name}": ${sheetErr.message}`);
+      continue;
+    }
+    if (!matrix || !matrix.length) continue;
+
+    const headerRow = (matrix[0] || []).map((h, idx) => {
+      const v = (h == null ? "" : String(h)).trim();
+      return v || `Column ${idx + 1}`;
+    });
+
+    // On first sheet, determine which column indices contain raw data
+    if (!columns) {
+      columns = headerRow.filter((h) =>
+        RAW_COL_PATTERNS.some((p) => p.test(h)),
+      );
+      // If none matched, fall back to all columns
+      if (!columns.length) columns = headerRow;
+    }
+
+    // Build index map for raw columns within the full header
+    const colIndices = columns.map((c) => headerRow.indexOf(c));
+
+    const rows = matrix
+      .slice(1)
+      .filter(
+        (r) =>
+          Array.isArray(r) &&
+          r.some((c) => c != null && String(c).trim() !== ""),
+      )
+      .map((r) => {
+        const obj = {};
+        for (let ci = 0; ci < columns.length; ci++) {
+          const idx = colIndices[ci];
+          obj[columns[ci]] = idx >= 0 ? (r[idx] ?? null) : null;
+        }
+        return obj;
+      });
+
+    allRows = allRows.concat(rows);
+  }
+
+  return { columns: columns || [], rows: allRows };
+}
+
+// --- Date utilities for Excel serial numbers & DD/MM/YYYY strings ---
+function excelSerialToDate(serial) {
+  // Excel epoch: 1900-01-01 = serial 1, with Lotus 1-2-3 leap year bug
+  return new Date(Math.round((serial - 25569) * 86400000));
+}
+
+function parseDateValue(v) {
+  try {
+    if (v == null) return null;
+    if (typeof v === "number" && isFinite(v) && v > 30000 && v < 100000) {
+      return excelSerialToDate(v);
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    // DD/MM/YYYY H:MM or DD/MM/YYYY HH:MM
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
+    if (m) {
+      const d = new Date(
+        Number(m[3]),
+        Number(m[2]) - 1,
+        Number(m[1]),
+        Number(m[4]),
+        Number(m[5]),
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+    // MM/DD/YYYY H:MM AM/PM (already formatted, re-parse)
+    const m2 = s.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i,
+    );
+    if (m2) {
+      let h = Number(m2[4]);
+      const ampm = m2[6].toUpperCase();
+      if (ampm === "PM" && h < 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+      const d = new Date(
+        Number(m2[3]),
+        Number(m2[1]) - 1,
+        Number(m2[2]),
+        h,
+        Number(m2[5]),
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
+
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function formatDateAmPm(d) {
+  if (!d || isNaN(d.getTime())) return "";
+  const mon = MONTH_ABBR[d.getMonth()];
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  let h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${mon} ${dd}, ${yyyy} ${h}:${min} ${ampm}`;
+}
+
+function coerceNumber(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && isFinite(v)) return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  const cleaned = s.replace(/[, ]/g, "");
+  const n = parseFloat(cleaned);
+  return isFinite(n) ? n : null;
+}
+
+function meanLast(values, windowSize) {
+  if (!Array.isArray(values) || values.length === 0) return 0;
+  const slice = values.slice(Math.max(0, values.length - windowSize));
+  const sum = slice.reduce((a, b) => a + b, 0);
+  return slice.length ? sum / slice.length : 0;
+}
+
+function phPm10Status24hFromAvg(C) {
+  // DENR DAO 2000-81 breakpoints (as provided by user)
+  const bp = [
+    { clo: 0, chi: 54, ilo: 0, ihi: 50, status: "Good" },
+    { clo: 55, chi: 154, ilo: 51, ihi: 100, status: "Fair" },
+    {
+      clo: 155,
+      chi: 254,
+      ilo: 101,
+      ihi: 150,
+      status: "Unhealthy for Sensitive Groups",
+    },
+    { clo: 255, chi: 354, ilo: 151, ihi: 200, status: "Very Unhealthy" },
+    { clo: 355, chi: 424, ilo: 201, ihi: 300, status: "Acutely Unhealthy" },
+    { clo: 425, chi: 9999, ilo: 301, ihi: 500, status: "Emergency" },
+  ];
+  if (!isFinite(Number(C)) || Number(C) < 0) return { aqi: null, status: "" };
+  const c = Number(C);
+  for (const b of bp) {
+    if (c <= b.chi) {
+      const aqi = ((b.ihi - b.ilo) / (b.chi - b.clo)) * (c - b.clo) + b.ilo;
+      return { aqi: Math.round(aqi), status: b.status };
+    }
+  }
+  return { aqi: 500, status: "Emergency" };
+}
+
+function phPm25Status24hFromAvg(C) {
+  // Philippine DENR breakpoints for PM2.5 (24-hour average)
+  const bp = [
+    { clo: 0, chi: 25, ilo: 0, ihi: 50, status: "Good" },
+    { clo: 25.1, chi: 35, ilo: 51, ihi: 100, status: "Fair" },
+    {
+      clo: 35.1,
+      chi: 45,
+      ilo: 101,
+      ihi: 150,
+      status: "Unhealthy for Sensitive Groups",
+    },
+    { clo: 45.1, chi: 55, ilo: 151, ihi: 200, status: "Very Unhealthy" },
+    { clo: 55.1, chi: 90, ilo: 201, ihi: 300, status: "Acutely Unhealthy" },
+    { clo: 90.1, chi: 9999, ilo: 301, ihi: 500, status: "Emergency" },
+  ];
+  if (!isFinite(Number(C)) || Number(C) < 0) return { aqi: null, status: "" };
+  const c = Number(C);
+  for (const b of bp) {
+    if (c <= b.chi) {
+      const aqi = ((b.ihi - b.ilo) / (b.chi - b.clo)) * (c - b.clo) + b.ilo;
+      return { aqi: Math.round(aqi), status: b.status };
+    }
+  }
+  return { aqi: 500, status: "Emergency" };
+}
+
+/**
+ * Multi-pass enhancement for tabular data:
+ * 1. Parse ALL dates (Excel serial / DD-MM-YYYY strings) → epochs
+ * 2. Sort chronologically (oldest-first) — CRITICAL because sheets mix
+ *    string dates and serial numbers in non-chronological order
+ * 3. Compute 24h rolling average + AQI + Status on properly ordered data
+ * 4. Format dates → MM/DD/YYYY H:MM AM/PM
+ * 5. Reverse to newest-first for display
+ */
+function enhanceTabularRows(table, pollutantKey, opts = {}) {
+  try {
+    return _enhanceTabularRowsImpl(table, pollutantKey, opts);
+  } catch (err) {
+    console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
+    // Return the raw table rather than crashing — data shows without AQI
+    return table || { columns: [], rows: [] };
+  }
+}
+
+function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
+  const logsPerHour = Number(opts.logsPerHour || 1);
+  const requiredLogs = 24 * logsPerHour;
+  const statusFn =
+    pollutantKey === "pm25" ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
+
+  const columns = Array.isArray(table?.columns) ? [...table.columns] : [];
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  if (!rows.length) return table || { columns: [], rows: [] };
+
+  // Identify key columns once
+  const dateKey =
+    columns.find((c) => /date|time/i.test(c)) ||
+    Object.keys(rows[0] || {}).find((k) => /date|time/i.test(k));
+  const concKey =
+    columns.find((c) => /concentration/i.test(c)) ||
+    Object.keys(rows[0] || {}).find((k) => /concentration/i.test(k));
+  const rollingKey =
+    columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
+  // Identify (and later remove) the original "AQI & Category" column from the sheet
+  const aqiCatKey =
+    columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
+
+  // ── Pass 1: Parse all dates → epoch timestamps ──
+  const epochs = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    if (dateKey) {
+      const d = parseDateValue(rows[i][dateKey]);
+      epochs[i] = d ? d.getTime() : 0;
+    } else {
+      epochs[i] = 0;
+    }
+  }
+
+  // ── Pass 2: Sort CHRONOLOGICALLY (oldest-first) ──
+  // Sheets mix string dates and serial numbers in non-chronological order,
+  // so we MUST sort before computing rolling averages.
+  const chronoIndices = Array.from({ length: rows.length }, (_, i) => i);
+  chronoIndices.sort((a, b) => epochs[a] - epochs[b]);
+
+  // ── Pass 2b: Remove future-dated rows ──
+  // Google Sheets may have formula-generated rows extending far into the future.
+  // Filter those out so only past/present data is processed.
+  const nowMs = Date.now();
+  const validIndices = chronoIndices.filter(
+    (i) => epochs[i] === 0 || epochs[i] <= nowMs,
+  );
+
+  // ── Pass 3: Compute rolling avg + AQI + format dates on chrono-sorted data ──
+  const numericSeen = [];
+  const resultRows = new Array(validIndices.length);
+
+  for (let pos = 0; pos < validIndices.length; pos++) {
+    const origIdx = validIndices[pos];
+    const r = rows[origIdx];
+
+    // Format date
+    if (dateKey) {
+      const d = epochs[origIdx] ? new Date(epochs[origIdx]) : null;
+      if (d) r[dateKey] = formatDateAmPm(d);
+    }
+
+    // Rolling avg + AQI + Status
+    if (concKey) {
+      const n = coerceNumber(r[concKey]);
+      // Sensor sentinel values (>= 9999, e.g. 99999.9) are kept for display
+      // but excluded from the rolling average so they don't skew AQI.
+      const isSentinel = n != null && n >= 9999;
+      if (n != null && !isSentinel) numericSeen.push(n);
+
+      const avg24h = numericSeen.length
+        ? meanLast(numericSeen, requiredLogs)
+        : 0;
+      r[rollingKey] = avg24h;
+
+      if (numericSeen.length < requiredLogs) {
+        r["AQI"] = null;
+        r["Status"] = `Collecting (${numericSeen.length}/${requiredLogs})`;
+      } else {
+        const { aqi, status } = statusFn(avg24h);
+        r["AQI"] = aqi;
+        r["Status"] = status;
+      }
+      // Remove original AQI & Category value from row
+      if (aqiCatKey) delete r[aqiCatKey];
+    }
+
+    // Store in reverse position (newest-first)
+    resultRows[validIndices.length - 1 - pos] = r;
+  }
+
+  // Remove original AQI & Category column, add computed fields
+  const filteredColumns = columns.filter((c) => c !== aqiCatKey);
+  const ensureCol = (c) => {
+    if (!filteredColumns.includes(c)) filteredColumns.push(c);
+  };
+  if (concKey) {
+    ensureCol(rollingKey);
+    ensureCol("AQI");
+    ensureCol("Status");
+  }
+
+  return { ...table, columns: filteredColumns, rows: resultRows };
+}
+
+async function getTabularTable(provinceKey, pollutantKey) {
+  const sheetUrl = TABULAR_SHEETS?.[provinceKey]?.[pollutantKey] || null;
+  if (!sheetUrl) {
+    const err = new Error("Sheet URL not configured");
+    err.code = "NOT_CONFIGURED";
+    throw err;
+  }
+  const cacheKey = `tabular:${provinceKey}:${pollutantKey}`;
+  const cached = _sheetCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < SHEET_CACHE_TTL_MS) {
+    return { ...cached.payload, source: "cache" };
+  }
+
+  // Download XLSX (all worksheet tabs) and merge year-based data tabs.
+  // On failure, fall back to stale cache if available so the app stays up.
+  try {
+    let table = await fetchAllSheetsAsTable(sheetUrl);
+    table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1 });
+    const payload = {
+      province: provinceKey,
+      pollutant: pollutantKey,
+      columns: table.columns,
+      rows: table.rows,
+      totalRows: table.rows.length,
+      fetchedAt: Date.now(),
+      source: "sheet",
+    };
+    _sheetCache.set(cacheKey, { ts: Date.now(), payload });
+    return payload;
+  } catch (fetchErr) {
+    console.error(
+      `[tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
+    );
+    // Serve stale cached data if we have any, rather than failing entirely
+    if (cached) {
+      console.warn(
+        `[tabular] Serving stale cache for ${provinceKey}/${pollutantKey} ` +
+          `(age ${Math.round((Date.now() - cached.ts) / 1000)}s)`,
+      );
+      return { ...cached.payload, source: "stale-cache" };
+    }
+    // No cache at all — re-throw
+    throw fetchErr;
+  }
+}
 // OpenWeatherMap API key (multiple possible env variable names including Vite prefix)
 const OWM_API_KEY =
   process.env.OWM_API_KEY ||
@@ -42,7 +546,7 @@ const SERIES_COLLECTION_NAME =
 const META_COLLECTION_NAME =
   process.env.MONGO_COLLECTION_META || `${SERIES_COLLECTION_NAME}_meta`;
 const STATION_COLLECTION_NAME =
-  process.env.MONGO_COLLECTION_STATION || 'station_meta';
+  process.env.MONGO_COLLECTION_STATION || "station_meta";
 const INGEST_CRON = process.env.INGEST_CRON || "*/15 * * * *"; // default every 15 minutes
 const INGEST_TZ = process.env.INGEST_TZ || undefined;
 const INGEST_ON_START = process.env.INGEST_ON_START === "0" ? false : true;
@@ -89,7 +593,7 @@ async function ensureMongo() {
     console.warn(`[mongo] index creation warning: ${e && e.message}`);
   }
   console.log(
-    `[mongo] connected to ${dbName}.${SERIES_COLLECTION_NAME} (ingestion enabled)`
+    `[mongo] connected to ${dbName}.${SERIES_COLLECTION_NAME} (ingestion enabled)`,
   );
   return _mongoDb;
 }
@@ -115,18 +619,22 @@ async function persistStationMeta() {
     const col = await getStationCollection();
     const name = process.env.STATION_NAME || null;
     const address = process.env.STATION_ADDRESS || null;
-    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
-    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
+    const lat = process.env.STATION_LAT
+      ? Number(process.env.STATION_LAT)
+      : null;
+    const lon = process.env.STATION_LON
+      ? Number(process.env.STATION_LON)
+      : null;
     const doc = {
-      key: 'default',
+      key: "default",
       name,
       address,
       latitude: lat,
       longitude: lon,
       updatedAt: new Date(),
-      source: 'env'
+      source: "env",
     };
-    await col.updateOne({ key: 'default' }, { $set: doc }, { upsert: true });
+    await col.updateOne({ key: "default" }, { $set: doc }, { upsert: true });
   } catch (e) {
     console.warn(`[mongo] persistStationMeta failed: ${e.message}`);
   }
@@ -181,7 +689,7 @@ async function persistSeriesToMongo(sheetKey, data) {
   await metaCol.updateOne(
     { sheet: sheetKey },
     { $set: metaPayload },
-    { upsert: true }
+    { upsert: true },
   );
   return { upserted: data.series.length };
 }
@@ -250,7 +758,7 @@ async function runIngestion(reason = "scheduled") {
     console.log(
       `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${
         viz.meta?.points || viz.series.length
-      } pts, pm10:${pm10.meta?.points || pm10.series.length} pts)`
+      } pts, pm10:${pm10.meta?.points || pm10.series.length} pts)`,
     );
   } catch (err) {
     console.error(`[ingest] run ${reason} failed: ${err.message}`);
@@ -267,14 +775,14 @@ function scheduleIngestion() {
       () => {
         runIngestion("cron");
       },
-      { timezone: INGEST_TZ }
+      { timezone: INGEST_TZ },
     );
     console.log(
-      `[ingest] cron scheduled (${INGEST_CRON}${INGEST_TZ ? ` ${INGEST_TZ}` : ""})`
+      `[ingest] cron scheduled (${INGEST_CRON}${INGEST_TZ ? ` ${INGEST_TZ}` : ""})`,
     );
     if (INGEST_ON_START) {
       runIngestion("startup").catch((err) =>
-        console.error(`[ingest] startup run failed: ${err.message}`)
+        console.error(`[ingest] startup run failed: ${err.message}`),
       );
     }
     _ingestScheduled = true;
@@ -285,10 +793,14 @@ function scheduleIngestion() {
 
 // Caching to avoid repeated remote downloads/parsing
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
-const DISK_CACHE_ENABLED = process.env.DISABLE_DISK_CACHE === '1' ? false : true;
-const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', '.cache');
+const DISK_CACHE_ENABLED =
+  process.env.DISABLE_DISK_CACHE === "1" ? false : true;
+const CACHE_DIR =
+  process.env.CACHE_DIR || path.join(__dirname, "data", ".cache");
 if (DISK_CACHE_ENABLED) {
-  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+  } catch {}
 }
 const _wbCache = new Map(); // key -> { ts, buf }
 const _vizCache = new Map(); // key -> { ts, result }
@@ -299,24 +811,38 @@ if (MONGO_URI) {
   persistStationMeta();
 } else {
   console.warn(
-    "[ingest] MONGO_URI missing. Falling back to direct workbook reads only."
+    "[ingest] MONGO_URI missing. Falling back to direct workbook reads only.",
   );
 }
 
 // Generic resilient upstream fetch with timeout + limited retries
-async function fetchWithRetry(url, { retries = 2, timeoutMs = 15000, backoffBase = 700, backoffFactor = 1.9, init } = {}) {
+async function fetchWithRetry(
+  url,
+  {
+    retries = 2,
+    timeoutMs = 15000,
+    backoffBase = 700,
+    backoffFactor = 1.9,
+    init,
+  } = {},
+) {
   let attempt = 0;
   let lastErr;
   while (attempt <= retries) {
     const ac = new AbortController();
     const tid = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { signal: ac.signal, ...(init||{}) });
+      const res = await fetch(url, { signal: ac.signal, ...(init || {}) });
       clearTimeout(tid);
       if (!res.ok) {
         // retry on 5xx / network only
-        if (res.status >= 500 && attempt < retries) throw new Error(`HTTP ${res.status}`);
-        return { ok: res.ok, status: res.status, data: await res.json().catch(() => null) };
+        if (res.status >= 500 && attempt < retries)
+          throw new Error(`HTTP ${res.status}`);
+        return {
+          ok: res.ok,
+          status: res.status,
+          data: await res.json().catch(() => null),
+        };
       }
       const data = await res.json();
       return { ok: true, status: res.status, data };
@@ -324,27 +850,45 @@ async function fetchWithRetry(url, { retries = 2, timeoutMs = 15000, backoffBase
       clearTimeout(tid);
       lastErr = e;
       if (attempt >= retries) break;
-      const backoff = backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 150;
-      await new Promise(r => setTimeout(r, backoff));
+      const backoff =
+        backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 150;
+      await new Promise((r) => setTimeout(r, backoff));
     }
     attempt += 1;
   }
-  return { ok: false, status: 0, error: lastErr?.message || 'upstream failed' };
+  return { ok: false, status: 0, error: lastErr?.message || "upstream failed" };
 }
 
 // Buffer (binary) fetch with retry and timeout
-async function fetchBufferWithRetry(url, { retries = 2, timeoutMs = 60000, backoffBase = 800, backoffFactor = 1.9, headers, method, body } = {}) {
+async function fetchBufferWithRetry(
+  url,
+  {
+    retries = 2,
+    timeoutMs = 60000,
+    backoffBase = 800,
+    backoffFactor = 1.9,
+    headers,
+    method,
+    body,
+  } = {},
+) {
   let attempt = 0;
   let lastErr;
   while (attempt <= retries) {
     const ac = new AbortController();
     const tid = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { signal: ac.signal, headers, method, body });
+      const res = await fetch(url, {
+        signal: ac.signal,
+        headers,
+        method,
+        body,
+      });
       clearTimeout(tid);
       if (!res.ok) {
-        if (res.status >= 500 && attempt < retries) throw new Error(`HTTP ${res.status}`);
-        const txt = await res.text().catch(() => '');
+        if (res.status >= 500 && attempt < retries)
+          throw new Error(`HTTP ${res.status}`);
+        const txt = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status} ${txt}`);
       }
       const ab = await res.arrayBuffer();
@@ -353,12 +897,13 @@ async function fetchBufferWithRetry(url, { retries = 2, timeoutMs = 60000, backo
       clearTimeout(tid);
       lastErr = e;
       if (attempt >= retries) break;
-      const backoff = backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 200;
-      await new Promise(r => setTimeout(r, backoff));
+      const backoff =
+        backoffBase * Math.pow(backoffFactor, attempt) + Math.random() * 200;
+      await new Promise((r) => setTimeout(r, backoff));
     }
     attempt += 1;
   }
-  throw new Error(lastErr?.message || 'buffer fetch failed');
+  throw new Error(lastErr?.message || "buffer fetch failed");
 }
 
 function resolveWorkbookPath() {
@@ -378,11 +923,10 @@ function parseExcelDate(n) {
         d.d || 1,
         d.H || 0,
         d.M || 0,
-        Math.floor(d.S || 0)
-      )
+        Math.floor(d.S || 0),
+      ),
     );
     return js;
-    
   } catch {
     return null;
   }
@@ -447,7 +991,7 @@ function pickKeysFromRows(rows) {
   // use those to map the date and preferred value columns.
   const headerRow = rows[0] || {};
   const headerValues = Object.fromEntries(
-    keys.map((k) => [k, (headerRow[k] || "").toString().trim()])
+    keys.map((k) => [k, (headerRow[k] || "").toString().trim()]),
   );
   const labels = Object.values(headerValues).filter((v) => v.length > 0);
   const headerLooksLikeLabels =
@@ -455,7 +999,7 @@ function pickKeysFromRows(rows) {
   if (headerLooksLikeLabels) {
     // xKey: look for label containing DATE or TIME
     const xKeyFromHeader = keys.find((k) =>
-      /date|time/i.test(headerValues[k] || "")
+      /date|time/i.test(headerValues[k] || ""),
     );
     // yKey preference order: 24 HR ROLLING AQI VALUE > AQI (generic) > HOURLY CONC > TRUNCATED VALUE > first numeric
     const yPrefOrder = [
@@ -519,10 +1063,10 @@ function pickKeysFromRows(rows) {
       acc.num[k] = numHits;
       return acc;
     },
-    { date: {}, num: {} }
+    { date: {}, num: {} },
   );
   const bestDate = Object.entries(keyScores.date).sort(
-    (a, b) => b[1] - a[1]
+    (a, b) => b[1] - a[1],
   )[0]?.[0];
   const bestNum = Object.entries(keyScores.num)
     .filter(([k]) => k !== bestDate)
@@ -556,19 +1100,30 @@ async function loadWorkbook(p) {
 
     // Cache by URL (memory + disk)
     const cached = _wbCache.get(p);
-    const diskKey = Buffer.from(p, 'utf8').toString('base64').replace(/\W/g, '_') + '.xlsm';
+    const diskKey =
+      Buffer.from(p, "utf8").toString("base64").replace(/\W/g, "_") + ".xlsm";
     const diskPath = path.join(CACHE_DIR, diskKey);
-    if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
-      return XLSX.read(cached.buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return XLSX.read(cached.buf, {
+        type: "buffer",
+        cellDates: true,
+        cellNF: false,
+        cellText: false,
+      });
     }
     // Try fresh-enough disk cache
     if (DISK_CACHE_ENABLED) {
       try {
         const st = fs.statSync(diskPath);
-        if (st && (Date.now() - st.mtimeMs) < CACHE_TTL_MS) {
+        if (st && Date.now() - st.mtimeMs < CACHE_TTL_MS) {
           const buf = fs.readFileSync(diskPath);
           _wbCache.set(p, { ts: Date.now(), buf });
-          return XLSX.read(buf, { type: 'buffer', cellDates: true, cellNF: false, cellText: false });
+          return XLSX.read(buf, {
+            type: "buffer",
+            cellDates: true,
+            cellNF: false,
+            cellText: false,
+          });
         }
       } catch {}
     }
@@ -576,20 +1131,27 @@ async function loadWorkbook(p) {
     // 1) Attempt anonymous fetch (works if link is "anyone with the link" and points to direct download)
     try {
       // Attempt anonymous direct bytes with retry
-      const buf = await fetchBufferWithRetry(p, { retries: 1, timeoutMs: 25000 });
-        _wbCache.set(p, { ts: Date.now(), buf });
-        if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf); } catch {} }
-        // If it's an Excel/zip/octet-stream it's likely the file. Try to parse regardless; if it fails, we'll fall back to Graph below.
+      const buf = await fetchBufferWithRetry(p, {
+        retries: 1,
+        timeoutMs: 25000,
+      });
+      _wbCache.set(p, { ts: Date.now(), buf });
+      if (DISK_CACHE_ENABLED) {
         try {
-          return XLSX.read(buf, {
-            type: "buffer",
-            cellDates: true,
-            cellNF: false,
-            cellText: false,
-          });
-        } catch (e) {
-          // continue to fallback
-        }
+          fs.writeFileSync(diskPath, buf);
+        } catch {}
+      }
+      // If it's an Excel/zip/octet-stream it's likely the file. Try to parse regardless; if it fails, we'll fall back to Graph below.
+      try {
+        return XLSX.read(buf, {
+          type: "buffer",
+          cellDates: true,
+          cellNF: false,
+          cellText: false,
+        });
+      } catch (e) {
+        // continue to fallback
+      }
     } catch (_) {
       // ignore and try fallback when applicable
     }
@@ -606,16 +1168,26 @@ async function loadWorkbook(p) {
         const dlUrl1 = `https://${
           url.hostname
         }/personal/${userSegment}/_layouts/15/download.aspx?share=${encodeURIComponent(
-          shareId
+          shareId,
         )}`;
         const dlUrl2 = `https://${
           url.hostname
         }/_layouts/15/download.aspx?share=${encodeURIComponent(shareId)}`;
         try {
-          const buf2 = await fetchBufferWithRetry(dlUrl1, { retries: 1, timeoutMs: 25000 }).catch(async () => {
-            return await fetchBufferWithRetry(dlUrl2, { retries: 1, timeoutMs: 25000 });
+          const buf2 = await fetchBufferWithRetry(dlUrl1, {
+            retries: 1,
+            timeoutMs: 25000,
+          }).catch(async () => {
+            return await fetchBufferWithRetry(dlUrl2, {
+              retries: 1,
+              timeoutMs: 25000,
+            });
           });
-          if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf2); } catch {} }
+          if (DISK_CACHE_ENABLED) {
+            try {
+              fs.writeFileSync(diskPath, buf2);
+            } catch {}
+          }
           return XLSX.read(buf2, {
             type: "buffer",
             cellDates: true,
@@ -638,7 +1210,11 @@ async function loadWorkbook(p) {
         buf = await downloadFromSharePointViaGraph(url.href);
       }
       _wbCache.set(p, { ts: Date.now(), buf });
-      if (DISK_CACHE_ENABLED) { try { fs.writeFileSync(diskPath, buf); } catch {} }
+      if (DISK_CACHE_ENABLED) {
+        try {
+          fs.writeFileSync(diskPath, buf);
+        } catch {}
+      }
       return XLSX.read(buf, {
         type: "buffer",
         cellDates: true,
@@ -655,7 +1231,7 @@ async function loadWorkbook(p) {
   }
   if (!fs.existsSync(p)) {
     throw new Error(
-      `Excel file not found at ${p}. Set EXCEL_FILE_PATH or place file at ${DEFAULT_RELATIVE}`
+      `Excel file not found at ${p}. Set EXCEL_FILE_PATH or place file at ${DEFAULT_RELATIVE}`,
     );
   }
   return XLSX.readFile(p, { cellDates: true, cellNF: false, cellText: false });
@@ -671,9 +1247,17 @@ async function graphClientCredentialsToken() {
   body.set("client_id", clientId);
   body.set("client_secret", clientSecret);
   body.set("scope", "https://graph.microsoft.com/.default");
-  const resp = await fetchWithRetry(authority, { timeoutMs: 12000, retries: 2, init: { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body } });
+  const resp = await fetchWithRetry(authority, {
+    timeoutMs: 12000,
+    retries: 2,
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    },
+  });
   if (!resp.ok || !resp.data?.access_token) {
-    throw new Error(`Failed to acquire Graph token (${resp.status || 'n/a'})`);
+    throw new Error(`Failed to acquire Graph token (${resp.status || "n/a"})`);
   }
   const json = resp.data;
   return json.access_token;
@@ -701,7 +1285,14 @@ async function downloadFromSharePointViaGraph(spUrl) {
   const envFilePath = process.env.SHAREPOINT_FILE_PATH || filePath;
 
   // Resolve site id
-  const siteResp = await fetchWithRetry(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(envHost)}:${encodeURI(envSitePath)}`, { retries: 2, timeoutMs: 15000, init: { headers: { Authorization: `Bearer ${token}` } } });
+  const siteResp = await fetchWithRetry(
+    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(envHost)}:${encodeURI(envSitePath)}`,
+    {
+      retries: 2,
+      timeoutMs: 15000,
+      init: { headers: { Authorization: `Bearer ${token}` } },
+    },
+  );
   if (!siteResp.ok) {
     throw new Error(`Failed to resolve SharePoint site (${siteResp.status})`);
   }
@@ -710,28 +1301,46 @@ async function downloadFromSharePointViaGraph(spUrl) {
   if (!siteId) throw new Error("SharePoint site id not found");
 
   // Download file content
-  const buf = await fetchBufferWithRetry(`https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(siteId)}/drive/root:${encodeURI(envFilePath)}:/content`, { retries: 2, timeoutMs: 30000, headers: { Authorization: `Bearer ${token}` } });
+  const buf = await fetchBufferWithRetry(
+    `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(siteId)}/drive/root:${encodeURI(envFilePath)}:/content`,
+    {
+      retries: 2,
+      timeoutMs: 30000,
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   return buf;
 }
 
 // Download using Graph from a SharePoint/OneDrive share link (/:x:/g/...)
 function encodeShareUrlForGraph(url) {
   // base64url of the full URL, prefixed by 'u!'
-  const b64 = Buffer.from(url, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-  return 'u!' + b64;
+  const b64 = Buffer.from(url, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return "u!" + b64;
 }
 async function downloadFromShareLinkViaGraph(shareUrl) {
   const token = await graphClientCredentialsToken();
   const encoded = encodeShareUrlForGraph(shareUrl);
-  const buf = await fetchBufferWithRetry(`https://graph.microsoft.com/v1.0/shares/${encoded}/driveItem/content`, { retries: 2, timeoutMs: 30000, headers: { Authorization: `Bearer ${token}` } });
+  const buf = await fetchBufferWithRetry(
+    `https://graph.microsoft.com/v1.0/shares/${encoded}/driveItem/content`,
+    {
+      retries: 2,
+      timeoutMs: 30000,
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   return buf;
 }
 
 async function readVizData(yKeyOverride) {
   const wbPath = resolveWorkbookPath();
-  const cacheKey = `${wbPath}|viz|${yKeyOverride || ''}`;
+  const cacheKey = `${wbPath}|viz|${yKeyOverride || ""}`;
   const cached = _vizCache.get(cacheKey);
-  if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.result;
   }
   const wb = await loadWorkbook(wbPath);
@@ -763,7 +1372,7 @@ async function readVizData(yKeyOverride) {
     const sample = rows[0];
     yKey = Object.keys(sample).find(
       (k) =>
-        k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, "")))
+        k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, ""))),
     );
   }
 
@@ -773,7 +1382,7 @@ async function readVizData(yKeyOverride) {
     Object.keys(headerRow).map((k) => [
       k,
       (headerRow[k] || "").toString().trim(),
-    ])
+    ]),
   );
   const yLabel = (yKey && headerValues[yKey]) || yKey || null;
 
@@ -789,7 +1398,7 @@ async function readVizData(yKeyOverride) {
     })
     .filter(Boolean)
     .sort((a, b) =>
-      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t
+      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t,
     );
 
   return {
@@ -810,7 +1419,7 @@ async function readSheetSeries(sheetName, yKeyOverride) {
   const wb = await loadWorkbook(wbPath);
   const sheet =
     wb.SheetNames.find(
-      (n) => n.toLowerCase() === String(sheetName).toLowerCase()
+      (n) => n.toLowerCase() === String(sheetName).toLowerCase(),
     ) || null;
   if (!sheet) throw new Error(`Sheet '${sheetName}' not found in workbook.`);
   const ws = wb.Sheets[sheet];
@@ -837,7 +1446,7 @@ async function readSheetSeries(sheetName, yKeyOverride) {
     const sample = rows[0];
     yKey = Object.keys(sample).find(
       (k) =>
-        k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, "")))
+        k !== xKey && !isNaN(Number(String(sample[k]).replace(/[, ]/g, ""))),
     );
   }
 
@@ -846,7 +1455,7 @@ async function readSheetSeries(sheetName, yKeyOverride) {
     Object.keys(headerRow).map((k) => [
       k,
       (headerRow[k] || "").toString().trim(),
-    ])
+    ]),
   );
   const yLabel = (yKey && headerValues[yKey]) || yKey || null;
 
@@ -861,7 +1470,7 @@ async function readSheetSeries(sheetName, yKeyOverride) {
     })
     .filter(Boolean)
     .sort((a, b) =>
-      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t
+      typeof a.t === "string" ? a.t.localeCompare(b.t) : a.t - b.t,
     );
 
   return {
@@ -903,6 +1512,68 @@ app.get("/api/viz-data", async (req, res) => {
   }
 });
 
+// Tabular Results (Google Sheets)
+app.get("/api/tabular/:province/:pollutant", async (req, res) => {
+  try {
+    const province = String(req.params.province || "").toLowerCase();
+    const pollutant = String(req.params.pollutant || "").toLowerCase();
+    if (!province || !pollutant) {
+      return res.status(400).json({ error: "Missing province or pollutant" });
+    }
+    if (!TABULAR_SHEETS[province] || !TABULAR_SHEETS[province][pollutant]) {
+      return res.status(404).json({ error: "Unknown province or pollutant" });
+    }
+    const payload = await getTabularTable(province, pollutant);
+    res.json(payload);
+  } catch (e) {
+    const msg = e?.message || "Failed to read tabular sheet";
+    const status = e?.code === "NOT_CONFIGURED" ? 400 : 500;
+    res.status(status).json({ error: msg });
+  }
+});
+
+// Export log (save to MongoDB)
+app.post("/api/export-log", async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    const col = db.collection("export_logs");
+    const entry = {
+      province: req.body.province || null,
+      pollutant: req.body.pollutant || null,
+      filters: req.body.filters || {},
+      totalRecords: req.body.totalRecords || 0,
+      exportedRecords: req.body.exportedRecords || 0,
+      filename: req.body.filename || null,
+      exportedAt: new Date(),
+      userAgent: req.headers["user-agent"] || null,
+      ip: req.ip || null,
+    };
+    const result = await col.insertOne(entry);
+    res.json({ ok: true, id: result.insertedId });
+  } catch (e) {
+    console.error("[export-log] error:", e.message);
+    res.status(500).json({ error: "Failed to save export log" });
+  }
+});
+
+// Get export logs
+app.get("/api/export-logs", async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    const col = db.collection("export_logs");
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const logs = await col
+      .find({})
+      .sort({ exportedAt: -1 })
+      .limit(limit)
+      .toArray();
+    res.json({ logs, total: logs.length });
+  } catch (e) {
+    console.error("[export-logs] error:", e.message);
+    res.status(500).json({ error: "Failed to read export logs" });
+  }
+});
+
 // Latest AQI category (from viz_data sheet)
 app.get("/api/aqi/latest", async (req, res) => {
   try {
@@ -936,11 +1607,11 @@ app.get("/api/aqi/latest", async (req, res) => {
       Object.keys(headerRow).map((k) => [
         k,
         (headerRow[k] || "").toString().trim(),
-      ])
+      ]),
     );
     const xKey =
       Object.keys(headerValues).find((k) =>
-        /date|time/i.test(headerValues[k] || "")
+        /date|time/i.test(headerValues[k] || ""),
       ) ||
       (Object.keys(headerValues).includes("Data Visualization Process")
         ? "Data Visualization Process"
@@ -954,7 +1625,7 @@ app.get("/api/aqi/latest", async (req, res) => {
     let valueKey = null;
     for (const rx of yPrefOrder) {
       const found = Object.keys(headerValues).find((k) =>
-        rx.test(headerValues[k] || "")
+        rx.test(headerValues[k] || ""),
       );
       if (found) {
         valueKey = found;
@@ -963,7 +1634,7 @@ app.get("/api/aqi/latest", async (req, res) => {
     }
     let categoryKey =
       Object.keys(headerValues).find((k) =>
-        /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || "")
+        /AQI\s*CATEG(ORY)?/i.test(headerValues[k] || ""),
       ) || null;
 
     if (!valueKey || !xKey) {
@@ -1027,17 +1698,29 @@ app.get("/api/station/current", async (req, res) => {
     const lat = process.env.STATION_LAT;
     const lon = process.env.STATION_LON;
     if (!lat || !lon) {
-      return res.status(400).json({ error: "STATION_LAT and STATION_LON must be set in .env" });
+      return res
+        .status(400)
+        .json({ error: "STATION_LAT and STATION_LON must be set in .env" });
     }
     // Primary: Open-Meteo
     const om = new URL("https://api.open-meteo.com/v1/forecast");
     om.searchParams.set("latitude", lat);
     om.searchParams.set("longitude", lon);
-    om.searchParams.set("current", "temperature_2m,relative_humidity_2m,pressure_msl");
+    om.searchParams.set(
+      "current",
+      "temperature_2m,relative_humidity_2m,pressure_msl",
+    );
     om.searchParams.set("timezone", "auto");
-    const omResp = await fetchWithRetry(om.toString(), { retries: 2, timeoutMs: 7000 });
+    const omResp = await fetchWithRetry(om.toString(), {
+      retries: 2,
+      timeoutMs: 7000,
+    });
 
-    let temperature = null, humidity = null, pressure = null, time = null, units = null;
+    let temperature = null,
+      humidity = null,
+      pressure = null,
+      time = null,
+      units = null;
     if (omResp.ok && omResp.data?.current) {
       temperature = omResp.data.current.temperature_2m ?? null;
       humidity = omResp.data.current.relative_humidity_2m ?? null;
@@ -1049,19 +1732,34 @@ app.get("/api/station/current", async (req, res) => {
     // Fallback: OpenWeatherMap (needs API key) if any of primary metrics missing
     if ((!temperature || !humidity || !pressure) && OWM_API_KEY) {
       const owmUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&units=metric&appid=${encodeURIComponent(OWM_API_KEY)}`;
-      const owResp = await fetchWithRetry(owmUrl, { retries: 2, timeoutMs: 7000 });
+      const owResp = await fetchWithRetry(owmUrl, {
+        retries: 2,
+        timeoutMs: 7000,
+      });
       if (owResp.ok && owResp.data) {
         const main = owResp.data.main || {};
-        temperature = temperature ?? (main.temp != null ? Math.round(main.temp * 10) / 10 : null);
+        temperature =
+          temperature ??
+          (main.temp != null ? Math.round(main.temp * 10) / 10 : null);
         humidity = humidity ?? main.humidity ?? null;
         pressure = pressure ?? main.pressure ?? null;
-        time = time ?? (owResp.data.dt ? new Date(owResp.data.dt * 1000).toISOString() : null);
-        units = units || { temperature_2m: "°C", relative_humidity_2m: "%", pressure_msl: "hPa" };
+        time =
+          time ??
+          (owResp.data.dt
+            ? new Date(owResp.data.dt * 1000).toISOString()
+            : null);
+        units = units || {
+          temperature_2m: "°C",
+          relative_humidity_2m: "%",
+          pressure_msl: "hPa",
+        };
       }
     }
 
     if (temperature == null && humidity == null && pressure == null) {
-      return res.status(502).json({ error: omResp.error || `All upstream sources failed` });
+      return res
+        .status(502)
+        .json({ error: omResp.error || `All upstream sources failed` });
     }
     res.json({
       latitude: Number(lat),
@@ -1073,11 +1771,17 @@ app.get("/api/station/current", async (req, res) => {
       units,
       upstream: {
         openMeteoStatus: omResp.status,
-        openWeatherUsed: !!OWM_API_KEY && (temperature == null || humidity == null || pressure == null ? true : false)
-      }
+        openWeatherUsed:
+          !!OWM_API_KEY &&
+          (temperature == null || humidity == null || pressure == null
+            ? true
+            : false),
+      },
     });
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to fetch station weather" });
+    res
+      .status(500)
+      .json({ error: e.message || "Failed to fetch station weather" });
   }
 });
 
@@ -1205,7 +1909,11 @@ app.get("/api/aqi/last-days", async (req, res) => {
       const val = lastByDate.get(date);
       return { date, value: val, category: inferAqiCategory(Number(val)) };
     });
-    res.json({ days: items.length, items, source: stored?.series ? "mongo" : "excel" });
+    res.json({
+      days: items.length,
+      items,
+      source: stored?.series ? "mongo" : "excel",
+    });
   } catch (e) {
     res
       .status(500)
@@ -1220,7 +1928,7 @@ app.get("/api/station/meta", async (req, res) => {
     if (MONGO_URI) {
       try {
         const col = await getStationCollection();
-        record = await col.findOne({ key: 'default' });
+        record = await col.findOne({ key: "default" });
       } catch (err) {
         console.warn(`[station-meta] mongo fetch failed: ${err.message}`);
       }
@@ -1232,16 +1940,20 @@ app.get("/api/station/meta", async (req, res) => {
         latitude: record.latitude ?? null,
         longitude: record.longitude ?? null,
         updatedAt: record.updatedAt || null,
-        source: 'mongo'
+        source: "mongo",
       });
     }
     const name = process.env.STATION_NAME || null;
     const address = process.env.STATION_ADDRESS || null;
-    const lat = process.env.STATION_LAT ? Number(process.env.STATION_LAT) : null;
-    const lon = process.env.STATION_LON ? Number(process.env.STATION_LON) : null;
-    res.json({ name, address, latitude: lat, longitude: lon, source: 'env' });
+    const lat = process.env.STATION_LAT
+      ? Number(process.env.STATION_LAT)
+      : null;
+    const lon = process.env.STATION_LON
+      ? Number(process.env.STATION_LON)
+      : null;
+    res.json({ name, address, latitude: lat, longitude: lon, source: "env" });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Failed to read station meta' });
+    res.status(500).json({ error: e.message || "Failed to read station meta" });
   }
 });
 
@@ -1268,20 +1980,22 @@ app.get("/api/tiles/owm/:layer/:z/:x/:y.png", async (req, res) => {
       return res.status(400).json({ error: "Unsupported layer" });
     }
     const url = `https://tile.openweathermap.org/map/${encodeURIComponent(
-      layer
+      layer,
     )}/${encodeURIComponent(z)}/${encodeURIComponent(x)}/${encodeURIComponent(
-      y
+      y,
     )}.png?appid=${encodeURIComponent(OWM_API_KEY)}`;
     const upstream = await fetch(url);
     if (!upstream.ok) {
       return res.status(upstream.status).end();
-        console.log(`[owm-tiles] request ${layer}/${z}/${x}/${y}`);
+      console.log(`[owm-tiles] request ${layer}/${z}/${x}/${y}`);
     }
     const buf = Buffer.from(await upstream.arrayBuffer());
     res.setHeader("Content-Type", "image/png");
     // Cache for 5 minutes at clients and allow CDN/proxy caching
     res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
-          console.warn(`[owm-tiles] upstream ${upstream.status} ${layer}/${z}/${x}/${y}`);
+    console.warn(
+      `[owm-tiles] upstream ${upstream.status} ${layer}/${z}/${x}/${y}`,
+    );
     return res.status(200).send(buf);
   } catch (e) {
     return res.status(502).json({ error: "Tile proxy failed" });
@@ -1290,7 +2004,7 @@ app.get("/api/tiles/owm/:layer/:z/:x/:y.png", async (req, res) => {
 
 // Diagnostics endpoint to help troubleshoot workbook loading and sheet/key detection
 app.get("/api/viz-data/diagnostics", async (req, res) => {
-        console.error(`[owm-tiles] error: ${e && e.message}`);
+  console.error(`[owm-tiles] error: ${e && e.message}`);
   try {
     const wbPath = resolveWorkbookPath();
     const wb = await loadWorkbook(wbPath);
@@ -1310,7 +2024,7 @@ app.get("/api/viz-data/diagnostics", async (req, res) => {
         : { xKey: null, yKey: null };
     const headerValues = head
       ? Object.fromEntries(
-          Object.keys(head).map((k) => [k, (head[k] || "").toString().trim()])
+          Object.keys(head).map((k) => [k, (head[k] || "").toString().trim()]),
         )
       : {};
     const xLabel = keysPicked.xKey
@@ -1342,7 +2056,7 @@ app.get("/api/reverse-geocode", async (req, res) => {
 
     // First try Open-Meteo reverse geocoding
     const omUrl = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${encodeURIComponent(
-      lat
+      lat,
     )}&longitude=${encodeURIComponent(lon)}&language=en&format=json`;
     let name = null,
       region = null;
@@ -1366,7 +2080,7 @@ app.get("/api/reverse-geocode", async (req, res) => {
     if (!name) {
       try {
         const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(
-          lat
+          lat,
         )}&longitude=${encodeURIComponent(lon)}&localityLanguage=en`;
         const r2 = await fetch(bdcUrl);
         if (r2.ok) {
@@ -1390,8 +2104,18 @@ app.get("/api/reverse-geocode", async (req, res) => {
   }
 });
 
+// ── Global crash guards: log and keep running ──
+process.on("uncaughtException", (err) => {
+  console.error("[UNCAUGHT EXCEPTION]", err?.stack || err);
+  // Do NOT process.exit — keep the server alive
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED REJECTION]", reason);
+});
+
 app.listen(PORT, () => {
-  const external = process.env.RENDER_EXTERNAL_URL || process.env.VITE_API_BASE || '';
+  const external =
+    process.env.RENDER_EXTERNAL_URL || process.env.VITE_API_BASE || "";
   if (external) {
     console.log(`Server ready on port ${PORT} (${external})`);
   } else {
@@ -1412,10 +2136,7 @@ app.listen(PORT, () => {
       try {
         await loadWorkbook(wbPath);
         // Prime computed series caches
-        await Promise.allSettled([
-          readVizData(),
-          readSheetSeries('PM10'),
-        ]);
+        await Promise.allSettled([readVizData(), readSheetSeries("PM10")]);
       } catch {}
       warming = false;
     }, intervalMs);
