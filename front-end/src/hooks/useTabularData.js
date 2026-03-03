@@ -1,0 +1,130 @@
+/**
+ * useTabularData – fetches data from /api/tabular/:province/:pollutant
+ * and transforms it into the format the dashboard components expect.
+ *
+ * Returns { rows, latest, dailyRows, loading, error, fetchedAt, retry }
+ *   - rows       : raw enhanced rows from the server (newest-first)
+ *   - latest     : the most recent row with valid AQI (for AQI hero card)
+ *   - dailyRows  : array of { t, y, conc, status } in chronological order
+ *   - loading    : boolean
+ *   - error      : string | null
+ *   - fetchedAt  : ISO timestamp
+ *   - retry      : function to force re-fetch
+ */
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { getApiBase } from "../util/apiBase";
+
+export default function useTabularData(province, pollutant) {
+  const [raw, setRaw] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [fetchedAt, setFetchedAt] = useState(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    if (!province || !pollutant) {
+      // Intentionally skipped (e.g. secondary pollutant not needed)
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const base = getApiBase();
+      const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!mountedRef.current) return;
+      setRaw(json);
+      setFetchedAt(json.fetchedAt || new Date().toISOString());
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e.message || "Failed to fetch data");
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, [province, pollutant]);
+
+  useEffect(() => {
+    fetchData();
+    // Auto-refresh every 5 minutes
+    const iv = setInterval(fetchData, 300_000);
+    return () => clearInterval(iv);
+  }, [fetchData]);
+
+  // Parse rows into usable shape
+  const rows = useMemo(() => {
+    if (!raw?.rows) return [];
+    return raw.rows;
+  }, [raw]);
+
+  // Find the date column key (may vary per sheet)
+  const dateCol = useMemo(() => {
+    if (!raw?.columns) return null;
+    const cols = raw.columns;
+    const match = cols.find((c) => /date|time/i.test(c));
+    return match || cols[0] || null;
+  }, [raw]);
+
+  // Find the concentration column key
+  const concCol = useMemo(() => {
+    if (!raw?.columns) return null;
+    return raw.columns.find((c) => /concentration/i.test(c)) || null;
+  }, [raw]);
+
+  // Latest row – server returns NEWEST-FIRST, so rows[0] is the most recent.
+  // Always display the latest encoded value from the Google Sheet,
+  // regardless of how old it is. This ensures the most recent data
+  // entered by the end user is always shown.
+  const latest = useMemo(() => {
+    if (!rows.length) return null;
+    // Always use the absolute newest row (latest encoded data)
+    return rows[0];
+  }, [rows]);
+
+  // Transform to { t, y, conc, status } for chart & calendar (y = AQI)
+  // Server delivers newest-first, so we reverse to chronological order.
+  const dailyRows = useMemo(() => {
+    if (!rows.length || !dateCol) return [];
+    // Reverse to chronological (oldest-first) for charts & calendar
+    const chrono = [...rows].reverse();
+    return chrono
+      .map((r) => {
+        const dateRaw = r[dateCol];
+        if (!dateRaw) return null;
+        const d = new Date(dateRaw);
+        if (isNaN(d.getTime())) return null;
+        const aqi = r["AQI"] ?? r["aqi"] ?? null;
+        if (aqi == null || !isFinite(Number(aqi))) return null;
+        // Include concentration and status for calendar tiles
+        const conc = concCol ? (r[concCol] ?? null) : null;
+        const status = r["Status"] ?? r["status"] ?? null;
+        return {
+          t: d.toISOString(),
+          y: Number(aqi),
+          conc: conc != null ? Number(conc) : null,
+          status: status || null,
+        };
+      })
+      .filter(Boolean);
+  }, [rows, dateCol, concCol]);
+
+  return {
+    rows,
+    latest,
+    dailyRows,
+    loading,
+    error,
+    fetchedAt,
+    retry: fetchData,
+    dateCol,
+    concCol,
+    raw,
+  };
+}

@@ -1,14 +1,10 @@
 import { defineConfig } from 'vite'
 import path from 'path'
 import react from '@vitejs/plugin-react'
-import mkcert from 'vite-plugin-mkcert'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), mkcert({
-    // Include common local names & current LAN IP; add hostname if needed
-    hosts: ['localhost', '127.0.0.1', '10.14.77.107']
-  })],
+  plugins: [react()],
   build: {
     chunkSizeWarningLimit: 1400,
     rollupOptions: {
@@ -27,8 +23,8 @@ export default defineConfig({
     // Bind explicitly to all interfaces so other LAN devices can reach it
     host: '0.0.0.0',
     port: 5173,
-    https: true,
-    // If tablet still reports unreachable, try setting https:false temporarily
+    // HTTPS disabled – mkcert root CA isn't trusted on LAN tablets,
+    // causing ERR_EMPTY_RESPONSE. Plain HTTP works fine for dev.
   },
   resolve: {
     // Ensure a single Three.js instance is used across all dependencies

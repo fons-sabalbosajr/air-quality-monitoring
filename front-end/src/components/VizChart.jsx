@@ -82,7 +82,7 @@ export default function VizChart({
   const BASE_THRESHOLDS = [
     { name: "GOOD", min: 0.0, max: 50.99, color: "#52c41a" },
     { name: "FAIR", min: 51.0, max: 100.99, color: "#d4b106" },
-    { name: "UNHEALTHY", min: 101.0, max: 150.99, color: "#fa8c16" },
+    { name: "UNHEALTHY FOR SENSITIVE GROUPS", min: 101.0, max: 150.99, color: "#fa8c16" },
     { name: "VERY UNHEALTHY", min: 151.0, max: 200.99, color: "#f5222d" },
     { name: "ACUTELY UNHEALTHY", min: 201.0, max: 300.99, color: "#722ed1" },
     { name: "EMERGENCY", min: 301.0, max: 400.99, color: "#a8071a" },
@@ -94,7 +94,7 @@ export default function VizChart({
     if (val >= 301) return { name: "EMERGENCY", color: "#a8071a" };
     if (val >= 201) return { name: "ACUTELY UNHEALTHY", color: "#722ed1" };
     if (val >= 151) return { name: "VERY UNHEALTHY", color: "#f5222d" };
-    if (val >= 101) return { name: "UNHEALTHY", color: "#fa8c16" };
+    if (val >= 101) return { name: "UNHEALTHY FOR SENSITIVE GROUPS", color: "#fa8c16" };
     if (val >= 51) return { name: "FAIR", color: "#d4b106" };
     return { name: "GOOD", color: "#52c41a" };
   }

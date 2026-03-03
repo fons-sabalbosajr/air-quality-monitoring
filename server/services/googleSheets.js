@@ -1,0 +1,405 @@
+/**
+ * Google Sheets data fetching, multi-pass enhancement,
+ * and cached table retrieval.
+ *
+ * Uses CSV export per year-tab (via gviz/tq) instead of XLSX to avoid
+ * stale formula result caches that produce incorrect dates.
+ */
+const { SHEET_CACHE_TTL_MS } = require("../config/env");
+const { TABULAR_SHEETS } = require("../config/sheets");
+const { parseDateValue, formatDateAmPm } = require("../utils/dateUtils");
+const { coerceNumber, meanLast } = require("../utils/mathUtils");
+const { phPm10Status24hFromAvg, phPm25Status24hFromAvg } = require("./aqiCalculator");
+
+const _sheetCache = new Map();
+
+function extractSpreadsheetId(url) {
+  if (!url) return null;
+  const s = String(url);
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+
+/* ── Simple CSV line parser (handles quoted fields) ─────────────── */
+function parseCSVLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        result.push(current.trim() || null);
+        current = "";
+      } else {
+        current += c;
+      }
+    }
+  }
+  result.push(current.trim() || null);
+  return result;
+}
+
+/**
+ * Fetch a single sheet tab as CSV via Google Sheets gviz/tq endpoint.
+ * Returns the CSV text or null if the tab doesn't exist.
+ */
+async function fetchSheetTabCSV(spreadsheetId, tabName) {
+  const csvUrl =
+    `https://docs.google.com/spreadsheets/d/${spreadsheetId}` +
+    `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+
+  const TIMEOUT_MS = 30000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(csvUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": "aqm-server/1.0", Accept: "text/csv,*/*" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const text = await res.text();
+    // Google Sheets returns an HTML page when the tab doesn't exist
+    if (
+      !text ||
+      text.length < 10 ||
+      text.trimStart().startsWith("<!") ||
+      text.trimStart().startsWith("<html")
+    ) {
+      return null;
+    }
+    return text;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+/**
+ * Download displayed values from each year-named tab as CSV,
+ * merge rows from all tabs (e.g. "2025", "2026").
+ *
+ * CSV export returns the DISPLAYED values computed by Google Sheets,
+ * avoiding stale formula cache issues present in XLSX export.
+ */
+async function fetchAllSheetsAsTable(sheetUrl) {
+  const id = extractSpreadsheetId(sheetUrl);
+  if (!id) throw new Error("Cannot extract spreadsheet ID from URL");
+
+  // Try year-named tabs: up to 2 years in the past through current year
+  const currentYear = new Date().getFullYear();
+  const yearsToTry = [];
+  for (let y = currentYear - 2; y <= currentYear; y++) {
+    yearsToTry.push(String(y));
+  }
+
+  let columns = null;
+  let allRows = [];
+  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i];
+  let tabsFound = 0;
+
+  for (const year of yearsToTry) {
+    const csvText = await fetchSheetTabCSV(id, year);
+    if (!csvText) continue;
+    tabsFound++;
+
+    const lines = csvText.split("\n");
+    if (lines.length < 2) continue;
+
+    const headerRow = parseCSVLine(lines[0]).map((h, idx) => {
+      const v = (h == null ? "" : String(h)).trim();
+      return v || `Column ${idx + 1}`;
+    });
+
+    if (!columns) {
+      columns = headerRow.filter((h) =>
+        RAW_COL_PATTERNS.some((p) => p.test(h)),
+      );
+      if (!columns.length) columns = headerRow;
+    }
+
+    const colIndices = columns.map((c) => headerRow.indexOf(c));
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const cells = parseCSVLine(line);
+      if (!cells.some((c) => c != null && String(c).trim() !== "")) continue;
+
+      const obj = {};
+      for (let ci = 0; ci < columns.length; ci++) {
+        const idx = colIndices[ci];
+        obj[columns[ci]] = idx >= 0 ? (cells[idx] ?? null) : null;
+      }
+      // CSV values are always computed — no formula tracking needed
+      Object.defineProperty(obj, "__formulaCols", {
+        value: [],
+        enumerable: false,
+        writable: true,
+      });
+      allRows.push(obj);
+    }
+
+    console.log(
+      `[tabular] Sheet tab "${year}": ${lines.length - 1} CSV rows loaded`,
+    );
+  }
+
+  if (!tabsFound) {
+    throw new Error("No year-named sheet tabs could be fetched");
+  }
+
+  return { columns: columns || [], rows: allRows };
+}
+
+/**
+ * Multi-pass enhancement for tabular data:
+ * 1. Parse ALL dates → epochs
+ * 2. Sort chronologically
+ * 3. Compute 24h rolling average + AQI + Status
+ * 4. Format dates → MM/DD/YYYY H:MM AM/PM
+ * 5. Reverse to newest-first
+ */
+function enhanceTabularRows(table, pollutantKey, opts = {}) {
+  try {
+    return _enhanceTabularRowsImpl(table, pollutantKey, opts);
+  } catch (err) {
+    console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
+    return table || { columns: [], rows: [] };
+  }
+}
+
+function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
+  const logsPerHour = Number(opts.logsPerHour || 1);
+  const requiredLogs = 24 * logsPerHour;
+  const statusFn =
+    pollutantKey === "pm25" ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
+
+  const columns = Array.isArray(table?.columns) ? [...table.columns] : [];
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  if (!rows.length) return table || { columns: [], rows: [] };
+
+  const dateKey =
+    columns.find((c) => /date|time/i.test(c)) ||
+    Object.keys(rows[0] || {}).find((k) => /date|time/i.test(k));
+  const concKey =
+    columns.find((c) => /concentration/i.test(c)) ||
+    Object.keys(rows[0] || {}).find((k) => /concentration/i.test(k));
+  const rollingKey =
+    columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
+  const aqiCatKey =
+    columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
+
+  // ── Pass 1: Parse all dates → epoch timestamps ──
+  const epochs = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    if (dateKey) {
+      const d = parseDateValue(rows[i][dateKey]);
+      epochs[i] = d ? d.getTime() : 0;
+    } else {
+      epochs[i] = 0;
+    }
+  }
+
+  // ── Pass 2: Sort chronologically ──
+  const chronoIndices = Array.from({ length: rows.length }, (_, i) => i);
+  chronoIndices.sort((a, b) => epochs[a] - epochs[b]);
+
+  // ── Pass 2b: Remove future-dated rows ──
+  const nowMs = Date.now();
+  let validIndices = chronoIndices.filter(
+    (i) => epochs[i] === 0 || epochs[i] <= nowMs,
+  );
+
+  // ── Pass 2c: Remove formula-generated / placeholder rows ──
+  if (dateKey && concKey) {
+    const before = validIndices.length;
+    validIndices = validIndices.filter((i) => {
+      const fc = rows[i].__formulaCols;
+      const dateIsFormula = fc && fc.includes(dateKey);
+      const concIsFormula = fc && fc.includes(concKey);
+
+      if (dateIsFormula && concIsFormula) return false;
+
+      if (dateIsFormula) {
+        const concVal = rows[i][concKey];
+        const numConc = coerceNumber(concVal);
+        const isEmpty =
+          concVal == null ||
+          (typeof concVal === "string" && concVal.trim() === "") ||
+          numConc === 0;
+        if (isEmpty) return false;
+      }
+
+      return true;
+    });
+    if (validIndices.length < before) {
+      console.log(
+        `[enhanceTabularRows] Removed ${before - validIndices.length} formula-generated/placeholder rows`,
+      );
+    }
+  }
+
+  // ── Pass 2d: Remove trailing rows with empty/zero concentration ──
+  if (concKey) {
+    const beforeTrim = validIndices.length;
+    while (validIndices.length > 0) {
+      const lastIdx = validIndices[validIndices.length - 1];
+      const concVal = rows[lastIdx][concKey];
+      const numVal = coerceNumber(concVal);
+      const isEmpty =
+        concVal == null ||
+        (typeof concVal === "string" && concVal.trim() === "") ||
+        numVal === 0;
+      if (isEmpty) {
+        validIndices.pop();
+      } else {
+        break;
+      }
+    }
+    if (validIndices.length < beforeTrim) {
+      console.log(
+        `[enhanceTabularRows] Trimmed ${beforeTrim - validIndices.length} trailing rows without concentration data`,
+      );
+    }
+  }
+
+  // ── Pass 2e: Detect and remove shared-formula placeholder rows ──
+  if (dateKey && concKey && validIndices.length > 2) {
+    const beforeE = validIndices.length;
+    const lastConcVal = rows[validIndices[validIndices.length - 1]][concKey];
+    let sameCount = 0;
+    for (let j = validIndices.length - 1; j >= 0; j--) {
+      const cv = rows[validIndices[j]][concKey];
+      if (
+        cv === lastConcVal ||
+        (coerceNumber(cv) === coerceNumber(lastConcVal) &&
+          coerceNumber(cv) != null)
+      ) {
+        sameCount++;
+      } else {
+        break;
+      }
+    }
+    if (sameCount >= 10 && coerceNumber(lastConcVal) != null) {
+      validIndices.splice(validIndices.length - sameCount);
+      console.log(
+        `[enhanceTabularRows] Removed ${sameCount} trailing rows with identical concentration (${lastConcVal}) — likely auto-filled`,
+      );
+    }
+    if (validIndices.length < beforeE) {
+      console.log(
+        `[enhanceTabularRows] Pass 2e removed ${beforeE - validIndices.length} suspected auto-fill rows`,
+      );
+    }
+  }
+
+  // ── Pass 3: Compute rolling avg + AQI + format dates ──
+  const numericSeen = [];
+  const resultRows = new Array(validIndices.length);
+
+  for (let pos = 0; pos < validIndices.length; pos++) {
+    const origIdx = validIndices[pos];
+    const r = rows[origIdx];
+
+    if (dateKey) {
+      const d = epochs[origIdx] ? new Date(epochs[origIdx]) : null;
+      if (d) r[dateKey] = formatDateAmPm(d);
+    }
+
+    if (concKey) {
+      const n = coerceNumber(r[concKey]);
+      const isSentinel = n != null && n >= 9999;
+      if (n != null && !isSentinel) numericSeen.push(n);
+
+      const avg24h = numericSeen.length
+        ? meanLast(numericSeen, requiredLogs)
+        : 0;
+      r[rollingKey] = avg24h;
+
+      const { aqi, status } = statusFn(avg24h);
+      r["AQI"] = aqi;
+      r["Status"] = status;
+
+      if (aqiCatKey) delete r[aqiCatKey];
+    }
+
+    resultRows[validIndices.length - 1 - pos] = r;
+  }
+
+  const filteredColumns = columns.filter((c) => c !== aqiCatKey);
+  const ensureCol = (c) => {
+    if (!filteredColumns.includes(c)) filteredColumns.push(c);
+  };
+  if (concKey) {
+    ensureCol(rollingKey);
+    ensureCol("AQI");
+    ensureCol("Status");
+  }
+
+  return { ...table, columns: filteredColumns, rows: resultRows };
+}
+
+async function getTabularTable(provinceKey, pollutantKey) {
+  const sheetUrl = TABULAR_SHEETS?.[provinceKey]?.[pollutantKey] || null;
+  if (!sheetUrl) {
+    const err = new Error("Sheet URL not configured");
+    err.code = "NOT_CONFIGURED";
+    throw err;
+  }
+  const cacheKey = `tabular:${provinceKey}:${pollutantKey}`;
+  const cached = _sheetCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < SHEET_CACHE_TTL_MS) {
+    return { ...cached.payload, source: "cache" };
+  }
+
+  try {
+    let table = await fetchAllSheetsAsTable(sheetUrl);
+    table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1 });
+    const payload = {
+      province: provinceKey,
+      pollutant: pollutantKey,
+      columns: table.columns,
+      rows: table.rows,
+      totalRows: table.rows.length,
+      fetchedAt: Date.now(),
+      source: "sheet",
+    };
+    _sheetCache.set(cacheKey, { ts: Date.now(), payload });
+    return payload;
+  } catch (fetchErr) {
+    console.error(
+      `[tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
+    );
+    if (cached) {
+      console.warn(
+        `[tabular] Serving stale cache for ${provinceKey}/${pollutantKey} ` +
+          `(age ${Math.round((Date.now() - cached.ts) / 1000)}s)`,
+      );
+      return { ...cached.payload, source: "stale-cache" };
+    }
+    throw fetchErr;
+  }
+}
+
+module.exports = {
+  fetchAllSheetsAsTable,
+  enhanceTabularRows,
+  getTabularTable,
+};

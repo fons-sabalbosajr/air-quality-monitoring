@@ -1,806 +1,453 @@
-import { useEffect, useState, useMemo } from "react";
-// getApiBase no longer needed here; API base handled by hook
-import { Skeleton, Alert, Spin, Table, Card, Tag, DatePicker, Button } from "antd";
-import FilterGroup from "@components/FilterGroup.jsx";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { Select, Button, Tooltip, Badge, Dropdown, message, DatePicker, Modal, Space } from "antd";
 import dayjs from "dayjs";
-import VizChart from "../components/VizChart";
-import Pm10Chart from "../components/Pm10Chart";
+import {
+  TbMapPin, TbDownload, TbFilter, TbActivity,
+  TbRefresh, TbFileSpreadsheet, TbFileTypeCsv,
+} from "react-icons/tb";
 import { useAqi } from "../context/AqiContext";
-import { useApiEndpoint } from "../util/apiClient";
+import STATIONS, { getStation, getMergedStations } from "../config/stations";
+import useTabularData from "../hooks/useTabularData";
+import useStationWeather from "../hooks/useStationWeather";
 import FallbackPanel from "../components/FallbackPanel";
+import AqiHeroCard from "../components/AqiHeroCard";
+import PollutantsCard from "../components/PollutantsCard";
+import HistoricalAqiGraph from "../components/HistoricalAqiGraph";
+import AqiCalendar from "../components/AqiCalendar";
 
-function useLatestAQI() {
-  return useApiEndpoint('/api/aqi/latest', {
-    refreshMs: 60000,
-    retries: 2,
-    timeoutMs: 12000,
-    cacheTtlMs: 15000,
-  });
-}
-
-function useStationCurrent() {
-  return useApiEndpoint('/api/station/current', {
-    refreshMs: 60000,
-    retries: 2,
-    timeoutMs: 10000,
-    cacheTtlMs: 20000,
-  });
-}
-
-function useStationForecast(days = 3) {
-  return useApiEndpoint('/api/station/forecast', {
-    params: { days },
-    refreshMs: 600000, // 10 minutes
-    retries: 2,
-    timeoutMs: 12000,
-    cacheTtlMs: 60000,
-  });
-}
-
-function categoryTint(category) {
-  const c = String(category || "").toUpperCase();
-  if (c.includes("GOOD")) return "#52c41a"; // green
-  if (c.includes("FAIR")) return "#d4b106"; // yellow
-  if (c === "UNHEALTHY") return "#fa8c16"; // orange
-  if (c.includes("VERY")) return "#f5222d"; // red (VERY UNHEALTHY)
-  if (c.includes("ACUTELY")) return "#722ed1"; // purple
-  if (c.includes("EMERGENCY") || c.includes("HAZARD")) return "#a8071a"; // maroon
-  return "#1677ff"; // default primary
-}
-
-function hexToRgba(hex, alpha) {
-  let h = hex.replace("#", "");
-  if (h.length === 3)
-    h = h
-      .split("")
-      .map((ch) => ch + ch)
-      .join("");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
+/* ── Dashboard Page ────────────────────────────────────────────────── */
 export default function DashboardPage() {
   const { setCategory } = useAqi() || { setCategory: () => {} };
-  const aqi = useLatestAQI();
-  const station = useStationCurrent();
-  const forecast = useStationForecast(3);
-  const aqiDays = useAqiLastDays(3);
-  const meta = useStationMeta();
-  const [addrState, setAddrState] = useState({ loading: false, display: null });
-  // Data for tables below charts
-  // Tables data via resilient API hook
-  const dailyData = useApiEndpoint('/api/viz-data', { retries: 3, timeoutMs: 60000, cacheTtlMs: 120000 });
-  const hourlyData = useApiEndpoint('/api/pm10-data', { retries: 3, timeoutMs: 60000, cacheTtlMs: 90000 });
-  const dailyRows = useMemo(() => Array.isArray(dailyData.data) ? dailyData.data : [], [dailyData.data]);
-  const hourlyRows = useMemo(() => Array.isArray(hourlyData.data) ? hourlyData.data : [], [hourlyData.data]);
-  // Date range filters (null = no filter)
-  const [dailyRange, setDailyRange] = useState(null); // [startDayjs, endDayjs]
-  const [hourlyRange, setHourlyRange] = useState(null);
 
-  // Push latest AQI category to context for global UI (e.g., legend dot pulse)
+  // Merged station list (Zambales PM10+PM2.5 → single entry)
+  const DASH_STATIONS = useMemo(() => getMergedStations(), []);
+
+  // Station selector – persisted in sessionStorage
+  const [stationKey, setStationKey] = useState(() => {
+    const saved = sessionStorage.getItem("aqm_station");
+    // Map old individual keys to merged key
+    if (saved) {
+      const found = DASH_STATIONS.find((s) => s.key === saved);
+      if (found) return saved;
+      // Check if it's an un-merged key that belongs to a merged station
+      const parent = DASH_STATIONS.find(
+        (s) => s.merged && s.pollutants?.some((p) => p.key === saved)
+      );
+      if (parent) return parent.key;
+    }
+    return DASH_STATIONS[0].key;
+  });
+  const station = DASH_STATIONS.find((s) => s.key === stationKey) || DASH_STATIONS[0];
+
+  useEffect(() => {
+    sessionStorage.setItem("aqm_station", stationKey);
+  }, [stationKey]);
+
+  // Primary tabular data
+  const tabular = useTabularData(station.province, station.pollutant);
+
+  // Secondary pollutant data (for merged stations like Zambales PM10+PM2.5)
+  const secondaryPollutant = station.merged
+    ? station.pollutants?.find((p) => p.pollutant !== station.pollutant)
+    : null;
+  const tabular2 = useTabularData(
+    secondaryPollutant ? station.province : null,
+    secondaryPollutant ? secondaryPollutant.pollutant : null,
+  );
+
+  // Weather from Open-Meteo for this station's coordinates
+  const weather = useStationWeather(station.lat, station.lon);
+
+  /* ── Export helpers ────────────────────────────────────────────── */
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportDateRange, setExportDateRange] = useState(null);
+  const [exportStatus, setExportStatus] = useState(null);
+
+  const filteredExportRows = useMemo(() => {
+    let rows = tabular.rows;
+    if (!rows.length) return rows;
+    const dateCol = tabular.dateCol;
+    if (exportDateRange && exportDateRange[0] && exportDateRange[1] && dateCol) {
+      const start = exportDateRange[0].startOf("day");
+      const end = exportDateRange[1].endOf("day");
+      rows = rows.filter((r) => {
+        const d = dayjs(r[dateCol]);
+        return d.isValid() && d.isAfter(start) && d.isBefore(end);
+      });
+    }
+    if (exportStatus) {
+      rows = rows.filter((r) => {
+        const s = (r["Status"] ?? r["status"] ?? "").toString().toUpperCase();
+        return s === exportStatus.toUpperCase();
+      });
+    }
+    return rows;
+  }, [tabular.rows, tabular.dateCol, exportDateRange, exportStatus]);
+
+  const doExport = useCallback((format) => {
+    const rows = filteredExportRows;
+    if (!rows.length) {
+      message.warning("No data matches the current filters");
+      return;
+    }
+    if (format === "csv") {
+      const cols = tabular.raw?.columns || Object.keys(rows[0]);
+      const header = cols.join(",");
+      const body = rows
+        .map((r) =>
+          cols.map((c) => {
+            const v = r[c] ?? "";
+            return String(v).includes(",") ? `"${v}"` : v;
+          }).join(",")
+        )
+        .join("\n");
+      const blob = new Blob([header + "\n" + body], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${station.name.replace(/\s+/g, "_")}_${dayjs().format("YYYY-MM-DD")}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      message.success(`CSV exported (${rows.length} rows)`);
+    } else {
+      const blob = new Blob(
+        [JSON.stringify({ station: station.name, rows }, null, 2)],
+        { type: "application/json" }
+      );
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${station.name.replace(/\s+/g, "_")}_${dayjs().format("YYYY-MM-DD")}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      message.success(`JSON exported (${rows.length} rows)`);
+    }
+    setExportModalOpen(false);
+  }, [filteredExportRows, tabular.raw, station.name]);
+
+  const STATUS_OPTIONS = [
+    { value: "Good", label: "Good" },
+    { value: "Fair", label: "Fair" },
+    { value: "Unhealthy for Sensitive Groups", label: "Unhealthy for Sensitive" },
+    { value: "Very Unhealthy", label: "Very Unhealthy" },
+    { value: "Acutely Unhealthy", label: "Acutely Unhealthy" },
+    { value: "Emergency", label: "Emergency" },
+  ];
+
+  /* ── Station status summary ───────────────────────────────────── */
+  const stationStatus = useMemo(() => {
+    const row = tabular.latest;
+    const total = tabular.rows.length;
+    const withAqi = tabular.rows.filter((r) => {
+      const v = r["AQI"] ?? r["aqi"];
+      return v != null && isFinite(Number(v));
+    }).length;
+    const lastUpdate = row && tabular.dateCol ? row[tabular.dateCol] : null;
+    const status = row ? (row["Status"] ?? row["status"] ?? null) : null;
+    return { total, withAqi, lastUpdate, status };
+  }, [tabular.latest, tabular.rows, tabular.dateCol]);
+
+  // Extract latest AQI values from tabular data
+  const latestAqi = useMemo(() => {
+    const row = tabular.latest;
+    if (!row) return { value: null, category: null, time: null };
+    const aqi = row["AQI"] ?? row["aqi"];
+    const status = row["Status"] ?? row["status"];
+    // Find the date column
+    const dateCol = tabular.dateCol;
+    const time = dateCol ? row[dateCol] : null;
+    return {
+      value: aqi != null ? Number(aqi) : null,
+      category: status || null,
+      time: time ? new Date(time).toISOString() : null,
+    };
+  }, [tabular.latest, tabular.dateCol]);
+
+  // Secondary AQI (for merged stations)
+  const latestAqi2 = useMemo(() => {
+    if (!station.merged) return null;
+    const row = tabular2.latest;
+    if (!row) return { value: null, category: null, time: null };
+    const aqi = row["AQI"] ?? row["aqi"];
+    const status = row["Status"] ?? row["status"];
+    const dateCol = tabular2.dateCol;
+    const time = dateCol ? row[dateCol] : null;
+    return {
+      value: aqi != null ? Number(aqi) : null,
+      category: status || null,
+      time: time ? new Date(time).toISOString() : null,
+    };
+  }, [station.merged, tabular2.latest, tabular2.dateCol]);
+
+  // Detect dark mode from the DOM
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const check = () =>
+      setDark(document.documentElement.classList.contains("dark"));
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => obs.disconnect();
+  }, []);
+
+  // Push latest AQI category to context
   useEffect(() => {
     try {
-      const cat = aqi?.data?.category || null;
-      setCategory && setCategory(cat);
+      setCategory && setCategory(latestAqi.category);
     } catch {}
-  }, [aqi?.data?.category]);
+  }, [latestAqi.category]);
 
-  // Helpers
-  function classify(y) {
-    if (!isFinite(Number(y))) return { name: '—', color: 'default'};
-    y = Number(y);
-    if (y >= 301) return { name: 'EMERGENCY', color: '#a8071a' };
-    if (y >= 201) return { name: 'ACUTELY UNHEALTHY', color: '#722ed1' };
-    if (y >= 151) return { name: 'VERY UNHEALTHY', color: '#f5222d' };
-    if (y >= 101) return { name: 'UNHEALTHY', color: '#fa8c16' };
-    if (y >= 51) return { name: 'FAIR', color: '#d4b106' };
-    return { name: 'GOOD', color: '#52c41a' };
-  }
-
-  function exportCSV(kind, rows) {
-    if (!rows || !rows.length) return;
-    const header = 'timestamp,value,status';
-    const lines = rows.map(r => {
-      const c = classify(r.y);
-      return `${dayjs(r.t).toISOString()},${r.y},${c.name}`;
-    });
-    const csv = [header, ...lines].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${kind}-export-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  // Resolve address for header: prefer .env address, fallback to reverse geocode via backend
-  const lat = meta?.data?.latitude ?? station?.data?.latitude;
-  const lon = meta?.data?.longitude ?? station?.data?.longitude;
-  const rev = useApiEndpoint('/api/reverse-geocode', {
-    params: { lat, lon },
-    enabled: Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && !(meta?.data?.address && meta.data.address.trim().length > 0),
-    retries: 1,
-    timeoutMs: 9000,
-    cacheTtlMs: 300000,
-    refreshMs: 0,
-  });
-  useEffect(() => {
-    const hasAddr = !!meta?.data?.address && meta.data.address.trim().length > 0;
-    const display = hasAddr ? meta.data.address : (rev?.data?.display || null);
-    setAddrState({ loading: !hasAddr && !!rev.loading, display });
-  }, [meta?.data?.address, rev.loading, rev?.data?.display]);
-
-  // (Removed manual fetch; using hooks above)
-
-  // Worst-case fallback: if core data does not load within 25s, show Power BI link with retry
+  // Fallback for when everything fails
   const [showFallback, setShowFallback] = useState(false);
   useEffect(() => {
     const id = setTimeout(() => {
-      const noTables = dailyRows.length === 0 && hourlyRows.length === 0;
-      const aqiFailed = !!aqi.error;
-      const stationFailed = !!station.error && !!forecast.error;
-      if (noTables && (aqiFailed || stationFailed)) setShowFallback(true);
+      const noData = tabular.dailyRows.length === 0;
+      const tabFailed = !!tabular.error;
+      if (noData && tabFailed) setShowFallback(true);
+      else setShowFallback(false);
     }, 25000);
     return () => clearTimeout(id);
-  }, [dailyRows.length, hourlyRows.length, aqi.error, station.error, forecast.error]);
+  }, [tabular.dailyRows.length, tabular.error]);
 
-  // Show Power BI fallback button if ANY key data source has an error (soft fallback)
-  const hasAnyError = [aqi.error, station.error, forecast.error, aqiDays.error, meta.error, dailyData.error, hourlyData.error].some(Boolean);
-  const powerBiUrl = "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA";
+  const hasAnyError = [tabular.error, weather.error].some(Boolean);
+  const powerBiUrl =
+    "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D";
 
-  // Apply sorting (recent first) + optional range filtering
-  const dailyVisible = useMemo(() => {
-    let rows = [...dailyRows];
-    rows.sort((a,b)=> dayjs(b.t).valueOf() - dayjs(a.t).valueOf());
-    if (dailyRange && Array.isArray(dailyRange) && dailyRange[0] && dailyRange[1]) {
-      const [start,end] = dailyRange;
-      rows = rows.filter(r => {
-        const ts = dayjs(r.t);
-        return (!start || !ts.isBefore(start, 'day')) && (!end || !ts.isAfter(end, 'day'));
-      });
-    }
-    return rows;
-  }, [dailyRows, dailyRange]);
-  const hourlyVisible = useMemo(() => {
-    let rows = [...hourlyRows];
-    rows.sort((a,b)=> dayjs(b.t).valueOf() - dayjs(a.t).valueOf());
-    if (hourlyRange && Array.isArray(hourlyRange) && hourlyRange[0] && hourlyRange[1]) {
-      const [start,end] = hourlyRange;
-      rows = rows.filter(r => {
-        const ts = dayjs(r.t);
-        return (!start || !ts.isBefore(start)) && (!end || !ts.isAfter(end));
-      });
-    }
-    return rows;
-  }, [hourlyRows, hourlyRange]);
+  // Station selector dropdown options
+  const stationOptions = DASH_STATIONS.map((s) => ({
+    label: (
+      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <TbMapPin size={14} />
+        {s.name}{s.merged ? ` (${s.pollutantLabel})` : ""}
+      </span>
+    ),
+    value: s.key,
+  }));
+
+  // Compute accent color from current AQI for dashboard section gradients
+  const dashAccent = useMemo(() => {
+    const v = latestAqi.value;
+    if (v == null || !isFinite(v)) return { color: "#0ea5e9", light: "rgba(14,165,233,0.06)", border: "rgba(14,165,233,0.15)" };
+    if (v <= 50) return { color: "#34d399", light: "rgba(52,211,153,0.06)", border: "rgba(52,211,153,0.18)" };
+    if (v <= 100) return { color: "#fbbf24", light: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.18)" };
+    if (v <= 150) return { color: "#fb923c", light: "rgba(251,146,60,0.06)", border: "rgba(251,146,60,0.18)" };
+    if (v <= 200) return { color: "#f87171", light: "rgba(248,113,113,0.06)", border: "rgba(248,113,113,0.18)" };
+    if (v <= 300) return { color: "#a78bfa", light: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.18)" };
+    return { color: "#fb7185", light: "rgba(251,113,133,0.07)", border: "rgba(251,113,133,0.2)" };
+  }, [latestAqi.value]);
 
   return (
-    <div className="space-y-4">
+    <div
+      className="dashboard-v2 space-y-6"
+      style={{
+        "--dash-accent": dashAccent.color,
+        "--dash-accent-light": dashAccent.light,
+        "--dash-accent-border": dashAccent.border,
+      }}
+    >      {/* Station Selector + Toolbar */}
+      <div className="dashboard-station-selector">
+        <Select
+          value={stationKey}
+          onChange={setStationKey}
+          options={stationOptions}
+          size="large"
+          style={{ minWidth: 280 }}
+          popupMatchSelectWidth={false}
+          suffixIcon={<TbMapPin size={18} />}
+        />
+
+        <div className="dashboard-toolbar">
+          {/* Station status badge */}
+          {!tabular.loading && stationStatus.total > 0 && (
+            <Tooltip title={
+              <div style={{ fontSize: 12 }}>
+                <div><strong>Records:</strong> {stationStatus.total}</div>
+                <div><strong>With AQI:</strong> {stationStatus.withAqi}</div>
+                {stationStatus.lastUpdate && (
+                  <div><strong>Last update:</strong> {stationStatus.lastUpdate}</div>
+                )}
+                {stationStatus.status && (
+                  <div><strong>Status:</strong> {stationStatus.status}</div>
+                )}
+              </div>
+            }>
+              <Badge
+                status={stationStatus.withAqi > 0 ? "success" : "warning"}
+                className="dashboard-status-badge"
+                text={
+                  <span className="dashboard-status-text">
+                    <TbActivity size={14} />
+                    <span>{stationStatus.withAqi} records</span>
+                  </span>
+                }
+              />
+            </Tooltip>
+          )}
+
+          {/* Export button – opens filter modal */}
+          <Button
+            icon={<TbDownload size={16} />}
+            className="dashboard-toolbar-btn"
+            size="middle"
+            onClick={() => setExportModalOpen(true)}
+          >
+            <span className="toolbar-btn-label">Export</span>
+          </Button>
+
+          {/* Refresh */}
+          <Tooltip title="Refresh data">
+            <Button
+              icon={<TbRefresh size={16} />}
+              className="dashboard-toolbar-btn"
+              size="middle"
+              loading={tabular.loading}
+              onClick={tabular.retry}
+            />
+          </Tooltip>
+        </div>
+      </div>
+
       {showFallback && (
         <FallbackPanel
-          powerBiUrl="https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D&fbclid=IwY2xjawFB5F5leHRuA2FlbQIxMAABHUN0PdCwA3CeLh-6DJcav9RNTakWqqXb9tiX4NhZWuaoq6c9DFAjap_87A_aem_76ldAfP7LXMUux7n4bbWkA"
+          powerBiUrl={powerBiUrl}
           onRetry={() => window.location.reload()}
         />
       )}
       {!showFallback && hasAnyError && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button type="default" size="small" href={powerBiUrl} target="_blank" rel="noopener noreferrer">
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button
+            type="default"
+            size="small"
+            href={powerBiUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             Open Legacy Power BI Dashboard
           </Button>
         </div>
       )}
-      {/* Header: Station Name (left) • Address (right) */}
-      <div className="flex items-center justify-between gap-4">
-        <div
-          className="text-xl font-semibold truncate"
-          title={meta.data?.name || "Station"}
-        >
-          {meta.loading ? (
-            <Skeleton.Input active style={{ width: 200, height: 24 }} />
-          ) : meta.error ? (
-            "Station"
-          ) : (
-            meta.data?.name || "Station"
-          )}
-        </div>
-        <div
-          className="text-sm text-gray-500 dark:text-gray-400 text-right truncate"
-          title={addrState.display || meta.data?.address || ""}
-        >
-          {addrState.loading ? (
-            <Skeleton.Input active style={{ width: 300, height: 20 }} />
-          ) : (
-            addrState.display || meta.data?.address || ""
-          )}
-        </div>
-      </div>
-      <div className="aqm-tiles aqm-scroll-x" style={{ overflowX: 'visible' }}>
-        {/* Latest AQI Category (PM10) */}
-        <AQITile
-          loading={aqi.loading}
-          refreshing={aqi.refreshing}
-          error={aqi.error}
-          category={aqi.data?.category}
-          value={aqi.data?.value}
-          time={aqi.data?.time}
-          daysLoading={aqiDays.loading}
-          daysRefreshing={aqiDays.refreshing}
-          daysError={aqiDays.error}
-          daysItems={aqiDays.data?.items || []}
-          onRetry={aqi.retry}
-          retrying={aqi.retrying}
-          onDaysRetry={aqiDays.retry}
-        />
 
-        {/* Outdoor Temperature */}
-        <div
-          className="aqm-tile"
-          style={tempContainerStyle(station.data?.temperature_2m)}
-        >
-          <div className="aqm-tile-header">Outdoor Temperature</div>
-          {(station.refreshing || forecast.refreshing) && (
-            <Spin size="small" className="aqm-tile-spinner" />
-          )}
-          {station.loading ? (
-            <div className="aqm-tile-body">
-              <Skeleton.Input active style={{ width: 120, height: 28 }} />
-            </div>
-          ) : station.error ? (
-            <div className="aqm-tile-body">
-              <Alert
-                type="warning"
-                message="Unavailable"
-                description={station.error}
-                showIcon
-              />
-              <div style={{ marginTop: 8 }}>
-                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
-              </div>
-            </div>
-          ) : (
-            <div className="aqm-tile-body">
-              <div
-                className="aqm-primary aqm-value-xl"
-                style={{ color: tempTint(station.data?.temperature_2m) }}
-              >
-                {station.data?.temperature_2m ?? "--"}
-                <span className="aqm-unit">°C</span>
-              </div>
-              {forecast.loading ? (
-                <div className="aqm-subline">Loading 3-day forecast…</div>
-              ) : forecast.error ? (
-                <div className="aqm-subline">{forecast.error}</div>
-              ) : (
-                <MiniForecast
-                  kind="temp"
-                  items={forecast.data?.forecast || []}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Outside Humidity */}
-        <div
-          className="aqm-tile"
-          style={humidityContainerStyle(station.data?.relative_humidity_2m)}
-        >
-          <div className="aqm-tile-header">Outside Humidity</div>
-          {(station.refreshing || forecast.refreshing) && (
-            <Spin size="small" className="aqm-tile-spinner" />
-          )}
-          {station.loading ? (
-            <div className="aqm-tile-body">
-              <Skeleton.Input active style={{ width: 120, height: 28 }} />
-            </div>
-          ) : station.error ? (
-            <div className="aqm-tile-body">
-              <Alert
-                type="warning"
-                message="Unavailable"
-                description={station.error}
-                showIcon
-              />
-              <div style={{ marginTop: 8 }}>
-                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
-              </div>
-            </div>
-          ) : (
-            <div className="aqm-tile-body">
-              <div
-                className="aqm-primary aqm-value"
-                style={{
-                  color: humidityTint(station.data?.relative_humidity_2m),
-                }}
-              >
-                {station.data?.relative_humidity_2m ?? "--"}
-                <span className="aqm-unit">%</span>
-              </div>
-              {forecast.loading ? (
-                <div className="aqm-subline">Loading 3-day forecast…</div>
-              ) : forecast.error ? (
-                <div className="aqm-subline">{forecast.error}</div>
-              ) : (
-                <MiniForecast
-                  kind="humidity"
-                  items={forecast.data?.forecast || []}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Pressure */}
-        <div
-          className="aqm-tile"
-          style={pressureContainerStyle(station.data?.pressure_msl)}
-        >
-          <div className="aqm-tile-header">Pressure</div>
-          {(station.refreshing || forecast.refreshing) && (
-            <Spin size="small" className="aqm-tile-spinner" />
-          )}
-          {station.loading ? (
-            <div className="aqm-tile-body">
-              <Skeleton.Input active style={{ width: 140, height: 28 }} />
-            </div>
-          ) : station.error ? (
-            <div className="aqm-tile-body">
-              <Alert
-                type="warning"
-                message="Unavailable"
-                description={station.error}
-                showIcon
-              />
-              <div style={{ marginTop: 8 }}>
-                <Button size="small" onClick={station.retry} loading={station.retrying}>Retry</Button>
-              </div>
-            </div>
-          ) : (
-            <div className="aqm-tile-body">
-              <div
-                className="aqm-primary aqm-value"
-                style={{ color: pressureTint(station.data?.pressure_msl) }}
-              >
-                {station.data?.pressure_msl ?? "--"}
-                <span className="aqm-unit"> hPa</span>
-              </div>
-              {forecast.loading ? (
-                <div className="aqm-subline">Loading 3-day forecast…</div>
-              ) : forecast.error ? (
-                <div className="aqm-subline">{forecast.error}</div>
-              ) : (
-                <MiniForecast
-                  kind="pressure"
-                  items={forecast.data?.forecast || []}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      { (aqi.refreshing || station.refreshing || forecast.refreshing) && (
-        <div className="aqm-subline" style={{ marginTop: 4 }}>
-          <span className="aqm-dot blink-soft" style={{ background: 'var(--aqm-muted)' }} />
-          Tiles updated — charts will update in a moment…
-        </div>
-      )}
-      {/* Air Quality Monitoring Graph */}
-      <VizChart
-        variant="tile"
-        title="Air Quality Monitoring Daily Average (µg/Ncm)"
+      {/* 1. AQI Hero Card */}
+      <AqiHeroCard
+        aqiValue={latestAqi.value}
+        aqiCategory={latestAqi.category}
+        aqiTime={latestAqi.time}
+        aqiLoading={tabular.loading}
+        aqiError={tabular.error}
+        aqiRefreshing={false}
+        onRetry={tabular.retry}
+        retrying={false}
+        stationName={station.name}
+        stationAddress={station.address}
+        pollutantLabel={station.merged ? station.pollutants[0].label : station.pollutantLabel}
+        temperature={weather.data?.temperature}
+        humidity={weather.data?.humidity}
+        pressure={weather.data?.pressure}
+        windSpeed={weather.data?.windSpeed}
+        windDirection={weather.data?.windDirection}
+        weatherCode={weather.data?.weatherCode}
+        apparentTemperature={weather.data?.apparentTemperature}
+        uvIndex={weather.data?.uvIndex}
+        cloudCover={weather.data?.cloudCover}
+        weatherLoading={weather.loading}
+        weatherError={weather.error}
+        dark={dark}
+        aqiValue2={latestAqi2?.value}
+        aqiCategory2={latestAqi2?.category}
+        aqiTime2={latestAqi2?.time}
+        aqiLoading2={tabular2.loading}
+        pollutantLabel2={secondaryPollutant?.label}
       />
 
-      {/* PM10 chart below the Air Quality Monitoring Graph */}
-      <Pm10Chart title="Hourly Station Reading (µg/Ncm)" />
+      {/* 2. Major Air Pollutants */}
+      <PollutantsCard
+        latitude={station.lat}
+        longitude={station.lon}
+      />
 
-      {/* Data tables under charts */}
-      <div className="grid lg:grid-cols-2 gap-4 mt-2">
-        <div className="aqm-scroll-x aqm-scroll-fade">
-        <Card
-          size="small"
-          title={<span style={{ color: 'var(--aqm-muted)' }}>Daily Average Data</span>}
-          extra={
-            <FilterGroup label="Daily Filters">
-              <DatePicker.RangePicker
-                size="small"
-                value={dailyRange}
-                onChange={(v)=> setDailyRange(v)}
-                allowClear
-                className="aqm-fluid"
-              />
-              <Button size="small" onClick={()=> exportCSV('daily', dailyVisible)}>Export CSV</Button>
-            </FilterGroup>
-          }
-          style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
-          styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
-          bodyStyle={{ padding: 0 }}
-        >
-          <Table
-            size="small"
-            columns={[
-              { title: 'Date', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY'), width: 130, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
-              { title: 'Average (µg/Ncm)', dataIndex: 'y', key: 'y', width: 160, sorter: (a,b)=> Number(a.y) - Number(b.y) },
-              { title: 'Status', key: 'status', width: 160, render: (_, r) => {
-                  const y = Number(r?.y);
-                  let name = '—', color = 'default';
-                  if (isFinite(y)) {
-                    if (y >= 301) { name = 'EMERGENCY'; color = '#a8071a'; }
-                    else if (y >= 201) { name = 'ACUTELY UNHEALTHY'; color = '#722ed1'; }
-                    else if (y >= 151) { name = 'VERY UNHEALTHY'; color = '#f5222d'; }
-                    else if (y >= 101) { name = 'UNHEALTHY'; color = '#fa8c16'; }
-                    else if (y >= 51) { name = 'FAIR'; color = '#d4b106'; }
-                    else { name = 'GOOD'; color = '#52c41a'; }
-                  }
-                  return <Tag color={color}>{name}</Tag>;
-                }
-              },
-            ]}
-            dataSource={dailyVisible.map((r,i)=>({ ...r, key: i }))}
-            loading={dailyData.loading || dailyData.refreshing}
-            pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ x: 'max-content', y: 260 }}
-            style={{ background: 'transparent', fontSize: 11 }}
-            className="compact-table"
-          />
-        </Card>
-        </div>
-        <div className="aqm-scroll-x aqm-scroll-fade">
-        <Card
-          size="small"
-          title={<span style={{ color: 'var(--aqm-muted)' }}>Hourly Readings</span>}
-          extra={
-            <FilterGroup label="Hourly Filters">
-              <DatePicker.RangePicker
-                size="small"
-                showTime={{ format: 'HH:00' }}
-                value={hourlyRange}
-                onChange={(v)=> setHourlyRange(v)}
-                allowClear
-                className="aqm-fluid"
-              />
-              <Button size="small" onClick={()=> exportCSV('hourly', hourlyVisible)}>Export CSV</Button>
-            </FilterGroup>
-          }
-          style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
-          styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
-          bodyStyle={{ padding: 0 }}
-        >
-          <Table
-            size="small"
-            columns={[
-              { title: 'Timestamp', dataIndex: 't', key: 't', render: v => dayjs(v).format('MM/DD/YYYY h:00 A'), width: 180, fixed: 'left', sorter: (a,b)=> dayjs(a.t).valueOf() - dayjs(b.t).valueOf(), defaultSortOrder: 'descend' },
-              { title: 'Reading (µg/Ncm)', dataIndex: 'y', key: 'y', width: 170, sorter: (a,b)=> Number(a.y) - Number(b.y) },
-              { title: 'Status', key: 'status', width: 160, render: (_, r) => {
-                  const y = Number(r?.y);
-                  let name = '—', color = 'default';
-                  if (isFinite(y)) {
-                    if (y >= 301) { name = 'EMERGENCY'; color = '#a8071a'; }
-                    else if (y >= 201) { name = 'ACUTELY UNHEALTHY'; color = '#722ed1'; }
-                    else if (y >= 151) { name = 'VERY UNHEALTHY'; color = '#f5222d'; }
-                    else if (y >= 101) { name = 'UNHEALTHY'; color = '#fa8c16'; }
-                    else if (y >= 51) { name = 'FAIR'; color = '#d4b106'; }
-                    else { name = 'GOOD'; color = '#52c41a'; }
-                  }
-                  return <Tag color={color}>{name}</Tag>;
-                }
-              },
-            ]}
-            dataSource={hourlyVisible.map((r,i)=>({ ...r, key: i }))}
-            loading={hourlyData.loading || hourlyData.refreshing}
-            pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
-            scroll={{ x: 'max-content', y: 260 }}
-            style={{ background: 'transparent', fontSize: 11 }}
-            className="compact-table"
-          />
-        </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
+      {/* 3. Historical Air Quality Data (bar chart) */}
+      <HistoricalAqiGraph
+        data={tabular.dailyRows}
+        loading={tabular.loading}
+        error={tabular.error}
+        title={`Historical Air Quality Data – ${station.merged ? station.pollutantLabel : station.pollutantLabel} (AQI Graph)`}
+        label={station.merged ? station.pollutants[0].label : undefined}
+        data2={station.merged ? tabular2.dailyRows : undefined}
+        label2={secondaryPollutant?.label}
+        loading2={station.merged ? tabular2.loading : undefined}
+      />
 
-function AQITile({
-  loading,
-  refreshing,
-  error,
-  category,
-  value,
-  time,
-  daysLoading,
-  daysRefreshing,
-  daysError,
-  daysItems,
-  onRetry,
-  retrying,
-  onDaysRetry,
-}) {
-  const tint = categoryTint(category);
-  const catUpper = String(category || "").toUpperCase();
-  const shouldPulse = [
-    "FAIR",
-    "UNHEALTHY",
-    "VERY UNHEALTHY",
-    "ACUTELY UNHEALTHY",
-    "EMERGENCY",
-    "HAZARD",
-  ].some((k) => catUpper.includes(k));
-  // Severity mapping for ring size and speed
-  let ringSize = 6; // px
-  let pulseDuration = 2.6; // seconds
-  if (catUpper.includes("UNHEALTHY") && !catUpper.includes("VERY")) {
-    ringSize = 10; pulseDuration = 2.4;
-  }
-  if (catUpper.includes("VERY UNHEALTHY")) {
-    ringSize = 14; pulseDuration = 2.1;
-  }
-  if (catUpper.includes("ACUTELY")) {
-    ringSize = 16; pulseDuration = 1.9;
-  }
-  if (catUpper.includes("EMERGENCY") || catUpper.includes("HAZARD")) {
-    ringSize = 20; pulseDuration = 1.6;
-  }
-  const containerStyle = {
-    background: `linear-gradient(135deg, ${hexToRgba(
-      tint,
-      0.08
-    )} 0%, var(--aqm-panel-bg) 60%)`,
-    borderColor: hexToRgba(tint, 0.25),
-    ...(shouldPulse
-      ? {
-          // pass CSS vars for pulsing colors
-          "--aqi-glow-outer": hexToRgba(tint, 0.22),
-          "--aqi-glow-outer-strong": hexToRgba(tint, 0.38),
-          "--aqi-glow-ring": hexToRgba(tint, 0.18),
-          "--aqi-glow-ring-weak": hexToRgba(tint, 0.08),
-          "--aqi-ring-size": `${ringSize}px`,
-          "--aqi-halo-color": hexToRgba(tint, 0.10),
-          "--aqi-halo-size": `${ringSize + 8}px`,
-        }
-      : {
-          // static subtle glow when not pulsing (GOOD)
-          boxShadow: `0 8px 18px ${hexToRgba(
-            tint,
-            0.18
-          )}, 0 0 0 1px ${hexToRgba(tint, 0.14)}`,
-        }),
-  };
-  return (
-    <div
-      className={`aqm-tile aqi${shouldPulse ? " aqi-pulse aqi-anim-halo" : ""}`}
-      style={{
-        ...containerStyle,
-        ...(shouldPulse ? { animationDuration: `${pulseDuration}s`, "--aqi-anim-duration": `${pulseDuration}s` } : {}),
-      }}
-    >
-      <div className="aqm-tile-header">Latest AQI Category (PM10)</div>
-      {(refreshing || daysRefreshing) && (
-        <Spin size="small" className="aqm-tile-spinner" />
-      )}
-      {loading ? (
-        <div className="aqm-tile-body">
-          <Skeleton active paragraph={false} title={{ width: 140 }} />
-          <div style={{ height: 6 }} />
-          <Skeleton.Input active style={{ width: 160, height: 28 }} />
-        </div>
-      ) : error ? (
-        <div className="aqm-tile-body">
-          <Alert
-            type="warning"
-            message="Unavailable"
-            description={error}
-            showIcon
-          />
-          {onRetry && (
-            <div style={{ marginTop: 8 }}>
-              <Button size="small" onClick={onRetry} loading={retrying}>Retry</Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="aqm-tile-body">
-          <div
-            className="aqm-primary"
-            style={{
-              color: tint,
-              display: "flex",
-              alignItems: "baseline",
-              gap: 6,
-              flexWrap: "wrap",
-            }}
-          >
-            {(() => {
-              const n = Number(value);
-              const v = isFinite(n) ? Math.round(n) : "--";
-              const cat = (category || "--").toUpperCase();
-              return (
-                <>
-                  <span style={{ fontSize: 28, fontWeight: 700 }}>{v}</span>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: "var(--aqm-muted)",
-                      textTransform: "none",
-                    }}
-                  >
-                    µg/ncm
-                  </span>
-                  <span style={{ color: "var(--aqm-muted)", fontSize: 28, fontWeight: 700 }}>|</span>
-                  <span
-                    style={{
-                      fontSize: 28,
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {cat}
-                  </span>
-                </>
-              );
-            })()}
+      {/* 4. Air Quality Calendar */}
+      <AqiCalendar
+        data={tabular.dailyRows}
+        loading={tabular.loading}
+        error={tabular.error}
+        year={dayjs().year()}
+        stations={DASH_STATIONS.map((s) => s.key)}
+        stationFilter={stationKey}
+        onStationChange={setStationKey}
+        rawRows={tabular.rows}
+        dateCol={tabular.dateCol}
+        label={station.merged ? station.pollutants[0].label : undefined}
+        data2={station.merged ? tabular2.dailyRows : undefined}
+        rawRows2={station.merged ? tabular2.rows : undefined}
+        dateCol2={station.merged ? tabular2.dateCol : undefined}
+        label2={secondaryPollutant?.label}
+      />
+
+      {/* Export Filter Modal */}
+      <Modal
+        title="Export Data"
+        open={exportModalOpen}
+        onCancel={() => setExportModalOpen(false)}
+        footer={null}
+        width={440}
+        centered
+      >
+        <div className="export-modal-body">
+          <div className="export-filter-group">
+            <label className="export-filter-label">Date Range</label>
+            <DatePicker.RangePicker
+              value={exportDateRange}
+              onChange={setExportDateRange}
+              style={{ width: "100%" }}
+              allowClear
+              size="middle"
+            />
           </div>
-          {/* 'as of' subline removed per request */}
-          {daysLoading ? (
-            <div className="aqm-subline">Loading previous days…</div>
-          ) : daysError ? (
-            <div className="aqm-subline" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>{daysError}</span>
-              {onDaysRetry && (
-                <Button size="small" type="link" onClick={onDaysRetry}>Retry</Button>
-              )}
-            </div>
-          ) : (
-            <AqiMini items={daysItems} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AqiMini({ items }) {
-  return (
-    <div className="aqm-forecast aqm-forecast--aqi">
-      {(items || []).slice(0, 3).map((it) => {
-        const tint = categoryTint(it.category);
-        const n = Number(it.value);
-        const val = isFinite(n) ? Math.round(n) : "--";
-        return (
-          <div key={it.date} className="aqm-forecast-item">
-            <div className="aqm-forecast-day">{dayLabel(it.date)}</div>
-            <div className="aqm-forecast-val" style={{ color: tint }}>
-              {val} µg/Ncm
-            </div>
+          <div className="export-filter-group">
+            <label className="export-filter-label">AQI Status</label>
+            <Select
+              value={exportStatus}
+              onChange={setExportStatus}
+              options={STATUS_OPTIONS}
+              placeholder="All statuses"
+              allowClear
+              style={{ width: "100%" }}
+              size="middle"
+            />
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function dayLabel(isoDate) {
-  try {
-    // Expect isoDate as YYYY-MM-DD
-    const [y, m, d] = isoDate.split("-").map(Number);
-    const mm = String(m).padStart(2, "0");
-    const dd = String(d).padStart(2, "0");
-    return `${mm}/${dd}`;
-  } catch {
-    return isoDate;
-  }
-}
-
-function MiniForecast({ kind, items }) {
-  const display = (it) => {
-    if (kind === "temp") {
-      if (it.temp_max == null && it.temp_min == null) return "--";
-      const tmax = it.temp_max != null ? Math.round(it.temp_max) : "--";
-      const tmin = it.temp_min != null ? Math.round(it.temp_min) : "--";
-      return `${tmax}°/${tmin}°`;
-    }
-    if (kind === "humidity") {
-      return it.humidity_mean != null
-        ? `${Math.round(it.humidity_mean)}%`
-        : "--";
-    }
-    if (kind === "pressure") {
-      return it.pressure_mean != null
-        ? `${Math.round(it.pressure_mean)} hPa`
-        : "--";
-    }
-    return "--";
-  };
-  return (
-    <div className="aqm-forecast">
-      {(items || []).slice(0, 3).map((it) => (
-        <div key={it.date} className="aqm-forecast-item">
-          <div className="aqm-forecast-day">{dayLabel(it.date)}</div>
-          <div className="aqm-forecast-val">{display(it)}</div>
+          <div className="export-filter-summary">
+            {filteredExportRows.length} of {tabular.rows.length} records match
+          </div>
+          <Space style={{ width: "100%", justifyContent: "flex-end", marginTop: 12 }}>
+            <Button
+              icon={<TbFileTypeCsv size={16} />}
+              onClick={() => doExport("csv")}
+              type="primary"
+            >
+              Export CSV
+            </Button>
+            <Button
+              icon={<TbFileSpreadsheet size={16} />}
+              onClick={() => doExport("json")}
+            >
+              Export JSON
+            </Button>
+          </Space>
         </div>
-      ))}
+      </Modal>
     </div>
   );
-}
-
-// Dynamic tint helpers for tiles
-function tempTint(v) {
-  const n = Number(v);
-  if (!isFinite(n)) return "#1677ff";
-  if (n <= 10) return "#3b82f6"; // cold - blue
-  if (n <= 17) return "#06b6d4"; // cool - cyan
-  if (n <= 27) return "#16a34a"; // comfortable - green
-  if (n <= 32) return "#f59e0b"; // warm - amber
-  if (n <= 37) return "#ef4444"; // hot - red
-  return "#b91c1c"; // extreme hot - darker red
-}
-function tempContainerStyle(v) {
-  const tint = tempTint(v);
-  return {
-    background: `linear-gradient(135deg, ${hexToRgba(
-      tint,
-      0.08
-    )} 0%, var(--aqm-panel-bg) 60%)`,
-    borderColor: hexToRgba(tint, 0.25),
-  };
-}
-
-function humidityTint(v) {
-  const n = Number(v);
-  if (!isFinite(n)) return "#1677ff";
-  if (n < 30) return "#f59e0b"; // too dry - amber
-  if (n <= 60) return "#16a34a"; // comfortable - green
-  if (n <= 75) return "#06b6d4"; // humid - cyan
-  return "#3b82f6"; // very humid - blue
-}
-function humidityContainerStyle(v) {
-  const tint = humidityTint(v);
-  return {
-    background: `linear-gradient(135deg, ${hexToRgba(
-      tint,
-      0.08
-    )} 0%, var(--aqm-panel-bg) 60%)`,
-    borderColor: hexToRgba(tint, 0.25),
-  };
-}
-
-function pressureTint(v) {
-  const n = Number(v);
-  if (!isFinite(n)) return "#1677ff";
-  if (n < 1005) return "#3b82f6"; // low - blue
-  if (n <= 1020) return "#16a34a"; // normal - green
-  return "#ef4444"; // high - red
-}
-function pressureContainerStyle(v) {
-  const tint = pressureTint(v);
-  return {
-    background: `linear-gradient(135deg, ${hexToRgba(
-      tint,
-      0.08
-    )} 0%, var(--aqm-panel-bg) 60%)`,
-    borderColor: hexToRgba(tint, 0.25),
-  };
-}
-
-function useAqiLastDays(days = 3) {
-  return useApiEndpoint('/api/aqi/last-days', {
-    params: { days },
-    refreshMs: 600000, // 10 minutes
-    retries: 2,
-    timeoutMs: 12000,
-    cacheTtlMs: 60000,
-  });
-}
-
-function useStationMeta() {
-  return useApiEndpoint('/api/station/meta', {
-    refreshMs: 600000, // 10 minutes
-    retries: 2,
-    timeoutMs: 10000,
-    cacheTtlMs: 600000,
-  });
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense, useCallback } from "react";
 import {
   Layout,
   Menu,
@@ -10,6 +10,8 @@ import {
   Modal,
   Descriptions,
   Spin,
+  Drawer,
+  Grid,
 } from "antd";
 import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import {
@@ -17,7 +19,6 @@ import {
   TableOutlined,
   AreaChartOutlined,
   EnvironmentOutlined,
-  SettingOutlined,
   BulbOutlined,
   BulbFilled,
   InfoCircleOutlined,
@@ -26,14 +27,18 @@ import {
   MailOutlined,
   CaretDownOutlined,
   CaretRightOutlined,
+  MenuOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
+
+const { useBreakpoint } = Grid;
 import "./App.css";
 // Route-level code splitting via React.lazy
 const DashboardPage = lazy(() => import("./pages/Dashboard"));
 const TabularResultsPage = lazy(() => import("./pages/TabularResults"));
 const ChartsPage = lazy(() => import("./pages/Charts"));
 const MapPage = lazy(() => import("./pages/Map"));
-const SettingsPage = lazy(() => import("./pages/Settings"));
+const KioskPage = lazy(() => import("./pages/Kiosk"));
 import embLogo from "./assets/emblogo.svg";
 import WeatherBadge from "./components/WeatherBadge";
 import { AqiProvider, useAqi } from "./context/AqiContext";
@@ -55,11 +60,11 @@ const AQI_CATEGORIES = [
       "Sensitive groups should pace activities. The air has a slight haze but remains manageable.",
   },
   {
-    name: "UNHEALTHY",
+    name: "UNHEALTHY FOR SENSITIVE GROUPS",
     color: "#fa8c16",
     range: "101 – 150.99 µg/Ncm",
     desc:
-      "Limit prolonged exertion outdoors. Asthma sufferers may feel the pinch first.",
+      "People with respiratory or heart conditions, children, and the elderly may experience health effects. General public is less likely to be affected.",
   },
   {
     name: "VERY UNHEALTHY",
@@ -108,6 +113,21 @@ function ThemedLayout({
     },
   } = theme.useToken();
   const currentYear = new Date().getFullYear();
+
+  // ── Responsive breakpoint detection ──
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;   // < 768px
+  const isTablet = screens.md && !screens.lg; // 768–991
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Close drawer on route change
+  const locationObj = useLocation();
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [locationObj.pathname]);
+
+  // On mobile, force collapsed false in drawer mode
+  const effectiveCollapsed = isMobile ? false : collapsed;
 
   // Light theme custom brand colors (soft, not pure white)
   const headerBg = dark ? colorBgElevated : "#f7f9fc"; // subtle light header
@@ -436,64 +456,53 @@ function ThemedLayout({
   }
 
   return (
-    <Layout style={{ minHeight: "100vh", background: colorBgLayout }}>
-      <Sider
-        theme={dark ? "dark" : "light"}
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        breakpoint="lg"
-        style={{ background: siderBgResolved, position: "relative" }}
-        className={weatherCode != null ? "weather-animated" : undefined}
-      >
-        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-          <div
-            className="flex items-center h-16 font-semibold"
-            style={{
-              background: brandBg,
-              color: colorText,
-              justifyContent: collapsed ? "center" : "flex-start",
-              paddingLeft: collapsed ? 0 : 30,
-              paddingRight: collapsed ? 0 : 10,
-              gap: collapsed ? 0 : 6,
-            }}
-          >
-            <img src={embLogo} alt="EMB Logo" width={30} height={30} />
-            {!collapsed && (
-              <div className="flex flex-col leading-tight min-w-0">
-                <span
-                  style={{
-                    fontWeight: 700,
-                    fontSize: 14,
-                    whiteSpace: "normal",
-                    lineHeight: 1.1,
-                  }}
-                >
-                  EMBR3 Air Quality
-                </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: colorTextSecondary,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Monitoring {currentYear}
-                </span>
-              </div>
-            )}
-          </div>
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            <Menu
-              theme={dark ? "dark" : "light"}
-              mode="inline"
-              selectedKeys={selectedKeys}
-              items={items}
-              style={{ background: "transparent", borderInlineEnd: "none" }}
-              onClick={({ key }) => {
-                if (typeof key === 'string' && key.startsWith('/')) navigate(key);
+    <Layout style={{ minHeight: "100vh", background: colorBgLayout }} className="aqm-app-layout">
+      {/* Desktop/Tablet: standard collapsible Sider */}
+      {!isMobile && (
+        <Sider
+          theme={dark ? "dark" : "light"}
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          breakpoint="lg"
+          style={{ background: siderBgResolved, position: "relative" }}
+          className={weatherCode != null ? "weather-animated" : undefined}
+        >
+          <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+            <div
+              className="flex items-center h-16 font-semibold"
+              style={{
+                background: brandBg,
+                color: colorText,
+                justifyContent: collapsed ? "center" : "flex-start",
+                paddingLeft: collapsed ? 0 : 30,
+                paddingRight: collapsed ? 0 : 10,
+                gap: collapsed ? 0 : 6,
               }}
-            />
+            >
+              <img src={embLogo} alt="EMB Logo" width={30} height={30} />
+              {!collapsed && (
+                <div className="flex flex-col leading-tight min-w-0">
+                  <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: "normal", lineHeight: 1.1 }}>
+                    EMBR3 Air Quality
+                  </span>
+                  <span style={{ fontSize: 12, color: colorTextSecondary, whiteSpace: "nowrap" }}>
+                    Monitoring {currentYear}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              <Menu
+                theme={dark ? "dark" : "light"}
+                mode="inline"
+                selectedKeys={selectedKeys}
+                items={items}
+                style={{ background: "transparent", borderInlineEnd: "none" }}
+                onClick={({ key }) => {
+                  if (typeof key === 'string' && key.startsWith('/')) navigate(key);
+                }}
+              />
             {!collapsed ? (
               <>
                 <div
@@ -528,7 +537,7 @@ function ThemedLayout({
                     <div className="aqm-sider-card-items">
                       {AQI_CATEGORIES.map((cat) => {
                         const active =
-                          cat.name === "UNHEALTHY"
+                          cat.name === "UNHEALTHY FOR SENSITIVE GROUPS"
                             ? aqiCat === cat.name
                             : aqiCat.includes(cat.name);
                         return (
@@ -573,7 +582,7 @@ function ThemedLayout({
                     >
                       {AQI_CATEGORIES.map((cat) => {
                         const active =
-                          cat.name === "UNHEALTHY"
+                          cat.name === "UNHEALTHY FOR SENSITIVE GROUPS"
                             ? aqiCat === cat.name
                             : aqiCat.includes(cat.name);
                         return (
@@ -611,39 +620,31 @@ function ThemedLayout({
                   aria-label="Contact information and more resources"
                 >
                   <div className="aqm-sider-card-title">Contact / More Information</div>
-                  <div
-                    className="aqm-footer-links"
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                      fontSize: 12,
-                    }}
-                  >
+                  <div className="aqm-sider-contact-links">
                     <a
                       href="http://r3.emb.gov.ph/"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="aqm-footer-link website-icon"
+                      className="aqm-sider-contact-link website-icon"
                       aria-label="Visit EMB Region 3 Official Website"
                     >
-                      <GlobalOutlined /> EMB Region 3 Official
+                      <GlobalOutlined /> <span>EMB Region 3 Official</span>
                     </a>
                     <a
                       href="https://www.facebook.com/EMB3Official"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="aqm-footer-link facebook-icon"
+                      className="aqm-sider-contact-link facebook-icon"
                       aria-label="Open EMB Region III Facebook page"
                     >
-                      <FacebookFilled /> Facebook
+                      <FacebookFilled /> <span>Facebook</span>
                     </a>
                     <a
                       href="mailto:r3emed@emb.gov.ph"
-                      className="aqm-footer-link mail-icon"
+                      className="aqm-sider-contact-link mail-icon"
                       aria-label="Send email to EMED environmental monitoring division"
                     >
-                      <MailOutlined /> Email (EMED)
+                      <MailOutlined /> <span>Email (EMED)</span>
                     </a>
                   </div>
                 </div>
@@ -717,6 +718,84 @@ function ThemedLayout({
           </div>
         </div>
       </Sider>
+      )}
+
+      {/* Mobile: Drawer-based navigation */}
+      {isMobile && (
+        <Drawer
+          placement="left"
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          width={280}
+          styles={{ body: { padding: 0, background: siderBgResolved }, header: { background: siderBgResolved, borderBottom: 'none' } }}
+          title={
+            <div className="flex items-center gap-2" style={{ color: colorText }}>
+              <img src={embLogo} alt="EMB Logo" width={28} height={28} />
+              <div className="flex flex-col leading-tight">
+                <span style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.1 }}>EMBR3 Air Quality</span>
+                <span style={{ fontSize: 11, color: colorTextSecondary }}>Monitoring {currentYear}</span>
+              </div>
+            </div>
+          }
+          closeIcon={<CloseOutlined style={{ color: colorText }} />}
+        >
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
+            <Menu
+              theme={dark ? "dark" : "light"}
+              mode="inline"
+              selectedKeys={selectedKeys}
+              items={items}
+              style={{ background: "transparent", borderInlineEnd: "none" }}
+              onClick={({ key }) => {
+                if (typeof key === 'string' && key.startsWith('/')) {
+                  navigate(key);
+                  setDrawerOpen(false);
+                }
+              }}
+            />
+            <div
+              className="aqm-sider-card"
+              role="note"
+              aria-label="AQI Categories mobile"
+            >
+              <div className="aqm-sider-card-title">AQI Categories</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingTop: 8 }}>
+                {AQI_CATEGORIES.map((cat) => {
+                  const active = cat.name === "UNHEALTHY FOR SENSITIVE GROUPS" ? aqiCat === cat.name : aqiCat.includes(cat.name);
+                  return (
+                    <Tooltip key={cat.name} placement="right" title={renderCategoryTooltip(cat)}>
+                      <div
+                        style={{
+                          border: `1px solid ${cat.color}`,
+                          borderRadius: 999,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: active ? "var(--aqm-panel-bg)" : cat.color,
+                          background: active ? cat.color : "transparent",
+                          transition: "all 0.2s ease",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {cat.name}
+                      </div>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="aqm-sider-card" role="note" aria-label="Contact information mobile">
+              <div className="aqm-sider-card-title">Contact / Info</div>
+              <div className="aqm-footer-links" style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
+                <a href="http://r3.emb.gov.ph/" target="_blank" rel="noopener noreferrer" className="aqm-footer-link website-icon"><GlobalOutlined /> EMB Region 3 Official</a>
+                <a href="https://www.facebook.com/EMB3Official" target="_blank" rel="noopener noreferrer" className="aqm-footer-link facebook-icon"><FacebookFilled /> Facebook</a>
+                <a href="mailto:r3emed@emb.gov.ph" className="aqm-footer-link mail-icon"><MailOutlined /> Email (EMED)</a>
+              </div>
+            </div>
+          </div>
+        </Drawer>
+      )}
+
       <Layout style={{ background: colorBgLayout }}>
         <Header
           style={{
@@ -725,7 +804,7 @@ function ThemedLayout({
             position: "relative",
             overflow: "hidden",
           }}
-          className={weatherCode != null ? "weather-animated" : undefined}
+          className={`${weatherCode != null ? "weather-animated" : ""} aqm-header`}
         >
           {/* Background layers first: stars and moon (behind values and overlays) */}
           {headerEffect === "stars" && (
@@ -863,22 +942,20 @@ function ThemedLayout({
           </div>
 
           <div
-            className="flex items-center justify-end px-4 h-16"
+            className="flex items-center justify-between px-4 h-16"
             style={{ position: "relative", zIndex: 2 }}
           >
+            {/* Mobile hamburger */}
+            {isMobile ? (
+              <Button
+                type="text"
+                icon={<MenuOutlined style={{ fontSize: 20, color: dark ? '#fff' : '#1a1a2e' }} />}
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open navigation menu"
+                className="aqm-hamburger-btn"
+              />
+            ) : <div />}
             <div className="flex items-center gap-3">
-              <WeatherBadge />
-              <Tooltip title="View weather details" placement="bottom">
-                <Button
-                  size="small"
-                  shape="circle"
-                  type="default"
-                  className="wm-icon-btn"
-                  onClick={openWeatherDetails}
-                  icon={<InfoCircleOutlined />}
-                  aria-label="View weather details"
-                />
-              </Tooltip>
               <Switch
                 checked={dark}
                 onChange={(v) => setDark(v)}
@@ -1183,10 +1260,10 @@ function ThemedLayout({
             )}
           </Modal>
         </Header>
-        <Content style={{ margin: "16px" }}>
+        <Content style={{ margin: isMobile ? "8px" : "16px" }} className="aqm-content">
           <div
             style={{
-              padding: 24,
+              padding: isMobile ? 12 : isTablet ? 16 : 24,
               minHeight: 360,
               background: colorBgContainer,
               borderRadius: borderRadiusLG,
@@ -1201,14 +1278,13 @@ function ThemedLayout({
               }
             >
               <Routes>
-                <Route path="/" element={<Navigate to="/tabular/meycauayan" replace />} />
+                <Route path="/" element={<Navigate to="/overview" replace />} />
                 <Route path="/overview" element={<DashboardPage />} />
                 <Route path="/tabular" element={<Navigate to="/tabular/meycauayan" replace />} />
                 <Route path="/tabular/:province" element={<TabularResultsPage />} />
                 {/* Charts route can remain accessible directly if needed */}
                 <Route path="/charts" element={<ChartsPage />} />
                 <Route path="/map" element={<MapPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </Suspense>
           </div>
@@ -1217,31 +1293,16 @@ function ThemedLayout({
           style={{
             background: colorBgLayout,
             color: colorTextSecondary,
-            padding: "16px 24px",
+            padding: isMobile ? "12px 16px" : "16px 24px",
           }}
+          className="aqm-footer"
         >
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-            }}
-          >
-            <div style={{ fontSize: 12 }}>
+          <div className="aqm-footer-inner">
+            <div className="aqm-footer-copy">
               Environmental Management Bureau Region III Air Quality Monitoring
               © {new Date().getFullYear()}
             </div>
-            <div
-              className="aqm-footer-links"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 20,
-                fontSize: 12,
-              }}
-            >
+            <div className="aqm-footer-links">
               <a
                 href="http://r3.emb.gov.ph/"
                 target="_blank"
@@ -1249,7 +1310,7 @@ function ThemedLayout({
                 className="aqm-footer-link website-icon"
                 aria-label="Visit EMB Region 3 Official Website"
               >
-                <GlobalOutlined /> EMB Region 3 Official
+                <GlobalOutlined /> <span>EMB Region 3 Official</span>
               </a>
               <a
                 href="https://www.facebook.com/EMB3Official"
@@ -1258,14 +1319,14 @@ function ThemedLayout({
                 className="aqm-footer-link facebook-icon"
                 aria-label="Open EMB Region III Facebook page"
               >
-                <FacebookFilled /> Facebook
+                <FacebookFilled /> <span>Facebook</span>
               </a>
               <a
                 href="mailto:r3emed@emb.gov.ph"
                 className="aqm-footer-link mail-icon"
                 aria-label="Send email to EMED environmental monitoring division"
               >
-                <MailOutlined /> Email (EMED)
+                <MailOutlined /> <span>Email (EMED)</span>
               </a>
             </div>
           </div>
@@ -1328,7 +1389,6 @@ function App() {
       })),
     },
     { key: "/map", icon: <EnvironmentOutlined />, label: "Map" },
-    { key: "/settings", icon: <SettingOutlined />, label: "Settings" },
   ];
 
   const selectableKeys = [
@@ -1336,7 +1396,6 @@ function App() {
     ...provinces.map((p) => `/tabular/${p.key}`),
     '/tabular',
     '/map',
-    '/settings',
     '/',
   ];
 
@@ -1355,6 +1414,21 @@ function App() {
     const y = new Date().getFullYear();
     document.title = `EMBR3 Air Quality Monitoring (${y})`;
   }, []);
+
+  // ── Kiosk route renders outside the main layout ──
+  if (location.pathname === "/embr3-latestaqi") {
+    return (
+      <Suspense
+        fallback={
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+            <Spin size="large" />
+          </div>
+        }
+      >
+        <KioskPage />
+      </Suspense>
+    );
+  }
 
   return (
     <ConfigProvider
