@@ -29,25 +29,6 @@ const _vizCache = new Map();
 
 // ── Key detection helpers ──
 
-function pickKeys(row) {
-  const keys = Object.keys(row);
-  const dateCandidates = [
-    "Date", "Datetime", "DateTime", "Timestamp", "Time",
-    "DATE", "DATETIME", "Data Visualization Process",
-  ];
-  const valueCandidates = [
-    "AQI", "Value", "PM2.5", "PM10", "NO2",
-    "O3", "SO2", "CO", "Index", "Reading",
-  ];
-  let xKey =
-    keys.find((k) => dateCandidates.includes(k)) ||
-    keys.find((k) => /date|time/i.test(k));
-  let yKey =
-    keys.find((k) => valueCandidates.includes(k)) ||
-    keys.find((k) => k !== xKey && /aqi|value|pm|index|reading/i.test(k));
-  return { xKey, yKey };
-}
-
 function pickKeysFromRows(rows) {
   if (!rows || rows.length === 0) return { xKey: null, yKey: null };
   const keys = Object.keys(rows[0] || {});
@@ -477,7 +458,6 @@ async function readSheetSeries(sheetName, yKeyOverride) {
 module.exports = {
   resolveWorkbookPath,
   loadWorkbook,
-  pickKeys,
   pickKeysFromRows,
   readVizData,
   readSheetSeries,

@@ -1,4 +1,3 @@
-import React from "react";
 import { Button, Alert } from "antd";
 
 export default function FallbackPanel({ powerBiUrl, onRetry }) {

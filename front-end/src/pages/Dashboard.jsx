@@ -1,19 +1,37 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
-import { Select, Button, Tooltip, Badge, Dropdown, message, DatePicker, Modal, Space } from "antd";
+import { useEffect, useState, useMemo } from "react";
+import { Select, Button, Tooltip, message, Modal, Tag } from "antd";
 import dayjs from "dayjs";
 import {
-  TbMapPin, TbDownload, TbFilter, TbActivity,
-  TbRefresh, TbFileSpreadsheet, TbFileTypeCsv,
+  TbMapPin, TbFilter,
+  TbRefresh, TbMail,
 } from "react-icons/tb";
 import { useAqi } from "../context/AqiContext";
 import STATIONS, { getStation, getMergedStations } from "../config/stations";
 import useTabularData from "../hooks/useTabularData";
 import useStationWeather from "../hooks/useStationWeather";
-import FallbackPanel from "../components/FallbackPanel";
+import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import AqiHeroCard from "../components/AqiHeroCard";
-import PollutantsCard from "../components/PollutantsCard";
+import HourlyWeatherCard from "../components/HourlyWeatherCard";
 import HistoricalAqiGraph from "../components/HistoricalAqiGraph";
 import AqiCalendar from "../components/AqiCalendar";
+
+/* ── Status colour helper ─────────────────────────────────────────── */
+const STATUS_COLORS = {
+  Good: "#52c41a",
+  Fair: "#d4b106",
+  "Unhealthy for Sensitive Groups": "#fa8c16",
+  "Very Unhealthy": "#f5222d",
+  "Acutely Unhealthy": "#722ed1",
+  Emergency: "#a8071a",
+};
+function getStatusColor(status) {
+  if (!status) return null;
+  const s = String(status).toLowerCase();
+  for (const [key, color] of Object.entries(STATUS_COLORS)) {
+    if (s.includes(key.toLowerCase().split(" ")[0])) return color;
+  }
+  return null;
+}
 
 /* ── Dashboard Page ────────────────────────────────────────────────── */
 export default function DashboardPage() {
@@ -58,92 +76,9 @@ export default function DashboardPage() {
   // Weather from Open-Meteo for this station's coordinates
   const weather = useStationWeather(station.lat, station.lon);
 
-  /* ── Export helpers ────────────────────────────────────────────── */
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportDateRange, setExportDateRange] = useState(null);
-  const [exportStatus, setExportStatus] = useState(null);
+  /* ── Data request modal ────────────────────────────────────────── */
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
 
-  const filteredExportRows = useMemo(() => {
-    let rows = tabular.rows;
-    if (!rows.length) return rows;
-    const dateCol = tabular.dateCol;
-    if (exportDateRange && exportDateRange[0] && exportDateRange[1] && dateCol) {
-      const start = exportDateRange[0].startOf("day");
-      const end = exportDateRange[1].endOf("day");
-      rows = rows.filter((r) => {
-        const d = dayjs(r[dateCol]);
-        return d.isValid() && d.isAfter(start) && d.isBefore(end);
-      });
-    }
-    if (exportStatus) {
-      rows = rows.filter((r) => {
-        const s = (r["Status"] ?? r["status"] ?? "").toString().toUpperCase();
-        return s === exportStatus.toUpperCase();
-      });
-    }
-    return rows;
-  }, [tabular.rows, tabular.dateCol, exportDateRange, exportStatus]);
-
-  const doExport = useCallback((format) => {
-    const rows = filteredExportRows;
-    if (!rows.length) {
-      message.warning("No data matches the current filters");
-      return;
-    }
-    if (format === "csv") {
-      const cols = tabular.raw?.columns || Object.keys(rows[0]);
-      const header = cols.join(",");
-      const body = rows
-        .map((r) =>
-          cols.map((c) => {
-            const v = r[c] ?? "";
-            return String(v).includes(",") ? `"${v}"` : v;
-          }).join(",")
-        )
-        .join("\n");
-      const blob = new Blob([header + "\n" + body], { type: "text/csv" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${station.name.replace(/\s+/g, "_")}_${dayjs().format("YYYY-MM-DD")}.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      message.success(`CSV exported (${rows.length} rows)`);
-    } else {
-      const blob = new Blob(
-        [JSON.stringify({ station: station.name, rows }, null, 2)],
-        { type: "application/json" }
-      );
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${station.name.replace(/\s+/g, "_")}_${dayjs().format("YYYY-MM-DD")}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      message.success(`JSON exported (${rows.length} rows)`);
-    }
-    setExportModalOpen(false);
-  }, [filteredExportRows, tabular.raw, station.name]);
-
-  const STATUS_OPTIONS = [
-    { value: "Good", label: "Good" },
-    { value: "Fair", label: "Fair" },
-    { value: "Unhealthy for Sensitive Groups", label: "Unhealthy for Sensitive" },
-    { value: "Very Unhealthy", label: "Very Unhealthy" },
-    { value: "Acutely Unhealthy", label: "Acutely Unhealthy" },
-    { value: "Emergency", label: "Emergency" },
-  ];
-
-  /* ── Station status summary ───────────────────────────────────── */
-  const stationStatus = useMemo(() => {
-    const row = tabular.latest;
-    const total = tabular.rows.length;
-    const withAqi = tabular.rows.filter((r) => {
-      const v = r["AQI"] ?? r["aqi"];
-      return v != null && isFinite(Number(v));
-    }).length;
-    const lastUpdate = row && tabular.dateCol ? row[tabular.dateCol] : null;
-    const status = row ? (row["Status"] ?? row["status"] ?? null) : null;
-    return { total, withAqi, lastUpdate, status };
-  }, [tabular.latest, tabular.rows, tabular.dateCol]);
 
   // Extract latest AQI values from tabular data
   const latestAqi = useMemo(() => {
@@ -154,12 +89,19 @@ export default function DashboardPage() {
     // Find the date column
     const dateCol = tabular.dateCol;
     const time = dateCol ? row[dateCol] : null;
+    let isoTime = null;
+    if (time) {
+      const d = new Date(time);
+      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+    }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
-      time: time ? new Date(time).toISOString() : null,
+      time: isoTime,
     };
   }, [tabular.latest, tabular.dateCol]);
+
+
 
   // Secondary AQI (for merged stations)
   const latestAqi2 = useMemo(() => {
@@ -170,10 +112,15 @@ export default function DashboardPage() {
     const status = row["Status"] ?? row["status"];
     const dateCol = tabular2.dateCol;
     const time = dateCol ? row[dateCol] : null;
+    let isoTime = null;
+    if (time) {
+      const d = new Date(time);
+      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+    }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
-      time: time ? new Date(time).toISOString() : null,
+      time: isoTime,
     };
   }, [station.merged, tabular2.latest, tabular2.dateCol]);
 
@@ -198,21 +145,28 @@ export default function DashboardPage() {
     } catch {}
   }, [latestAqi.category]);
 
-  // Fallback for when everything fails
-  const [showFallback, setShowFallback] = useState(false);
-  useEffect(() => {
-    const id = setTimeout(() => {
-      const noData = tabular.dailyRows.length === 0;
-      const tabFailed = !!tabular.error;
-      if (noData && tabFailed) setShowFallback(true);
-      else setShowFallback(false);
-    }, 25000);
-    return () => clearTimeout(id);
-  }, [tabular.dailyRows.length, tabular.error]);
-
   const hasAnyError = [tabular.error, weather.error].some(Boolean);
-  const powerBiUrl =
-    "https://app.powerbi.com/view?r=eyJrIjoiNjlhMWMxY2UtNDNjYi00NjQ4LTliNzYtNTM0NjU1OTY3ZDZlIiwidCI6ImY2ZjRhNjkyLTQzYjMtNDMzYi05MmIyLTY1YzRlNmNjZDkyMCIsImMiOjEwfQ%3D%3D";
+
+  // Detect stale data (>7 days old) — show watermark overlay
+  const isStale = useMemo(() => {
+    if (!latestAqi.time) return false;
+    const latest = new Date(latestAqi.time);
+    if (isNaN(latest.getTime())) return false;
+    const diffDays = (Date.now() - latest.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays > 7;
+  }, [latestAqi.time]);
+
+  // Detect stale secondary pollutant (PM2.5) — blur/hide in hero card
+  const isStale2 = useMemo(() => {
+    if (!station.merged || !latestAqi2) return false;
+    // No data at all → treat as stale
+    if (latestAqi2.value == null && !latestAqi2.time) return true;
+    if (!latestAqi2.time) return true;
+    const latest = new Date(latestAqi2.time);
+    if (isNaN(latest.getTime())) return true;
+    const diffDays = (Date.now() - latest.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays > 7;
+  }, [station.merged, latestAqi2]);
 
   // Station selector dropdown options
   const stationOptions = DASH_STATIONS.map((s) => ({
@@ -258,42 +212,17 @@ export default function DashboardPage() {
         />
 
         <div className="dashboard-toolbar">
-          {/* Station status badge */}
-          {!tabular.loading && stationStatus.total > 0 && (
-            <Tooltip title={
-              <div style={{ fontSize: 12 }}>
-                <div><strong>Records:</strong> {stationStatus.total}</div>
-                <div><strong>With AQI:</strong> {stationStatus.withAqi}</div>
-                {stationStatus.lastUpdate && (
-                  <div><strong>Last update:</strong> {stationStatus.lastUpdate}</div>
-                )}
-                {stationStatus.status && (
-                  <div><strong>Status:</strong> {stationStatus.status}</div>
-                )}
-              </div>
-            }>
-              <Badge
-                status={stationStatus.withAqi > 0 ? "success" : "warning"}
-                className="dashboard-status-badge"
-                text={
-                  <span className="dashboard-status-text">
-                    <TbActivity size={14} />
-                    <span>{stationStatus.withAqi} records</span>
-                  </span>
-                }
-              />
-            </Tooltip>
-          )}
-
-          {/* Export button – opens filter modal */}
-          <Button
-            icon={<TbDownload size={16} />}
-            className="dashboard-toolbar-btn"
-            size="middle"
-            onClick={() => setExportModalOpen(true)}
-          >
-            <span className="toolbar-btn-label">Export</span>
-          </Button>
+          {/* Request Data button – directs to Records Unit */}
+          <Tooltip title="Request data export from EMB Records Unit">
+            <Button
+              icon={<TbMail size={16} />}
+              className="dashboard-toolbar-btn"
+              size="middle"
+              onClick={() => setRequestModalOpen(true)}
+            >
+              <span className="toolbar-btn-label">Request Data</span>
+            </Button>
+          </Tooltip>
 
           {/* Refresh */}
           <Tooltip title="Refresh data">
@@ -308,24 +237,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {showFallback && (
-        <FallbackPanel
-          powerBiUrl={powerBiUrl}
-          onRetry={() => window.location.reload()}
+      {hasAnyError && (
+        <ConnectionErrorCard
+          error={tabular.error || weather.error}
+          onRetry={tabular.retry}
+          retrying={tabular.loading}
         />
-      )}
-      {!showFallback && hasAnyError && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <Button
-            type="default"
-            size="small"
-            href={powerBiUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open Legacy Power BI Dashboard
-          </Button>
-        </div>
       )}
 
       {/* 1. AQI Hero Card */}
@@ -341,6 +258,8 @@ export default function DashboardPage() {
         stationName={station.name}
         stationAddress={station.address}
         pollutantLabel={station.merged ? station.pollutants[0].label : station.pollutantLabel}
+        isFallback={false}
+        fallbackSource={""}
         temperature={weather.data?.temperature}
         humidity={weather.data?.humidity}
         pressure={weather.data?.pressure}
@@ -358,10 +277,12 @@ export default function DashboardPage() {
         aqiTime2={latestAqi2?.time}
         aqiLoading2={tabular2.loading}
         pollutantLabel2={secondaryPollutant?.label}
+        isStale={isStale}
+        isStale2={isStale2}
       />
 
-      {/* 2. Major Air Pollutants */}
-      <PollutantsCard
+      {/* 3. Hourly Weather Forecast */}
+      <HourlyWeatherCard
         latitude={station.lat}
         longitude={station.lon}
       />
@@ -396,56 +317,80 @@ export default function DashboardPage() {
         label2={secondaryPollutant?.label}
       />
 
-      {/* Export Filter Modal */}
+      {/* Data Request Modal */}
       <Modal
-        title="Export Data"
-        open={exportModalOpen}
-        onCancel={() => setExportModalOpen(false)}
-        footer={null}
-        width={440}
+        title="📋 Request Air Quality Data"
+        open={requestModalOpen}
+        onCancel={() => setRequestModalOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setRequestModalOpen(false)}>
+            Close
+          </Button>,
+          <Button
+            key="email"
+            type="primary"
+            icon={<TbMail size={14} />}
+            onClick={() => {
+              window.location.href =
+                `mailto:recordsr3@emb.gov.ph?subject=${encodeURIComponent(
+                  `Air Quality Data Request — ${station.name}`
+                )}&body=${encodeURIComponent(
+                  `Good day,\n\nI would like to request air quality monitoring data for the following:\n\n` +
+                  `Station: ${station.name}\n` +
+                  `Address: ${station.address}\n` +
+                  `Pollutant: ${station.merged ? station.pollutantLabel : station.pollutantLabel}\n\n` +
+                  `Please process my request at your earliest convenience.\n\nThank you.`
+                )}`;
+              message.success("Opening email client...");
+            }}
+          >
+            Send Request via Email
+          </Button>,
+        ]}
+        width={480}
         centered
       >
-        <div className="export-modal-body">
-          <div className="export-filter-group">
-            <label className="export-filter-label">Date Range</label>
-            <DatePicker.RangePicker
-              value={exportDateRange}
-              onChange={setExportDateRange}
-              style={{ width: "100%" }}
-              allowClear
-              size="middle"
-            />
-          </div>
-          <div className="export-filter-group">
-            <label className="export-filter-label">AQI Status</label>
-            <Select
-              value={exportStatus}
-              onChange={setExportStatus}
-              options={STATUS_OPTIONS}
-              placeholder="All statuses"
-              allowClear
-              style={{ width: "100%" }}
-              size="middle"
-            />
-          </div>
-          <div className="export-filter-summary">
-            {filteredExportRows.length} of {tabular.rows.length} records match
-          </div>
-          <Space style={{ width: "100%", justifyContent: "flex-end", marginTop: 12 }}>
-            <Button
-              icon={<TbFileTypeCsv size={16} />}
-              onClick={() => doExport("csv")}
-              type="primary"
+        <div style={{ lineHeight: 1.8, fontSize: 14 }}>
+          <p style={{ marginBottom: 12 }}>
+            To obtain air quality monitoring data, please submit a request to the
+            <strong> EMB Region 3 Records Unit</strong>. The Records Unit will
+            process your request and provide the data accordingly.
+          </p>
+
+          <div style={{
+            background: "var(--aqm-fill-alt, #f5f5f5)",
+            borderRadius: 10,
+            padding: "14px 18px",
+            marginBottom: 14,
+            border: "1px solid var(--aqm-border, #e8e8e8)",
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📧 Records Unit Email</div>
+            <a
+              href="mailto:recordsr3@emb.gov.ph"
+              style={{ fontSize: 16, fontWeight: 700, color: "var(--dash-accent, #1677ff)" }}
             >
-              Export CSV
-            </Button>
-            <Button
-              icon={<TbFileSpreadsheet size={16} />}
-              onClick={() => doExport("json")}
-            >
-              Export JSON
-            </Button>
-          </Space>
+              recordsr3@emb.gov.ph
+            </a>
+          </div>
+
+          <div style={{
+            background: "var(--aqm-fill-alt, #f5f5f5)",
+            borderRadius: 10,
+            padding: "14px 18px",
+            border: "1px solid var(--aqm-border, #e8e8e8)",
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📍 Current Station</div>
+            <div>{station.name}</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{station.address}</div>
+            <div style={{ marginTop: 4, fontSize: 12 }}>
+              Pollutant: <strong>{station.merged ? station.pollutantLabel : station.pollutantLabel}</strong>
+            </div>
+          </div>
+
+          <p style={{ marginTop: 14, fontSize: 12, opacity: 0.6 }}>
+            Click <strong>"Send Request via Email"</strong> to open your email client
+            with a pre-filled request template.
+          </p>
         </div>
       </Modal>
     </div>

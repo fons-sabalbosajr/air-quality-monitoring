@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, useCallback } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import {
   Layout,
   Menu,
@@ -17,11 +17,9 @@ import { Routes, Route, useLocation, useNavigate, Navigate } from "react-router-
 import {
   DashboardOutlined,
   TableOutlined,
-  AreaChartOutlined,
   EnvironmentOutlined,
   BulbOutlined,
   BulbFilled,
-  InfoCircleOutlined,
   GlobalOutlined,
   FacebookFilled,
   MailOutlined,
@@ -40,7 +38,7 @@ const ChartsPage = lazy(() => import("./pages/Charts"));
 const MapPage = lazy(() => import("./pages/Map"));
 const KioskPage = lazy(() => import("./pages/Kiosk"));
 import embLogo from "./assets/emblogo.svg";
-import WeatherBadge from "./components/WeatherBadge";
+import PageLoadingSkeleton from "./components/PageLoadingSkeleton";
 import { AqiProvider, useAqi } from "./context/AqiContext";
 import { getApiBase } from "./util/apiBase";
 
@@ -269,11 +267,6 @@ function ThemedLayout({
     if ([71, 73, 75, 77, 85, 86].includes(code))
       return { label: "Snow", icon: "snowing" };
     return { label: "—", icon: "thermostat" };
-  }
-
-  function forecastGradient(code, isDark) {
-    // Reuse header mapping so tiles match header exactly
-    return weatherGradient(code, isDark);
   }
 
   function degToCompass(deg) {
@@ -942,7 +935,7 @@ function ThemedLayout({
           </div>
 
           <div
-            className="flex items-center justify-between px-4 h-16"
+            className="flex items-center justify-between px-4 h-16 aqm-header-bar"
             style={{ position: "relative", zIndex: 2 }}
           >
             {/* Mobile hamburger */}
@@ -955,6 +948,13 @@ function ThemedLayout({
                 className="aqm-hamburger-btn"
               />
             ) : <div />}
+            {/* Centered title — shown on mobile & tablet */}
+            {(isMobile || isTablet) && (
+              <div className="aqm-mobile-title">
+                <img src={embLogo} alt="EMB" className="aqm-mobile-title-logo" />
+                <span className="aqm-mobile-title-text">EMBR3 Air Quality</span>
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <Switch
                 checked={dark}
@@ -1221,7 +1221,7 @@ function ThemedLayout({
                               })
                             : `Day ${idx + 1}`;
                           const info = codeToLabel(d.code);
-                          const bg = forecastGradient(d.code, dark);
+                          const bg = weatherGradient(d.code, dark);
                           return (
                             <div
                               key={idx}
@@ -1271,11 +1271,7 @@ function ThemedLayout({
             }}
           >
             <Suspense
-              fallback={
-                <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-                  <Spin size="large" />
-                </div>
-              }
+              fallback={<PageLoadingSkeleton sections={4} />}
             >
               <Routes>
                 <Route path="/" element={<Navigate to="/overview" replace />} />
@@ -1420,8 +1416,16 @@ function App() {
     return (
       <Suspense
         fallback={
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
-            <Spin size="large" />
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100vh",
+            background: "var(--aqm-bg, #f0f2f5)",
+            padding: 32,
+          }}>
+            <PageLoadingSkeleton sections={3} compact />
           </div>
         }
       >

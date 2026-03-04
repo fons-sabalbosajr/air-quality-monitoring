@@ -1,9 +1,7 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useApiEndpoint } from "../util/apiClient";
-import { getApiBase } from "../util/apiBase";
 import { Card, Alert, Spin, Skeleton, Select, DatePicker, Button } from "antd";
 import FilterGroup from "@components/FilterGroup.jsx";
-import { useRef } from "react";
 import {
   ResponsiveContainer,
   LineChart,

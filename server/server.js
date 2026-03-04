@@ -14,13 +14,18 @@ const cors = require("cors");
 const { PORT, CACHE_TTL_MS, MONGO_URI } = require("./config/env");
 
 // Services
-const { persistStationMeta, scheduleIngestion } = require("./services/mongo");
+const { ensureMongo, persistStationMeta, scheduleIngestion } = require("./services/mongo");
 const {
   resolveWorkbookPath,
   loadWorkbook,
   readVizData,
   readSheetSeries,
 } = require("./services/workbook");
+const {
+  setDb: setBackupDb,
+  scheduleBackup,
+  ensureBackupIndexes,
+} = require("./services/tabularBackup");
 
 // Routes
 const healthRoutes = require("./routes/health");
@@ -45,10 +50,18 @@ app.use(stationRoutes);
 app.use(workbookRoutes);
 app.use(proxyRoutes);
 
-// ── MongoDB ingestion & station meta ──
+// ── MongoDB ingestion, backup & station meta ──
 if (MONGO_URI) {
   scheduleIngestion({ readVizData, readSheetSeries });
   persistStationMeta();
+  // Initialize tabular backup after MongoDB connects
+  ensureMongo().then((db) => {
+    setBackupDb(db);
+    ensureBackupIndexes(db).catch(() => {});
+    scheduleBackup();
+  }).catch((err) => {
+    console.warn(`[backup] MongoDB init deferred: ${err.message}`);
+  });
 } else {
   console.warn(
     "[ingest] MONGO_URI missing. Falling back to direct workbook reads only.",

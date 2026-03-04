@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import path from 'path'
 import react from '@vitejs/plugin-react'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), basicSsl()],
   build: {
     chunkSizeWarningLimit: 1400,
     rollupOptions: {
@@ -23,8 +24,8 @@ export default defineConfig({
     // Bind explicitly to all interfaces so other LAN devices can reach it
     host: '0.0.0.0',
     port: 5173,
-    // HTTPS disabled – mkcert root CA isn't trusted on LAN tablets,
-    // causing ERR_EMPTY_RESPONSE. Plain HTTP works fine for dev.
+    // HTTPS enabled via @vitejs/plugin-basic-ssl (self-signed cert)
+    // Accept the browser warning on first visit, then it works on LAN.
   },
   resolve: {
     // Ensure a single Three.js instance is used across all dependencies

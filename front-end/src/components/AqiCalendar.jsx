@@ -1,17 +1,18 @@
 import { useState, useMemo, useCallback } from "react";
-import { Select, Tooltip, Button, Dropdown, message, Modal, Table, Tag } from "antd";
+import { Select, Tooltip, Button, Dropdown, message, Modal, Table, Tag, Tabs, Spin } from "antd";
 import dayjs from "dayjs";
 import { TbCalendar, TbDownload, TbFileTypeCsv, TbChevronLeft, TbChevronRight } from "react-icons/tb";
+import { LoadingOutlined } from "@ant-design/icons";
 import STATIONS, { getMergedStations } from "../config/stations";
 
 /* ── AQI colour bands ─────────────────────────────────────────────── */
 const BANDS = [
-  { name: "Good",                          min: 0,   max: 50,  color: "#34d399", bg: "#d1fae5" },
-  { name: "Fair",                          min: 51,  max: 100, color: "#fbbf24", bg: "#fef3c7" },
-  { name: "Unhealthy for Sensitive Groups", min: 101, max: 150, color: "#fb923c", bg: "#ffedd5" },
-  { name: "Very Unhealthy",               min: 151, max: 200, color: "#f87171", bg: "#fee2e2" },
-  { name: "Acutely Unhealthy",            min: 201, max: 300, color: "#a78bfa", bg: "#ede9fe" },
-  { name: "Emergency",                    min: 301, max: 999, color: "#fb7185", bg: "#fce7f3" },
+  { name: "Good",                          min: 0,   max: 50,  color: "#34d399", bg: "#d1fae5", face: "😊" },
+  { name: "Fair",                          min: 51,  max: 100, color: "#fbbf24", bg: "#fef3c7", face: "🙂" },
+  { name: "Unhealthy for Sensitive Groups", min: 101, max: 150, color: "#fb923c", bg: "#ffedd5", face: "😷" },
+  { name: "Very Unhealthy",               min: 151, max: 200, color: "#f87171", bg: "#fee2e2", face: "🤢" },
+  { name: "Acutely Unhealthy",            min: 201, max: 300, color: "#a78bfa", bg: "#ede9fe", face: "😨" },
+  { name: "Emergency",                    min: 301, max: 999, color: "#fb7185", bg: "#fce7f3", face: "☠️" },
 ];
 
 function getBand(val) {
@@ -69,6 +70,7 @@ export default function AqiCalendar({
   const [selectedMonth, setSelectedMonth] = useState(dayjs().month());
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayStatusFilter, setDayStatusFilter] = useState("all"); // 0-indexed
+  const [dayTab, setDayTab] = useState("primary"); // "primary" | "secondary"
 
   const hasDual = Array.isArray(data2) && data2.length > 0;
 
@@ -249,12 +251,36 @@ export default function AqiCalendar({
   /* ── Day detail modal data ─────────────────────────────────────── */
   const selectedDayInfo = selectedDay ? lookup[selectedDay] : null;
   const selectedDayBand = selectedDayInfo ? getBand(selectedDayInfo.aqi) : null;
+  const selectedDayInfo2 = selectedDay && hasDual ? lookup2[selectedDay] : null;
+  const selectedDayBand2 = selectedDayInfo2 ? getBand(selectedDayInfo2.aqi) : null;
 
-  const rawColumns = useMemo(() => {
-    if (!rawRows.length) return [];
-    return Object.keys(rawRows[0]);
-  }, [rawRows]);
+  /* Helper to build columns from a row set */
+  const buildColumns = useCallback((rows) => {
+    if (!rows.length) return [];
+    return Object.keys(rows[0]).map((col) => ({
+      title: col,
+      dataIndex: col,
+      key: col,
+      width: col.toLowerCase().includes("date") || col.toLowerCase().includes("time") ? 180 : 110,
+      render: (v) => {
+        if (v == null) return "—";
+        const cl = col.toLowerCase();
+        if (cl === "status") {
+          const statusBand = BANDS.find((band) => band.name.toLowerCase() === String(v).toLowerCase());
+          const bandColor = statusBand?.color || "var(--aqm-text)";
+          const bandBg = statusBand?.bg || "transparent";
+          return <Tag style={{ fontSize: 11, margin: 0, color: bandColor, borderColor: bandColor, background: bandBg }}>{v}</Tag>;
+        }
+        const num = Number(v);
+        if (isFinite(num) && String(v).includes(".") && !cl.includes("date") && !cl.includes("time")) {
+          return num.toFixed(2);
+        }
+        return String(v);
+      },
+    }));
+  }, []);
 
+  /* Primary readings */
   const dayReadings = useMemo(() => {
     if (!selectedDay || !rawRows?.length || !dateCol) return [];
     const target = dayjs(selectedDay).format("YYYY-MM-DD");
@@ -268,6 +294,20 @@ export default function AqiCalendar({
       .reverse();
   }, [selectedDay, rawRows, dateCol]);
 
+  /* Secondary readings (PM2.5) */
+  const dayReadings2 = useMemo(() => {
+    if (!selectedDay || !hasDual || !rawRows2?.length || !dateCol2) return [];
+    const target = dayjs(selectedDay).format("YYYY-MM-DD");
+    return rawRows2
+      .filter((r) => {
+        try {
+          const rd = dayjs(r[dateCol2]);
+          return rd.isValid() && rd.format("YYYY-MM-DD") === target;
+        } catch { return false; }
+      })
+      .reverse();
+  }, [selectedDay, rawRows2, dateCol2, hasDual]);
+
   const filteredDayReadings = useMemo(() => {
     if (dayStatusFilter === "all") return dayReadings;
     return dayReadings.filter((r) => {
@@ -276,41 +316,26 @@ export default function AqiCalendar({
     });
   }, [dayReadings, dayStatusFilter]);
 
-  const dayTableColumns = useMemo(() => {
-    if (!rawColumns.length) return [];
-    return rawColumns.map((col) => ({
-      title: col,
-      dataIndex: col,
-      key: col,
-      width: col.toLowerCase().includes("date") || col.toLowerCase().includes("time") ? 180 : 110,
-      render: (v) => {
-        if (v == null) return "—";
-        const cl = col.toLowerCase();
-        if (cl === "status") {
-          const b = getBand(Number(v)) || null;
-          const statusBand = BANDS.find((band) => band.name.toLowerCase() === String(v).toLowerCase());
-          const bandColor = statusBand?.color || b?.color || "var(--aqm-text)";
-          const bandBg = statusBand?.bg || b?.bg || "transparent";
-          return <Tag style={{ fontSize: 11, margin: 0, color: bandColor, borderColor: bandColor, background: bandBg }}>{v}</Tag>;
-        }
-        // Limit decimals to 2 for numeric columns
-        const num = Number(v);
-        if (isFinite(num) && String(v).includes(".") && !cl.includes("date") && !cl.includes("time")) {
-          return num.toFixed(2);
-        }
-        return String(v);
-      },
-    }));
-  }, [rawColumns]);
+  const filteredDayReadings2 = useMemo(() => {
+    if (dayStatusFilter === "all") return dayReadings2;
+    return dayReadings2.filter((r) => {
+      const st = (r["Status"] ?? r["status"] ?? "").toLowerCase();
+      return st.includes(dayStatusFilter.toLowerCase());
+    });
+  }, [dayReadings2, dayStatusFilter]);
+
+  const dayTableColumns = useMemo(() => buildColumns(dayReadings), [dayReadings, buildColumns]);
+  const dayTableColumns2 = useMemo(() => buildColumns(dayReadings2), [dayReadings2, buildColumns]);
 
   const dayStatusOptions = useMemo(() => {
-    const s = new Set(dayReadings.map((r) => r["Status"] ?? r["status"] ?? "").filter(Boolean));
+    const all = [...dayReadings, ...dayReadings2];
+    const s = new Set(all.map((r) => r["Status"] ?? r["status"] ?? "").filter(Boolean));
     return [{ label: "All statuses", value: "all" }, ...[...s].map((v) => ({ label: v, value: v }))];
-  }, [dayReadings]);
+  }, [dayReadings, dayReadings2]);
 
   const exportDayCSV = useCallback(() => {
     if (!filteredDayReadings.length) return;
-    const keys = rawColumns;
+    const keys = Object.keys(filteredDayReadings[0]);
     const csvRows = [keys.join(",")];
     for (const r of filteredDayReadings) {
       csvRows.push(keys.map((k) => {
@@ -327,7 +352,7 @@ export default function AqiCalendar({
     a.click();
     URL.revokeObjectURL(a.href);
     message.success("Day readings exported as CSV");
-  }, [filteredDayReadings, rawColumns, selectedDay]);
+  }, [filteredDayReadings, selectedDay]);
 
   const exportDayJSON = useCallback(() => {
     if (!filteredDayReadings.length) return;
@@ -535,12 +560,14 @@ export default function AqiCalendar({
                       <>
                         {val != null && (
                           <span className="aqi-cal-dual-row">
+                            <span className="aqi-cal-dual-face">{band?.face}</span>
                             <span className="aqi-cal-dual-lbl" style={{ color: band?.color }}>{label || "PM10"}</span>
                             <span className="aqi-cal-dual-val" style={{ color: band?.color }}>{val}</span>
                           </span>
                         )}
                         {val2 != null && (
                           <span className="aqi-cal-dual-row">
+                            <span className="aqi-cal-dual-face">{band2?.face}</span>
                             <span className="aqi-cal-dual-lbl" style={{ color: band2?.color }}>{label2 || "PM2.5"}</span>
                             <span className="aqi-cal-dual-val" style={{ color: band2?.color }}>{val2}</span>
                           </span>
@@ -551,12 +578,10 @@ export default function AqiCalendar({
                       <>
                         {val != null && (
                           <>
+                            <span className="aqi-cal-face">{band?.face}</span>
                             <span className="aqi-cal-val">{val}</span>
                             {cell.info?.status && (
                               <span className="aqi-cal-status">{shortStatus(cell.info.status)}</span>
-                            )}
-                            {cell.info?.conc != null && (
-                              <span className="aqi-cal-conc">{cell.info.conc}</span>
                             )}
                           </>
                         )}
@@ -574,7 +599,7 @@ export default function AqiCalendar({
       <Modal
         title={null}
         open={!!selectedDay}
-        onCancel={() => { setSelectedDay(null); setDayStatusFilter("all"); }}
+        onCancel={() => { setSelectedDay(null); setDayStatusFilter("all"); setDayTab("primary"); }}
         footer={null}
         width={720}
         centered
@@ -596,24 +621,29 @@ export default function AqiCalendar({
               </div>
             </div>
 
+            {/* Summary cards – show both pollutants if dual */}
             {selectedDayInfo && (
               <div className="aqi-day-summary">
                 <div className="aqi-day-stat">
-                  <span className="aqi-day-stat-label">AQI</span>
+                  <span className="aqi-day-stat-label">{hasDual ? `AQI (${label || "PM10"})` : "AQI"}</span>
                   <span className="aqi-day-stat-value" style={{ color: selectedDayBand?.color }}>{selectedDayInfo.aqi}</span>
                 </div>
                 <div className="aqi-day-stat">
                   <span className="aqi-day-stat-label">Status</span>
                   <span className="aqi-day-stat-value" style={{ color: selectedDayBand?.color, fontSize: 13 }}>{selectedDayBand?.name}</span>
                 </div>
-                <div className="aqi-day-stat">
-                  <span className="aqi-day-stat-label">Concentration</span>
-                  <span className="aqi-day-stat-value">{selectedDayInfo.conc != null ? `${selectedDayInfo.conc} µg/Ncm` : "—"}</span>
-                </div>
-                <div className="aqi-day-stat">
-                  <span className="aqi-day-stat-label">Readings</span>
-                  <span className="aqi-day-stat-value">{selectedDayInfo.readings}</span>
-                </div>
+                {hasDual && selectedDayInfo2 && (
+                  <>
+                    <div className="aqi-day-stat">
+                      <span className="aqi-day-stat-label">AQI ({label2 || "PM2.5"})</span>
+                      <span className="aqi-day-stat-value" style={{ color: selectedDayBand2?.color }}>{selectedDayInfo2.aqi}</span>
+                    </div>
+                    <div className="aqi-day-stat">
+                      <span className="aqi-day-stat-label">Status</span>
+                      <span className="aqi-day-stat-value" style={{ color: selectedDayBand2?.color, fontSize: 13 }}>{selectedDayBand2?.name}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -628,38 +658,88 @@ export default function AqiCalendar({
               />
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 11, color: "var(--aqm-muted)" }}>
-                {filteredDayReadings.length} of {dayReadings.length} readings
+                {(dayTab === "secondary" ? filteredDayReadings2 : filteredDayReadings).length} readings
               </span>
-              <Tooltip title="Export as CSV">
-                <Button size="small" icon={<TbFileTypeCsv size={14} />} onClick={exportDayCSV} disabled={!filteredDayReadings.length} />
-              </Tooltip>
-              <Tooltip title="Export as JSON">
-                <Button size="small" icon={<TbDownload size={14} />} onClick={exportDayJSON} disabled={!filteredDayReadings.length} />
-              </Tooltip>
             </div>
 
-            {filteredDayReadings.length > 0 ? (
-              <div className="aqi-day-table-wrap">
-                <Table
-                  size="small"
-                  dataSource={filteredDayReadings.map((r, i) => ({ ...r, _key: i }))}
-                  columns={dayTableColumns}
-                  rowKey="_key"
-                  pagination={filteredDayReadings.length > 20 ? { pageSize: 20, size: "small" } : false}
-                  scroll={{ x: "max-content" }}
-                  bordered
-                />
-              </div>
+            {/* Tabbed or single table */}
+            {hasDual ? (
+              <Tabs
+                activeKey={dayTab}
+                onChange={setDayTab}
+                size="small"
+                items={[
+                  {
+                    key: "primary",
+                    label: <Tag color="#34d399" style={{ margin: 0, fontWeight: 700, fontSize: 12 }}>{label || "PM10"}</Tag>,
+                    children: (
+                      <DayTable
+                        readings={filteredDayReadings}
+                        columns={dayTableColumns}
+                        totalCount={dayReadings.length}
+                        loading={loading}
+                      />
+                    ),
+                  },
+                  {
+                    key: "secondary",
+                    label: <Tag color="#06b6d4" style={{ margin: 0, fontWeight: 700, fontSize: 12 }}>{label2 || "PM2.5"}</Tag>,
+                    children: (
+                      <DayTable
+                        readings={filteredDayReadings2}
+                        columns={dayTableColumns2}
+                        totalCount={dayReadings2.length}
+                        loading={loading}
+                      />
+                    ),
+                  },
+                ]}
+              />
             ) : (
-              <div className="aqi-day-empty">
-                {dayReadings.length === 0
-                  ? "No raw readings available for this day."
-                  : "No readings match the current filter."}
-              </div>
+              <DayTable
+                readings={filteredDayReadings}
+                columns={dayTableColumns}
+                totalCount={dayReadings.length}
+                loading={loading}
+              />
             )}
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/* ── Day table sub-component with loading state ── */
+function DayTable({ readings, columns, totalCount, loading }) {
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "32px 0" }}>
+        <Spin indicator={<LoadingOutlined style={{ fontSize: 28 }} spin />} />
+        <div style={{ marginTop: 10, fontSize: 12, color: "var(--aqm-muted)" }}>Loading readings…</div>
+      </div>
+    );
+  }
+  if (readings.length > 0) {
+    return (
+      <div className="aqi-day-table-wrap">
+        <Table
+          size="small"
+          dataSource={readings.map((r, i) => ({ ...r, _key: i }))}
+          columns={columns}
+          rowKey="_key"
+          pagination={readings.length > 20 ? { pageSize: 20, size: "small" } : false}
+          scroll={{ x: "max-content" }}
+          bordered
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="aqi-day-empty">
+      {totalCount === 0
+        ? "No raw readings available for this day."
+        : "No readings match the current filter."}
     </div>
   );
 }

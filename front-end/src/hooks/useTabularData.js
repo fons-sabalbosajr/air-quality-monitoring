@@ -2,7 +2,7 @@
  * useTabularData – fetches data from /api/tabular/:province/:pollutant
  * and transforms it into the format the dashboard components expect.
  *
- * Returns { rows, latest, dailyRows, loading, error, fetchedAt, retry }
+ * Returns { rows, latest, dailyRows, loading, error, fetchedAt, retry, source, backupMeta }
  *   - rows       : raw enhanced rows from the server (newest-first)
  *   - latest     : the most recent row with valid AQI (for AQI hero card)
  *   - dailyRows  : array of { t, y, conc, status } in chronological order
@@ -10,6 +10,8 @@
  *   - error      : string | null
  *   - fetchedAt  : ISO timestamp
  *   - retry      : function to force re-fetch
+ *   - source     : "sheet" | "cache" | "stale-cache" | "mongodb-backup"
+ *   - backupMeta : { lastBackupAt, lastCheckedAt, rowCount } when served from backup
  */
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
@@ -19,6 +21,8 @@ export default function useTabularData(province, pollutant) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(null);
+  const [source, setSource] = useState(null);
+  const [backupMeta, setBackupMeta] = useState(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -28,7 +32,6 @@ export default function useTabularData(province, pollutant) {
 
   const fetchData = useCallback(async () => {
     if (!province || !pollutant) {
-      // Intentionally skipped (e.g. secondary pollutant not needed)
       setLoading(false);
       return;
     }
@@ -43,6 +46,8 @@ export default function useTabularData(province, pollutant) {
       if (!mountedRef.current) return;
       setRaw(json);
       setFetchedAt(json.fetchedAt || new Date().toISOString());
+      setSource(json.source || "sheet");
+      setBackupMeta(json.backupMeta || null);
     } catch (e) {
       if (!mountedRef.current) return;
       setError(e.message || "Failed to fetch data");
@@ -53,7 +58,6 @@ export default function useTabularData(province, pollutant) {
 
   useEffect(() => {
     fetchData();
-    // Auto-refresh every 5 minutes
     const iv = setInterval(fetchData, 300_000);
     return () => clearInterval(iv);
   }, [fetchData]);
@@ -126,5 +130,7 @@ export default function useTabularData(province, pollutant) {
     dateCol,
     concCol,
     raw,
+    source,
+    backupMeta,
   };
 }

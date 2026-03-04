@@ -9,19 +9,11 @@ import {
   Table,
   Tag,
   Button,
-  Select,
-  DatePicker,
-  Slider,
-  Input,
   Space,
-  Divider,
   Segmented,
   message,
 } from "antd";
 import {
-  DownloadOutlined,
-  FilterOutlined,
-  ClearOutlined,
   ReloadOutlined,
   MailOutlined,
 } from "@ant-design/icons";
@@ -44,18 +36,18 @@ import {
   TbMail,
   TbWorld,
   TbBuildingSkyscraper,
-  TbBrandFacebook,
   TbExternalLink,
-  TbSend,
+  TbSun,
+  TbMoon,
+  TbEye,
 } from "react-icons/tb";
 import { AqiProvider, useAqi } from "../context/AqiContext";
 import STATIONS, { getStation } from "../config/stations";
 import useTabularData from "../hooks/useTabularData";
 import useStationWeather from "../hooks/useStationWeather";
 import AqiHeroCard from "../components/AqiHeroCard";
-import PollutantsCard from "../components/PollutantsCard";
-import AqiCategoryMeter from "../components/AqiCategoryMeter";
-import { getApiBase } from "../util/apiBase";
+import HourlyWeatherCard from "../components/HourlyWeatherCard";
+import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import embLogo from "../assets/emblogo.svg";
 
 /* ── Kiosk-specific stations: merge Zambales PM10+PM2.5 into one ── */
@@ -161,12 +153,26 @@ function KioskContent() {
     const status = row["Status"] ?? row["status"];
     const dateCol = tabular.dateCol;
     const time = dateCol ? row[dateCol] : null;
+    let isoTime = null;
+    if (time) {
+      const d = new Date(time);
+      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+    }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
-      time: time ? new Date(time).toISOString() : null,
+      time: isoTime,
     };
   }, [tabular.latest, tabular.dateCol]);
+
+  // Detect stale data (>7 days old)
+  const isStale = useMemo(() => {
+    if (!latestAqi.time) return false;
+    const latest = new Date(latestAqi.time);
+    if (isNaN(latest.getTime())) return false;
+    const diffDays = (Date.now() - latest.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays > 7;
+  }, [latestAqi.time]);
 
   // ── Derived AQI (secondary – PM2.5 for merged Zambales) ──
   const latestAqi2 = useMemo(() => {
@@ -177,12 +183,28 @@ function KioskContent() {
     const status = row["Status"] ?? row["status"];
     const dateCol = tabular2.dateCol;
     const time = dateCol ? row[dateCol] : null;
+    let isoTime = null;
+    if (time) {
+      const d = new Date(time);
+      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+    }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
-      time: time ? new Date(time).toISOString() : null,
+      time: isoTime,
     };
   }, [station.merged, tabular2.latest, tabular2.dateCol]);
+
+  // Detect stale secondary pollutant (PM2.5)
+  const isStale2 = useMemo(() => {
+    if (!station.merged || !latestAqi2) return false;
+    if (latestAqi2.value == null && !latestAqi2.time) return true;
+    if (!latestAqi2.time) return true;
+    const latest = new Date(latestAqi2.time);
+    if (isNaN(latest.getTime())) return true;
+    const diffDays = (Date.now() - latest.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays > 7;
+  }, [station.merged, latestAqi2]);
 
   // Push to context
   useEffect(() => {
@@ -240,6 +262,11 @@ function KioskContent() {
     }
   }, [tabularModalOpen, mapModalOpen]);
 
+  // Toggle dark/light theme
+  const toggleTheme = useCallback(() => {
+    document.documentElement.classList.toggle("dark");
+  }, []);
+
   return (
     <div className="kiosk-page">
       {/* ── Top Bar ── */}
@@ -253,11 +280,21 @@ function KioskContent() {
             </span>
           </div>
         </div>
-        <div className="kiosk-clock">
-          <span className="kiosk-clock-time">{now.format("h:mm:ss A")}</span>
-          <span className="kiosk-clock-date">
-            {now.format("dddd, MMMM D, YYYY")}
-          </span>
+        <div className="kiosk-header-right">
+          <div className="kiosk-clock">
+            <span className="kiosk-clock-time">{now.format("h:mm:ss A")}</span>
+            <span className="kiosk-clock-date">
+              {now.format("dddd, MMMM D, YYYY")}
+            </span>
+          </div>
+          <button
+            className="kiosk-theme-btn"
+            onClick={toggleTheme}
+            aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+            title={dark ? "Light mode" : "Dark mode"}
+          >
+            {dark ? <TbSun size={20} /> : <TbMoon size={20} />}
+          </button>
         </div>
       </header>
 
@@ -272,19 +309,14 @@ function KioskContent() {
         </button>
         <div className="kiosk-station-indicator">
           <div className="kiosk-dots">{stationDots}</div>
-          <div className="kiosk-station-label">
+          <div className="kiosk-station-label" style={{ textAlign: "center", justifyContent: "center" }}>
             <TbMapPin size={14} />
-            <span>{station.name}</span>
-            <span className="kiosk-station-addr">{station.address}</span>
+            <div className="kiosk-station-info-col" style={{ alignItems: "center" }}>
+              <span>{station.name}</span>
+              <span className="kiosk-station-addr">{station.address}</span>
+            </div>
           </div>
         </div>
-        <button
-          className="kiosk-nav-btn"
-          onClick={() => setPaused((p) => !p)}
-          aria-label={paused ? "Resume" : "Pause"}
-        >
-          {paused ? <TbPlayerPlay size={18} /> : <TbPlayerPause size={18} />}
-        </button>
         <button
           className="kiosk-nav-btn"
           onClick={goNext}
@@ -306,6 +338,18 @@ function KioskContent() {
 
       {/* ── Main Content (card-like fade transition) ── */}
       <main className={`kiosk-main${transitioning ? " kiosk-main--fade" : ""}`}>
+        {/* Connection / API Error */}
+        {(tabular.error || weather.error) && (
+          <section className="kiosk-section" style={{ padding: 0 }}>
+            <ConnectionErrorCard
+              error={tabular.error || weather.error}
+              onRetry={tabular.retry}
+              retrying={tabular.loading}
+              compact
+            />
+          </section>
+        )}
+
         {/* AQI Hero Card (merged: dual gauges in one card) */}
         <section className="kiosk-section kiosk-hero-section">
           <AqiHeroCard
@@ -320,6 +364,8 @@ function KioskContent() {
             stationName={station.name}
             stationAddress={station.address}
             pollutantLabel={station.merged ? "PM10" : station.pollutantLabel}
+            isFallback={false}
+            fallbackSource={""}
             temperature={weather.data?.temperature}
             humidity={weather.data?.humidity}
             pressure={weather.data?.pressure}
@@ -337,32 +383,103 @@ function KioskContent() {
             aqiTime2={station.merged ? latestAqi2?.time : undefined}
             aqiLoading2={station.merged ? tabular2.loading : undefined}
             pollutantLabel2={station.merged ? "PM2.5" : undefined}
+            isStale={isStale}
+            isStale2={isStale2}
           />
         </section>
 
         {/* AQI Category Meter - full width below hero */}
-        <section className="kiosk-section" style={{ padding: "16px 24px" }}>
-          <AqiCategoryMeter
-            value={latestAqi.value}
-            category={latestAqi.category}
-            loading={tabular.loading}
-            label={station.merged ? "PM10" : undefined}
-          />
-          {station.merged && (
-            <div style={{ marginTop: 12 }}>
-              <AqiCategoryMeter
-                value={latestAqi2?.value}
-                category={latestAqi2?.category}
-                loading={tabular2.loading}
-                label="PM2.5"
-              />
-            </div>
-          )}
+        {/* (removed – AQI metrics already displayed in Hero Card) */}
+
+        {/* Stale-data watermark is now built into the AQI Hero Card */}
+
+        {/* Hourly Weather Forecast */}
+        <section className="kiosk-section">
+          <HourlyWeatherCard latitude={station.lat} longitude={station.lon} />
         </section>
 
-        {/* Major Air Pollutants - full width */}
+        {/* EMBR3 Featured Videos */}
         <section className="kiosk-section">
-          <PollutantsCard latitude={station.lat} longitude={station.lon} />
+          <div className="kiosk-newsletter-card">
+            <div className="kiosk-newsletter-header">
+              <TbEye size={20} />
+              <h3 className="kiosk-newsletter-title">EMB Region 3 Featured</h3>
+            </div>
+            <div className="kiosk-videos-grid">
+              <div className="kiosk-video-tile">
+                <div className="kiosk-newsletter-video-wrap">
+                  <iframe
+                    className="kiosk-newsletter-video"
+                    src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent('https://www.facebook.com/share/v/18Kqwwbjig/')}&show_text=false&t=0`}
+                    title="EMBR3 Video 1"
+                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                    allowFullScreen
+                    scrolling="no"
+                    frameBorder="0"
+                  />
+                </div>
+              </div>
+              <div className="kiosk-video-tile">
+                <div className="kiosk-newsletter-video-wrap">
+                  <iframe
+                    className="kiosk-newsletter-video"
+                    src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent('https://www.facebook.com/share/v/1ATwPSjbVD/')}&show_text=false&t=0`}
+                    title="EMBR3 Video 2"
+                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                    allowFullScreen
+                    scrolling="no"
+                    frameBorder="0"
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="kiosk-newsletter-desc">
+              Stay informed with the latest updates from EMB Region 3 on air quality monitoring, environmental programs, and community initiatives.
+            </p>
+          </div>
+        </section>
+
+        {/* EMBR3 Contact Info Card */}
+        <section className="kiosk-section">
+          <div className="kiosk-contact-card">
+            <div className="kiosk-contact-header">
+              <img src={embLogo} alt="EMB Logo" className="kiosk-contact-logo" />
+              <div>
+                <h3 className="kiosk-contact-title">EMB Region 3 Office</h3>
+                <p className="kiosk-contact-subtitle">
+                  Environmental Management Bureau – Central Luzon
+                </p>
+              </div>
+            </div>
+            <div className="kiosk-contact-grid">
+              <div className="kiosk-contact-item">
+                <TbMapPin size={16} />
+                <span>Masinop cor. Matalino St., Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga</span>
+              </div>
+              <div className="kiosk-contact-item">
+                <TbPhone size={16} />
+                <div>
+                  <div>(045) 963-3623 (Trunk Line)</div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>ORD: local 102 · EMED: local 115/117 · CPD: local 114/106</div>
+                </div>
+              </div>
+              <div className="kiosk-contact-item">
+                <TbMail size={16} />
+                <div>
+                  <a href="mailto:emb_region3@emb.gov.ph">emb_region3@emb.gov.ph</a>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Records: <a href="mailto:recordsr3@emb.gov.ph">recordsr3@emb.gov.ph</a></div>
+                </div>
+              </div>
+              <div className="kiosk-contact-item">
+                <TbWorld size={16} />
+                <a href="https://r3.emb.gov.ph" target="_blank" rel="noopener noreferrer">r3.emb.gov.ph</a>
+              </div>
+              <div className="kiosk-contact-item">
+                <TbInfoCircle size={16} />
+                <span>ISO 9001:2015 & ISO 14001:2015 Certified</span>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
 
@@ -390,6 +507,14 @@ function KioskContent() {
         >
           <TbMap2 size={22} />
           <span>Map</span>
+        </button>
+        <button
+          className="kiosk-bottom-btn kiosk-bottom-btn--playpause"
+          onClick={() => setPaused((p) => !p)}
+          aria-label={paused ? "Resume" : "Pause"}
+        >
+          {paused ? <TbPlayerPlay size={22} /> : <TbPlayerPause size={22} />}
+          <span>{paused ? "Play" : "Pause"}</span>
         </button>
       </nav>
 
@@ -432,50 +557,6 @@ function statusTint(status) {
   return found?.color ?? null;
 }
 
-/* ── CSV Export helper ───────────────────────────────────────── */
-function exportToCsv(columns, rows, filename) {
-  const esc = (v) => {
-    if (v == null) return "";
-    const s = String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n"))
-      return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const header = columns.map(esc).join(",");
-  const body = rows
-    .map((r) => columns.map((c) => esc(r[c])).join(","))
-    .join("\n");
-  const blob = new Blob(["\uFEFF" + header + "\n" + body], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/* ── Parse date strings back (for filter comparison) ─────────── */
-const MONTH_ABBR_MAP = {
-  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-};
-function parseFormattedDate(s) {
-  if (!s) return null;
-  const m = String(s).match(
-    /^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i,
-  );
-  if (!m) return null;
-  const mon = MONTH_ABBR_MAP[m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()];
-  if (mon == null) return null;
-  let h = Number(m[4]);
-  const ampm = m[6].toUpperCase();
-  if (ampm === "PM" && h < 12) h += 12;
-  if (ampm === "AM" && h === 12) h = 0;
-  return new Date(Number(m[3]), mon, Number(m[2]), h, Number(m[5]));
-}
-
 /* ── Province display name ───────────────────────────────────── */
 const PROVINCE_LABELS = {
   meycauayan: "Meycauayan",
@@ -491,22 +572,9 @@ const PROVINCE_LABELS = {
 function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) {
   const { token } = theme.useToken();
   const [activePollutant, setActivePollutant] = useState("pm10");
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({
-    dateRange: null,
-    statuses: [],
-    aqiRange: [0, 500],
-    concentrationSearch: "",
-  });
 
-  // Email modal state
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [emailTo, setEmailTo] = useState("");
-  const [emailSending, setEmailSending] = useState(false);
-
-  const clearFilters = useCallback(() => {
-    setFilters({ dateRange: null, statuses: [], aqiRange: [0, 500], concentrationSearch: "" });
-  }, []);
+  // Data request modal state
+  const [requestOpen, setRequestOpen] = useState(false);
 
   // Determine which tabular data to show
   const activeTabular = activePollutant === "pm25" && tabular2 ? tabular2 : tabular;
@@ -523,128 +591,51 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
     return rows.map((r, idx) => ({ __key: idx, ...r }));
   }, [activeTabular?.rows]);
 
-  // Apply filters
-  const filteredData = useMemo(() => {
-    const dateKey = columns.find((c) => /date|time/i.test(c));
-    return dataSource.filter((row) => {
-      if (filters.dateRange && filters.dateRange[0] && filters.dateRange[1] && dateKey) {
-        const d = parseFormattedDate(row[dateKey]);
-        if (d) {
-          const start = filters.dateRange[0].startOf("day").toDate();
-          const end = filters.dateRange[1].endOf("day").toDate();
-          if (d < start || d > end) return false;
-        }
-      }
-      if (filters.statuses.length > 0) {
-        const rs = String(row["Status"] || "");
-        if (!filters.statuses.some((s) => rs === s)) return false;
-      }
-      if (filters.aqiRange[0] > 0 || filters.aqiRange[1] < 500) {
-        const a = row["AQI"];
-        if (a != null && typeof a === "number") {
-          if (a < filters.aqiRange[0] || a > filters.aqiRange[1]) return false;
-        }
-      }
-      if (filters.concentrationSearch) {
-        const concKey = columns.find((c) => /concentration/i.test(c));
-        if (concKey) {
-          const val = String(row[concKey] ?? "");
-          if (!val.includes(filters.concentrationSearch)) return false;
-        }
-      }
-      return true;
-    });
-  }, [dataSource, columns, filters]);
-
-  const activeFilterCount = useMemo(() => {
-    let n = 0;
-    if (filters.dateRange && filters.dateRange[0]) n++;
-    if (filters.statuses.length) n++;
-    if (filters.aqiRange[0] > 0 || filters.aqiRange[1] < 500) n++;
-    if (filters.concentrationSearch) n++;
-    return n;
-  }, [filters]);
-
   // Table columns
   const tableColumns = useMemo(() => {
     const filtered = columns.filter(
       (c) => !(/aqi/i.test(c) && (/category/i.test(c) || /µg/i.test(c))),
     );
-    return filtered.map((c) => ({
-      title: c,
-      dataIndex: c,
-      key: c,
-      ellipsis: true,
+    return filtered.map((c) => {
+      // Assign compact column widths
+      let width;
+      if (c === "AQI") width = 70;
+      else if (c === "Status") width = 100;
+      else if (/date|time/i.test(c)) width = 130;
+      else if (/concentration/i.test(c)) width = 110;
+      else if (/rolling average/i.test(c)) width = 110;
+      else width = 100;
+
+      return {
+        title: c,
+        dataIndex: c,
+        key: c,
+        ellipsis: true,
+        width,
       ...(c === "AQI" && {
         sorter: (a, b) => (a["AQI"] ?? 0) - (b["AQI"] ?? 0),
       }),
-      render: (v) => {
+      render: (v, row) => {
         if (c === "Status") {
           const t = statusTint(v);
           const txt = v == null ? "" : String(v);
           if (!txt) return "";
           return t ? <Tag color={t}>{txt}</Tag> : <Tag>{txt}</Tag>;
         }
-        if (c === "AQI" && (v == null || v === "")) return "";
+        if (c === "AQI") {
+          if (v == null || v === "") return "";
+          const statusVal = row["Status"];
+          const t = statusTint(statusVal);
+          return t
+            ? <Tag color={t} style={{ fontWeight: 700 }}>{typeof v === "number" ? Math.round(v) : v}</Tag>
+            : <span style={{ fontWeight: 600 }}>{typeof v === "number" ? Math.round(v) : v}</span>;
+        }
         if (c.toLowerCase().includes("rolling average") && typeof v === "number") return v.toFixed(2);
         return v == null ? "" : String(v);
       },
-    }));
+    };
+    });
   }, [columns]);
-
-  // Export
-  const handleExport = useCallback(() => {
-    if (!filteredData.length) return;
-    const visibleCols = columns.filter(
-      (c) => !(/aqi/i.test(c) && (/category/i.test(c) || /µg/i.test(c))),
-    );
-    const now = new Date();
-    const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const filename = `${provinceLabel.replace(/\s+/g, "_")}_${pollutantLabel}_${ts}.csv`;
-    exportToCsv(visibleCols, filteredData, filename);
-    message.success(`Exported ${filteredData.length.toLocaleString()} records`);
-  }, [filteredData, columns, provinceLabel, pollutantLabel]);
-
-  // Email sharing
-  const handleEmailShare = useCallback(async () => {
-    if (!emailTo || !filteredData.length) return;
-    setEmailSending(true);
-    try {
-      const base = getApiBase();
-      const visibleCols = columns.filter(
-        (c) => !(/aqi/i.test(c) && (/category/i.test(c) || /µg/i.test(c))),
-      );
-      const res = await fetch(`${base}/api/share-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: emailTo,
-          province: provinceLabel,
-          pollutant: pollutantLabel,
-          columns: visibleCols,
-          rows: filteredData.slice(0, 500), // limit to 500 rows for email
-          totalRows: filteredData.length,
-          filters: {
-            dateRange: filters.dateRange
-              ? [filters.dateRange[0]?.format("YYYY-MM-DD"), filters.dateRange[1]?.format("YYYY-MM-DD")]
-              : null,
-            statuses: filters.statuses,
-            aqiRange: filters.aqiRange,
-          },
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to send email");
-      message.success(`Report sent to ${emailTo}`);
-      setEmailModalOpen(false);
-      setEmailTo("");
-    } catch (e) {
-      message.error(e.message || "Failed to send email");
-    } finally {
-      setEmailSending(false);
-    }
-  }, [emailTo, filteredData, columns, provinceLabel, pollutantLabel, filters]);
-
-  const { RangePicker } = DatePicker;
 
   return (
     <Modal
@@ -680,113 +671,24 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
             />
           )}
           <Button
-            icon={<FilterOutlined />}
-            size="small"
-            onClick={() => setShowFilters((v) => !v)}
-            type={activeFilterCount > 0 ? "primary" : "default"}
-            ghost={activeFilterCount > 0}
-          >
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-          </Button>
-          <Button
             icon={<ReloadOutlined />}
             size="small"
             onClick={activeTabular.retry}
             loading={activeTabular.loading}
           />
           <Button
-            icon={<DownloadOutlined />}
-            size="small"
-            onClick={handleExport}
-            disabled={activeTabular.loading || !filteredData.length}
-          >
-            Export
-          </Button>
-          <Button
             icon={<MailOutlined />}
             size="small"
-            onClick={() => setEmailModalOpen(true)}
-            disabled={activeTabular.loading || !filteredData.length}
+            onClick={() => setRequestOpen(true)}
           >
-            Email
+            Request Data
           </Button>
         </Space>
       </div>
 
-      {/* Filters */}
-      {showFilters && (
-        <div style={{
-          marginBottom: 12,
-          padding: "10px 14px",
-          background: token.colorFillAlter,
-          borderRadius: 8,
-          border: `1px solid ${token.colorBorderSecondary}`,
-        }}>
-          <Space wrap size="middle" style={{ width: "100%" }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>Date Range</div>
-              <RangePicker
-                size="small"
-                value={filters.dateRange}
-                onChange={(v) => setFilters((f) => ({ ...f, dateRange: v }))}
-                allowClear
-                style={{ width: 250 }}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>Status</div>
-              <Select
-                mode="multiple"
-                placeholder="All"
-                size="small"
-                style={{ minWidth: 180 }}
-                value={filters.statuses}
-                onChange={(v) => setFilters((f) => ({ ...f, statuses: v }))}
-                allowClear
-                maxTagCount={2}
-                options={STATUS_OPTIONS.map((o) => ({
-                  label: <Tag color={o.color}>{o.value}</Tag>,
-                  value: o.value,
-                }))}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>
-                AQI Range ({filters.aqiRange[0]}–{filters.aqiRange[1]})
-              </div>
-              <Slider
-                range
-                min={0}
-                max={500}
-                value={filters.aqiRange}
-                onChange={(v) => setFilters((f) => ({ ...f, aqiRange: v }))}
-                style={{ width: 180 }}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>Concentration</div>
-              <Space.Compact>
-                <Input
-                  placeholder="Search…"
-                  size="small"
-                  value={filters.concentrationSearch}
-                  onChange={(e) => setFilters((f) => ({ ...f, concentrationSearch: e.target.value }))}
-                  allowClear
-                  style={{ width: 120 }}
-                />
-                <Button icon={<ClearOutlined />} size="small" onClick={clearFilters} title="Clear all" />
-              </Space.Compact>
-            </div>
-          </Space>
-        </div>
-      )}
-
       {/* Summary */}
       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.6 }}>
-        Showing {filteredData.length.toLocaleString()} of {dataSource.length.toLocaleString()} records
-        {activeFilterCount > 0 && (
-          <> · <a onClick={clearFilters} style={{ fontSize: 12 }}>Clear filters</a></>
-        )}
+        Showing {dataSource.length.toLocaleString()} records
         {activeTabular?.fetchedAt && (
           <span style={{ float: "right" }}>
             Updated {new Date(activeTabular.fetchedAt).toLocaleTimeString()}
@@ -801,47 +703,107 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
           <div style={{ marginTop: 12, opacity: 0.6 }}>Loading data…</div>
         </div>
       ) : (
-        <Table
-          size="small"
-          rowKey="__key"
-          columns={tableColumns}
-          dataSource={filteredData}
-          pagination={{
-            pageSize: 25,
-            showSizeChanger: true,
-            pageSizeOptions: ["25", "50", "100"],
-            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`,
-          }}
-          scroll={{ x: "max-content", y: "55vh" }}
-        />
+        <div style={{ position: "relative" }}>
+          <Table
+            size="small"
+            rowKey="__key"
+            columns={tableColumns}
+            dataSource={dataSource.slice(0, 20)}
+            pagination={false}
+            scroll={{ x: 600 }}
+          />
+          {dataSource.length > 20 && (
+            <div className="kiosk-tabular-blur-overlay">
+              <div className="kiosk-tabular-blur-content">
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
+                  Data Access Restricted
+                </div>
+                <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 16, maxWidth: 340, textAlign: "center" }}>
+                  Only the first 20 records are shown. To access the full dataset
+                  ({dataSource.length.toLocaleString()} records), please submit a
+                  formal request to the EMB Region 3 Records Unit.
+                </div>
+                <Button
+                  type="primary"
+                  icon={<MailOutlined />}
+                  size="large"
+                  onClick={() => setRequestOpen(true)}
+                >
+                  Request Full Data
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Email sharing sub-modal */}
+      {/* Data Request Modal */}
       <Modal
-        title="📧 Share via Email"
-        open={emailModalOpen}
-        onCancel={() => setEmailModalOpen(false)}
-        onOk={handleEmailShare}
-        confirmLoading={emailSending}
-        okText="Send Report"
-        okButtonProps={{ disabled: !emailTo || !filteredData.length, icon: <TbSend size={14} /> }}
+        title="📋 Request Air Quality Data"
+        open={requestOpen}
+        onCancel={() => setRequestOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setRequestOpen(false)}>
+            Close
+          </Button>,
+          <Button
+            key="email"
+            type="primary"
+            icon={<MailOutlined />}
+            onClick={() => {
+              window.location.href =
+                `mailto:recordsr3@emb.gov.ph?subject=${encodeURIComponent(
+                  `Air Quality Data Request — ${provinceLabel} (${pollutantLabel})`
+                )}&body=${encodeURIComponent(
+                  `Good day,\n\nI would like to request air quality monitoring data for the following:\n\n` +
+                  `Station: ${provinceLabel}\n` +
+                  `Pollutant: ${pollutantLabel}\n` +
+                  `Records available: ${dataSource.length}\n\n` +
+                  `Please process my request at your earliest convenience.\n\nThank you.`
+                )}`;
+              message.success("Opening email client...");
+            }}
+          >
+            Send Request via Email
+          </Button>,
+        ]}
         width={420}
       >
-        <p style={{ marginBottom: 12, opacity: 0.7, fontSize: 13 }}>
-          Send a summary report of <strong>{filteredData.length.toLocaleString()}</strong> records
-          ({provinceLabel} — {pollutantLabel}) to an email address.
-        </p>
-        <Input
-          placeholder="recipient@example.com"
-          prefix={<MailOutlined />}
-          value={emailTo}
-          onChange={(e) => setEmailTo(e.target.value)}
-          onPressEnter={handleEmailShare}
-        />
-        <p style={{ marginTop: 8, fontSize: 11, opacity: 0.5 }}>
-          The report includes up to 500 rows with current filters applied.
-          Sent from embr3.aqimonitoring@gmail.com.
-        </p>
+        <div style={{ lineHeight: 1.8, fontSize: 14 }}>
+          <p style={{ marginBottom: 12 }}>
+            To obtain air quality monitoring data, please submit a request to the
+            <strong> EMB Region 3 Records Unit</strong>.
+          </p>
+          <div style={{
+            background: token.colorFillAlter,
+            borderRadius: 10,
+            padding: "14px 18px",
+            marginBottom: 14,
+            border: `1px solid ${token.colorBorderSecondary}`,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📧 Records Unit Email</div>
+            <a href="mailto:recordsr3@emb.gov.ph" style={{ fontSize: 16, fontWeight: 700, color: token.colorLink }}>
+              recordsr3@emb.gov.ph
+            </a>
+          </div>
+          <div style={{
+            background: token.colorFillAlter,
+            borderRadius: 10,
+            padding: "14px 18px",
+            border: `1px solid ${token.colorBorderSecondary}`,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📍 Current Station</div>
+            <div>{provinceLabel} — {pollutantLabel}</div>
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+              {dataSource.length.toLocaleString()} records available
+            </div>
+          </div>
+          <p style={{ marginTop: 14, fontSize: 12, opacity: 0.6 }}>
+            Click <strong>"Send Request via Email"</strong> to open your email client
+            with a pre-filled request template.
+          </p>
+        </div>
       </Modal>
     </Modal>
   );
@@ -881,9 +843,9 @@ function KioskMapModal({ open, onClose, dark }) {
           EMB Region III Air Quality Monitoring Stations
         </p>
       </div>
-      <div style={{ display: "flex", gap: 12, height: "65vh" }}>
-        {/* Map iframe */}
-        <div style={{ flex: 1, borderRadius: 10, overflow: "hidden", border: "1px solid var(--aqm-border, #d9d9d9)" }}>
+      <div className="kiosk-map-layout">
+        {/* Map iframe with floating card */}
+        <div className="kiosk-map-iframe-wrap">
           <iframe
             key={mapSrc}
             src={mapSrc}
@@ -893,15 +855,10 @@ function KioskMapModal({ open, onClose, dark }) {
             referrerPolicy="no-referrer-when-downgrade"
             title="Google Maps – Station Network"
           />
+
         </div>
         {/* Station list sidebar */}
-        <div style={{
-          width: 260,
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}>
+        <div className="kiosk-map-station-list">
           {STATIONS.map((s) => (
             <div
               key={s.key}
@@ -909,18 +866,7 @@ function KioskMapModal({ open, onClose, dark }) {
               tabIndex={0}
               onClick={() => setFocusStation((prev) => (prev?.key === s.key ? null : s))}
               onKeyDown={(e) => e.key === "Enter" && setFocusStation((prev) => (prev?.key === s.key ? null : s))}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 8,
-                cursor: "pointer",
-                background: focusStation?.key === s.key
-                  ? "var(--aqm-accent-bg, #1677ff15)"
-                  : "var(--aqm-card-bg, #fafafa)",
-                border: focusStation?.key === s.key
-                  ? "1px solid var(--aqm-accent, #1677ff)"
-                  : "1px solid var(--aqm-border, #f0f0f0)",
-                transition: "all 0.2s",
-              }}
+              className={`kiosk-map-stn-card${focusStation?.key === s.key ? " kiosk-map-stn-card--active" : ""}`}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                 <TbMapPin size={14} style={{ color: "var(--aqm-accent, #1677ff)" }} />
@@ -944,20 +890,22 @@ function KioskMapModal({ open, onClose, dark }) {
                   >
                     <TbExternalLink size={12} /> Google Maps
                   </a>
+                  <a
+                    href={`https://www.google.com/maps?q=${s.lat},${s.lon}&layer=c&cbll=${s.lat},${s.lon}&cbp=12,0,0,0,0`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 3 }}
+                  >
+                    <TbEye size={12} /> Street View
+                  </a>
                 </div>
               )}
             </div>
           ))}
 
           {/* EMB Region 3 contact card */}
-          <div style={{
-            marginTop: 8,
-            padding: "10px 12px",
-            borderRadius: 8,
-            background: "var(--aqm-card-bg, #fafafa)",
-            border: "1px solid var(--aqm-border, #f0f0f0)",
-            fontSize: 11,
-          }}>
+          <div className="kiosk-map-stn-card kiosk-map-contact-card">
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontWeight: 600, fontSize: 12 }}>
               <TbBuildingSkyscraper size={14} />
               EMB Region 3

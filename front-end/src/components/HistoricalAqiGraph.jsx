@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Select, DatePicker, Tooltip as AntTooltip, Skeleton, Button, Tag } from "antd";
 import FilterGroup from "@components/FilterGroup.jsx";
 import dayjs from "dayjs";
@@ -134,32 +134,78 @@ export default function HistoricalAqiGraph({
       const cutoff = now.subtract(days, "day");
       rows = rows.filter((r) => dayjs(r.t).isAfter(cutoff));
     }
+    if (!rows.length) return rows;
 
-    // If dual data, merge secondary values by date
+    // Build secondary-pollutant lookup by day
+    const lookup2 = {};
     if (hasDual) {
-      const lookup2 = {};
       for (const r of data2) {
         const key = dayjs(r.t).format("YYYY-MM-DD");
-        lookup2[key] = r.y;
+        if (!lookup2[key]) lookup2[key] = [];
+        lookup2[key].push(Number(r.y));
       }
-      rows = rows.map((r) => {
-        const key = dayjs(r.t).format("YYYY-MM-DD");
-        return { ...r, y2: lookup2[key] ?? null, _label: label || "PM10", _label2: label2 || "PM2.5" };
-      });
     }
 
-    return rows;
+    // Group primary rows by day
+    const dailyMap = {};
+    for (const r of rows) {
+      const key = dayjs(r.t).format("YYYY-MM-DD");
+      if (!dailyMap[key]) dailyMap[key] = [];
+      dailyMap[key].push(r);
+    }
+
+    // Generate continuous daily data, filling gaps with null
+    const sortedKeys = Object.keys(dailyMap).sort();
+    const startDay = dayjs(sortedKeys[0]);
+    const endDay   = dayjs(sortedKeys[sortedKeys.length - 1]);
+    const result   = [];
+    let cursor     = startDay;
+
+    while (!cursor.isAfter(endDay, "day")) {
+      const key     = cursor.format("YYYY-MM-DD");
+      const dayRows = dailyMap[key];
+
+      if (dayRows && dayRows.length) {
+        const avgY = dayRows.reduce((s, r) => s + Number(r.y), 0) / dayRows.length;
+        const entry = {
+          t: cursor.toISOString(),
+          y: Math.round(avgY),
+          conc: dayRows[0].conc,
+          status: dayRows[0].status,
+        };
+        if (hasDual) {
+          const arr2 = lookup2[key];
+          entry.y2      = arr2 && arr2.length ? Math.round(arr2.reduce((s, v) => s + v, 0) / arr2.length) : null;
+          entry._label  = label  || "PM10";
+          entry._label2 = label2 || "PM2.5";
+        }
+        result.push(entry);
+      } else {
+        // Missing day → empty placeholder
+        const entry = { t: cursor.toISOString(), y: null, conc: null, status: null };
+        if (hasDual) {
+          entry.y2      = null;
+          entry._label  = label  || "PM10";
+          entry._label2 = label2 || "PM2.5";
+        }
+        result.push(entry);
+      }
+      cursor = cursor.add(1, "day");
+    }
+
+    return result;
   }, [data, data2, hasDual, range, customRange, label, label2]);
 
-  // Compute min/max for display
+  // Compute min/max for display (exclude null/gap days)
   const stats = useMemo(() => {
-    if (!filteredData.length) return { min: null, max: null, avg: null };
-    const vals = filteredData.map((r) => Number(r.y)).filter(isFinite);
-    if (!vals.length) return { min: null, max: null, avg: null };
+    if (!filteredData.length) return { min: null, max: null, avg: null, count: 0 };
+    const vals = filteredData.filter((r) => r.y != null).map((r) => Number(r.y)).filter(isFinite);
+    if (!vals.length) return { min: null, max: null, avg: null, count: 0 };
     return {
       min: Math.min(...vals),
       max: Math.max(...vals),
       avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+      count: vals.length,
     };
   }, [filteredData]);
 
@@ -204,33 +250,33 @@ export default function HistoricalAqiGraph({
         {BANDS.map((b) => (
           <span key={b.name} className="hist-aqi-legend-item">
             <span className="hist-aqi-legend-dot" style={{ background: b.color }} />
-            {b.name} ({b.min}–{b.max})
+            {b.name}{" "}
+            <Tag color={b.color} style={{ fontSize: 10, fontWeight: 700, margin: 0, padding: "0 4px", lineHeight: "16px", borderRadius: 4 }}>
+              {b.min}–{b.max}
+            </Tag>
           </span>
         ))}
       </div>
 
-      {/* Dual pollutant indicator */}
-      {hasDual && (
-        <div className="hist-aqi-dual-legend">
-          <span className="hist-aqi-dual-item">
-            <span className="hist-aqi-dual-swatch" style={{ background: "#34d399", borderRadius: 2 }} />
-            {label || "PM10"}
-          </span>
-          <span className="hist-aqi-dual-item">
-            <span className="hist-aqi-dual-swatch" style={{ background: "#06b6d4", borderRadius: 2, opacity: 0.75 }} />
-            {label2 || "PM2.5"}
-          </span>
-        </div>
-      )}
-
-      {/* Min / Max / Avg summary bar */}
+      {/* Min / Max / Avg summary bar (with pollutant labels for dual) */}
       {filteredData.length > 0 && stats.min != null && (
         <div className="hist-aqi-stats">
+          {hasDual && (
+            <>
+              <Tag color="#34d399" style={{ fontWeight: 700, fontSize: 11 }}>
+                {label || "PM10"}
+              </Tag>
+              <Tag color="#06b6d4" style={{ fontWeight: 700, fontSize: 11 }}>
+                {label2 || "PM2.5"}
+              </Tag>
+              <span style={{ borderLeft: '1px solid var(--aqm-border, #e5e7eb)', height: 16, margin: '0 4px' }} />
+            </>
+          )}
           <Tag color={getColor(stats.min)}>Min: {Math.round(stats.min)}</Tag>
           <Tag color={getColor(stats.max)}>Max: {Math.round(stats.max)}</Tag>
           <Tag color={getColor(stats.avg)}>Avg: {Math.round(stats.avg)}</Tag>
           <span className="hist-aqi-reading-count">
-            {filteredData.length} readings
+            {stats.count} daily readings
           </span>
         </div>
       )}

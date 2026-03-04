@@ -114,9 +114,21 @@ async function fetchAllSheetsAsTable(sheetUrl) {
   const RAW_COL_PATTERNS = [/date|time/i, /concentration/i];
   let tabsFound = 0;
 
+  // Track tab fingerprints to deduplicate — Google Sheets returns the
+  // first tab's data when a requested tab name doesn't exist.
+  const seenTabFingerprints = new Set();
+
   for (const year of yearsToTry) {
     const csvText = await fetchSheetTabCSV(id, year);
     if (!csvText) continue;
+
+    // Fingerprint: first 200 chars + last 200 chars + length
+    const fp = `${csvText.length}|${csvText.slice(0, 200)}|${csvText.slice(-200)}`;
+    if (seenTabFingerprints.has(fp)) {
+      // Duplicate tab content (non-existent tab returned first tab) — skip
+      continue;
+    }
+    seenTabFingerprints.add(fp);
     tabsFound++;
 
     const lines = csvText.split("\n");
@@ -155,10 +167,6 @@ async function fetchAllSheetsAsTable(sheetUrl) {
       });
       allRows.push(obj);
     }
-
-    console.log(
-      `[tabular] Sheet tab "${year}": ${lines.length - 1} CSV rows loaded`,
-    );
   }
 
   if (!tabsFound) {
@@ -168,32 +176,20 @@ async function fetchAllSheetsAsTable(sheetUrl) {
   return { columns: columns || [], rows: allRows };
 }
 
+// ====================================================================
+// Phase 1: Clean raw rows (date interpolation, sort, dedup)
+// Phase 2: Enrich with Rolling Avg + AQI + Status (computed at serve-time)
+// ====================================================================
+
 /**
- * Multi-pass enhancement for tabular data:
- * 1. Parse ALL dates → epochs
- * 2. Sort chronologically
- * 3. Compute 24h rolling average + AQI + Status
- * 4. Format dates → MM/DD/YYYY H:MM AM/PM
- * 5. Reverse to newest-first
+ * Phase 1: Clean raw rows — date interpolation, sort, remove placeholders, dedup.
+ * Returns rows in CHRONOLOGICAL order (oldest first) with _epochMs attached.
+ * Does NOT compute AQI or Rolling Average — that happens at serve time.
  */
-function enhanceTabularRows(table, pollutantKey, opts = {}) {
-  try {
-    return _enhanceTabularRowsImpl(table, pollutantKey, opts);
-  } catch (err) {
-    console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
-    return table || { columns: [], rows: [] };
-  }
-}
-
-function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
-  const logsPerHour = Number(opts.logsPerHour || 1);
-  const requiredLogs = 24 * logsPerHour;
-  const statusFn =
-    pollutantKey === "pm25" ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
-
+function prepareRawRows(table) {
   const columns = Array.isArray(table?.columns) ? [...table.columns] : [];
   const rows = Array.isArray(table?.rows) ? table.rows : [];
-  if (!rows.length) return table || { columns: [], rows: [] };
+  if (!rows.length) return { columns, rows: [], dateKey: null, concKey: null };
 
   const dateKey =
     columns.find((c) => /date|time/i.test(c)) ||
@@ -201,10 +197,6 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
   const concKey =
     columns.find((c) => /concentration/i.test(c)) ||
     Object.keys(rows[0] || {}).find((k) => /concentration/i.test(k));
-  const rollingKey =
-    columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
-  const aqiCatKey =
-    columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
 
   // ── Pass 1: Parse all dates → epoch timestamps ──
   const epochs = new Array(rows.length);
@@ -214,6 +206,49 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
       epochs[i] = d ? d.getTime() : 0;
     } else {
       epochs[i] = 0;
+    }
+  }
+
+  // ── Pass 1b: Interpolate missing dates ──
+  // Google Sheets CSV export sometimes returns empty date fields for
+  // formula-computed cells (commonly for days 13-31 of each month).
+  if (dateKey) {
+    const HOUR_MS = 3600000;
+
+    // Forward-fill
+    for (let i = 1; i < rows.length; i++) {
+      if (epochs[i] === 0 && epochs[i - 1] > 0) {
+        epochs[i] = epochs[i - 1] + HOUR_MS;
+        rows[i][dateKey] = formatDateAmPm(new Date(epochs[i]));
+      }
+    }
+
+    // Backward-fill leading empties
+    let firstValid = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (epochs[i] > 0) { firstValid = i; break; }
+    }
+    if (firstValid > 0) {
+      for (let i = firstValid - 1; i >= 0; i--) {
+        epochs[i] = epochs[i + 1] - HOUR_MS;
+        rows[i][dateKey] = formatDateAmPm(new Date(epochs[i]));
+      }
+    }
+
+    // Second forward pass for remaining gaps
+    for (let i = 1; i < rows.length; i++) {
+      if (epochs[i] === 0 && epochs[i - 1] > 0) {
+        epochs[i] = epochs[i - 1] + HOUR_MS;
+        rows[i][dateKey] = formatDateAmPm(new Date(epochs[i]));
+      }
+    }
+
+    const interpolated = epochs.filter((e, i) => {
+      const orig = parseDateValue(table.rows[i]?.[dateKey]);
+      return e > 0 && !orig;
+    }).length;
+    if (interpolated > 0) {
+      console.log(`[prepareRawRows] Interpolated ${interpolated} missing dates`);
     }
   }
 
@@ -229,14 +264,12 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
 
   // ── Pass 2c: Remove formula-generated / placeholder rows ──
   if (dateKey && concKey) {
-    const before = validIndices.length;
     validIndices = validIndices.filter((i) => {
       const fc = rows[i].__formulaCols;
-      const dateIsFormula = fc && fc.includes(dateKey);
-      const concIsFormula = fc && fc.includes(concKey);
-
+      if (!fc) return true;
+      const dateIsFormula = fc.includes(dateKey);
+      const concIsFormula = fc.includes(concKey);
       if (dateIsFormula && concIsFormula) return false;
-
       if (dateIsFormula) {
         const concVal = rows[i][concKey];
         const numConc = coerceNumber(concVal);
@@ -246,19 +279,12 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
           numConc === 0;
         if (isEmpty) return false;
       }
-
       return true;
     });
-    if (validIndices.length < before) {
-      console.log(
-        `[enhanceTabularRows] Removed ${before - validIndices.length} formula-generated/placeholder rows`,
-      );
-    }
   }
 
   // ── Pass 2d: Remove trailing rows with empty/zero concentration ──
   if (concKey) {
-    const beforeTrim = validIndices.length;
     while (validIndices.length > 0) {
       const lastIdx = validIndices[validIndices.length - 1];
       const concVal = rows[lastIdx][concKey];
@@ -273,16 +299,10 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
         break;
       }
     }
-    if (validIndices.length < beforeTrim) {
-      console.log(
-        `[enhanceTabularRows] Trimmed ${beforeTrim - validIndices.length} trailing rows without concentration data`,
-      );
-    }
   }
 
   // ── Pass 2e: Detect and remove shared-formula placeholder rows ──
   if (dateKey && concKey && validIndices.length > 2) {
-    const beforeE = validIndices.length;
     const lastConcVal = rows[validIndices[validIndices.length - 1]][concKey];
     let sameCount = 0;
     for (let j = validIndices.length - 1; j >= 0; j--) {
@@ -299,29 +319,75 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
     }
     if (sameCount >= 10 && coerceNumber(lastConcVal) != null) {
       validIndices.splice(validIndices.length - sameCount);
-      console.log(
-        `[enhanceTabularRows] Removed ${sameCount} trailing rows with identical concentration (${lastConcVal}) — likely auto-filled`,
-      );
-    }
-    if (validIndices.length < beforeE) {
-      console.log(
-        `[enhanceTabularRows] Pass 2e removed ${beforeE - validIndices.length} suspected auto-fill rows`,
-      );
     }
   }
 
-  // ── Pass 3: Compute rolling avg + AQI + format dates ──
-  const numericSeen = [];
-  const resultRows = new Array(validIndices.length);
-
-  for (let pos = 0; pos < validIndices.length; pos++) {
-    const origIdx = validIndices[pos];
-    const r = rows[origIdx];
-
-    if (dateKey) {
-      const d = epochs[origIdx] ? new Date(epochs[origIdx]) : null;
-      if (d) r[dateKey] = formatDateAmPm(d);
+  // ── Deduplicate by epoch (keep first occurrence) ──
+  const seenEpochs = new Set();
+  const dedupedIndices = [];
+  for (const i of validIndices) {
+    if (epochs[i] > 0) {
+      if (seenEpochs.has(epochs[i])) continue;
+      seenEpochs.add(epochs[i]);
     }
+    dedupedIndices.push(i);
+  }
+
+  // ── Build result rows (chronological order, oldest first) ──
+  const resultRows = dedupedIndices.map((i) => {
+    const r = {};
+    for (const col of columns) {
+      r[col] = rows[i][col] ?? null;
+    }
+    r._epochMs = epochs[i]; // attach for sorting/indexing
+    return r;
+  });
+
+  return { columns, rows: resultRows, dateKey, concKey };
+}
+
+/**
+ * Phase 2: Enrich clean rows with Rolling Average, AQI, Status.
+ * Formats dates and reverses to newest-first.
+ * Input rows must be in chronological order (oldest first, from prepareRawRows).
+ */
+function enrichWithAqi(prepared, pollutantKey, opts = {}) {
+  const logsPerHour = Number(opts.logsPerHour || 1);
+  const requiredLogs = 24 * logsPerHour;
+  const statusFn =
+    pollutantKey === "pm25" ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
+
+  const columns = [...(prepared.columns || [])];
+  const rows = prepared.rows || [];
+  const dateKey =
+    prepared.dateKey || columns.find((c) => /date|time/i.test(c));
+  const concKey =
+    prepared.concKey || columns.find((c) => /concentration/i.test(c));
+
+  if (!rows.length) return { columns, rows: [] };
+
+  const rollingKey =
+    columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
+  const aqiCatKey =
+    columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
+
+  const numericSeen = [];
+  const resultRows = new Array(rows.length);
+
+  for (let pos = 0; pos < rows.length; pos++) {
+    const r = { ...rows[pos] };
+
+    // Format date from _epochMs or parse existing string
+    if (dateKey) {
+      const epochMs = r._epochMs;
+      if (epochMs && epochMs > 0) {
+        r[dateKey] = formatDateAmPm(new Date(epochMs));
+      } else {
+        const d = parseDateValue(r[dateKey]);
+        if (d) r[dateKey] = formatDateAmPm(d);
+      }
+    }
+    delete r._epochMs;
 
     if (concKey) {
       const n = coerceNumber(r[concKey]);
@@ -340,7 +406,8 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
       if (aqiCatKey) delete r[aqiCatKey];
     }
 
-    resultRows[validIndices.length - 1 - pos] = r;
+    // Reverse: newest first
+    resultRows[rows.length - 1 - pos] = r;
   }
 
   const filteredColumns = columns.filter((c) => c !== aqiCatKey);
@@ -353,7 +420,63 @@ function _enhanceTabularRowsImpl(table, pollutantKey, opts = {}) {
     ensureCol("Status");
   }
 
-  return { ...table, columns: filteredColumns, rows: resultRows };
+  return { columns: filteredColumns, rows: resultRows };
+}
+
+/**
+ * Combined enhancement: prepareRawRows + enrichWithAqi (backward compat).
+ */
+function enhanceTabularRows(table, pollutantKey, opts = {}) {
+  try {
+    const prepared = prepareRawRows(table);
+    return { ...table, ...enrichWithAqi(prepared, pollutantKey, opts) };
+  } catch (err) {
+    console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
+    return table || { columns: [], rows: [] };
+  }
+}
+
+/**
+ * Fetch raw data from Google Sheets, cleaned and deduped but WITHOUT AQI computation.
+ * Stores _epochMs on each row for indexing. Used by the backup service.
+ */
+async function getRawTabularTable(provinceKey, pollutantKey) {
+  const sheetUrl = TABULAR_SHEETS?.[provinceKey]?.[pollutantKey] || null;
+  if (!sheetUrl) {
+    const err = new Error("Sheet URL not configured");
+    err.code = "NOT_CONFIGURED";
+    throw err;
+  }
+  const cacheKey = `raw-tabular:${provinceKey}:${pollutantKey}`;
+  const cached = _sheetCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < SHEET_CACHE_TTL_MS) {
+    return { ...cached.payload, source: "cache" };
+  }
+  try {
+    const table = await fetchAllSheetsAsTable(sheetUrl);
+    const prepared = prepareRawRows(table);
+    const payload = {
+      province: provinceKey,
+      pollutant: pollutantKey,
+      columns: prepared.columns,
+      rows: prepared.rows,
+      dateKey: prepared.dateKey,
+      concKey: prepared.concKey,
+      totalRows: prepared.rows.length,
+      fetchedAt: Date.now(),
+      source: "sheet",
+    };
+    _sheetCache.set(cacheKey, { ts: Date.now(), payload });
+    return payload;
+  } catch (fetchErr) {
+    console.error(
+      `[raw-tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
+    );
+    if (cached) {
+      return { ...cached.payload, source: "stale-cache" };
+    }
+    throw fetchErr;
+  }
 }
 
 async function getTabularTable(provinceKey, pollutantKey) {
@@ -401,5 +524,8 @@ async function getTabularTable(provinceKey, pollutantKey) {
 module.exports = {
   fetchAllSheetsAsTable,
   enhanceTabularRows,
+  prepareRawRows,
+  enrichWithAqi,
+  getRawTabularTable,
   getTabularTable,
 };

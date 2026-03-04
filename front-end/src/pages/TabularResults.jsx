@@ -6,7 +6,6 @@ import {
   Card,
   Col,
   DatePicker,
-  Divider,
   Input,
   Modal,
   Progress,
@@ -23,7 +22,7 @@ import {
   message,
 } from "antd";
 import {
-  DownloadOutlined,
+  MailOutlined,
   FilterOutlined,
   ClearOutlined,
   ReloadOutlined,
@@ -64,30 +63,6 @@ function statusTint(status) {
     s.includes(o.value.toLowerCase().split(" ")[0]),
   );
   return found?.color ?? null;
-}
-
-/* ─── CSV Export ─── */
-function exportToCsv(columns, rows, filename) {
-  const esc = (v) => {
-    if (v == null) return "";
-    const s = String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n"))
-      return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const header = columns.map(esc).join(",");
-  const body = rows
-    .map((r) => columns.map((c) => esc(r[c])).join(","))
-    .join("\n");
-  const blob = new Blob(["\uFEFF" + header + "\n" + body], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 /* ─── Data-fetching hook with simulated progress ─── */
@@ -275,14 +250,21 @@ function TabularTable({ provinceKey, pollutantKey }) {
       ...(c === "AQI" && {
         sorter: (a, b) => (a["AQI"] ?? 0) - (b["AQI"] ?? 0),
       }),
-      render: (v) => {
+      render: (v, row) => {
         if (c === "Status") {
           const t = statusTint(v);
           const txt = v == null ? "" : String(v);
           if (!txt) return "";
           return t ? <Tag color={t}>{txt}</Tag> : <Tag>{txt}</Tag>;
         }
-        if (c === "AQI" && (v == null || v === "")) return "";
+        if (c === "AQI") {
+          if (v == null || v === "") return "";
+          const statusVal = row["Status"];
+          const t = statusTint(statusVal);
+          return t
+            ? <Tag color={t} style={{ fontWeight: 700 }}>{typeof v === "number" ? Math.round(v) : v}</Tag>
+            : <span style={{ fontWeight: 600 }}>{typeof v === "number" ? Math.round(v) : v}</span>;
+        }
         if (
           c.toLowerCase().includes("rolling average") &&
           typeof v === "number"
@@ -297,135 +279,8 @@ function TabularTable({ provinceKey, pollutantKey }) {
     PROVINCES.find((p) => p.key === provinceKey)?.label || provinceKey;
   const pollutantLabel = titleForPollutant(pollutantKey);
 
-  /* ── Export modal state ── */
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportFilters, setExportFilters] = useState({
-    dateRange: null,
-    statuses: [],
-    aqiRange: [0, 500],
-  });
-  const [exporting, setExporting] = useState(false);
-
-  // Pre-populate export filters from current table filters when opening
-  const openExportModal = useCallback(() => {
-    setExportFilters({
-      dateRange: filters.dateRange,
-      statuses: [...filters.statuses],
-      aqiRange: [...filters.aqiRange],
-    });
-    setExportOpen(true);
-  }, [filters]);
-
-  // Apply export-specific filters to get export preview data
-  const exportPreview = useMemo(() => {
-    const dateKey = columns.find((c) => /date|time/i.test(c));
-    return filteredData.filter((row) => {
-      // Export date range filter
-      if (
-        exportFilters.dateRange &&
-        exportFilters.dateRange[0] &&
-        exportFilters.dateRange[1] &&
-        dateKey
-      ) {
-        const d = parseFormattedDate(row[dateKey]);
-        if (d) {
-          const start = exportFilters.dateRange[0].startOf("day").toDate();
-          const end = exportFilters.dateRange[1].endOf("day").toDate();
-          if (d < start || d > end) return false;
-        }
-      }
-      // Export status filter
-      if (exportFilters.statuses.length > 0) {
-        const rs = String(row["Status"] || "");
-        if (!exportFilters.statuses.some((s) => rs === s)) return false;
-      }
-      // Export AQI range filter
-      if (exportFilters.aqiRange[0] > 0 || exportFilters.aqiRange[1] < 500) {
-        const a = row["AQI"];
-        if (a != null && typeof a === "number") {
-          if (a < exportFilters.aqiRange[0] || a > exportFilters.aqiRange[1])
-            return false;
-        }
-      }
-      return true;
-    });
-  }, [filteredData, columns, exportFilters]);
-
-  const clearExportFilters = useCallback(() => {
-    setExportFilters({ dateRange: null, statuses: [], aqiRange: [0, 500] });
-  }, []);
-
-  // Perform the actual export + save log
-  const handleExportConfirm = useCallback(async () => {
-    if (!exportPreview.length) return;
-    setExporting(true);
-    const visibleCols = columns.filter(
-      (c) => !(/aqi/i.test(c) && (/category/i.test(c) || /µg/i.test(c))),
-    );
-    const now = new Date();
-    const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const filename = `${provinceLabel.replace(/\s+/g, "_")}_${pollutantLabel}_${ts}.csv`;
-    exportToCsv(visibleCols, exportPreview, filename);
-
-    // Save export log to database
-    try {
-      await fetch(
-        `${import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : window.location.origin)}/api/export-log`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            province: provinceKey,
-            pollutant: pollutantKey,
-            filters: {
-              dateRange: exportFilters.dateRange
-                ? [
-                    exportFilters.dateRange[0]?.format("YYYY-MM-DD"),
-                    exportFilters.dateRange[1]?.format("YYYY-MM-DD"),
-                  ]
-                : null,
-              statuses: exportFilters.statuses,
-              aqiRange: exportFilters.aqiRange,
-              tableFilters: {
-                dateRange: filters.dateRange
-                  ? [
-                      filters.dateRange[0]?.format("YYYY-MM-DD"),
-                      filters.dateRange[1]?.format("YYYY-MM-DD"),
-                    ]
-                  : null,
-                statuses: filters.statuses,
-                aqiRange: filters.aqiRange,
-                concentrationSearch: filters.concentrationSearch || null,
-              },
-            },
-            totalRecords: dataSource.length,
-            exportedRecords: exportPreview.length,
-            filename,
-          }),
-        },
-      );
-      message.success(
-        `Exported ${exportPreview.length.toLocaleString()} records`,
-      );
-    } catch {
-      // Export log saving is best-effort; CSV download already happened
-      message.success(
-        `Exported ${exportPreview.length.toLocaleString()} records (log save skipped)`,
-      );
-    }
-    setExporting(false);
-    setExportOpen(false);
-  }, [
-    exportPreview,
-    columns,
-    provinceLabel,
-    pollutantLabel,
-    provinceKey,
-    pollutantKey,
-    exportFilters,
-    filters,
-    dataSource.length,
-  ]);
+  /* ── Data request modal ── */
+  const [requestOpen, setRequestOpen] = useState(false);
 
   /* ── Filter panel visibility ── */
   const [showFilters, setShowFilters] = useState(false);
@@ -452,105 +307,85 @@ function TabularTable({ provinceKey, pollutantKey }) {
             loading={q.loading}
           />
           <Button
-            icon={<DownloadOutlined />}
-            onClick={openExportModal}
-            disabled={q.loading || !filteredData.length}
+            icon={<MailOutlined />}
+            onClick={() => setRequestOpen(true)}
           >
-            Export CSV
+            Request Data
           </Button>
         </Space>
       }
     >
-      {/* ── Export Modal with filters ── */}
+      {/* ── Data Request Modal ── */}
       <Modal
-        title="Export CSV"
-        open={exportOpen}
-        onCancel={() => setExportOpen(false)}
-        width="min(600px, 95vw)"
+        title="📋 Request Air Quality Data"
+        open={requestOpen}
+        onCancel={() => setRequestOpen(false)}
+        width="min(500px, 95vw)"
         footer={[
-          <Button key="cancel" onClick={() => setExportOpen(false)}>
-            Cancel
-          </Button>,
-          <Button key="clear" onClick={clearExportFilters}>
-            Clear Filters
+          <Button key="close" onClick={() => setRequestOpen(false)}>
+            Close
           </Button>,
           <Button
-            key="export"
+            key="email"
             type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleExportConfirm}
-            loading={exporting}
-            disabled={!exportPreview.length}
+            icon={<MailOutlined />}
+            onClick={() => {
+              window.location.href =
+                `mailto:recordsr3@emb.gov.ph?subject=${encodeURIComponent(
+                  `Air Quality Data Request — ${provinceLabel} (${pollutantLabel})`
+                )}&body=${encodeURIComponent(
+                  `Good day,\n\nI would like to request air quality monitoring data for the following:\n\n` +
+                  `Station: ${provinceLabel}\n` +
+                  `Pollutant: ${pollutantLabel}\n` +
+                  `Records available: ${dataSource.length}\n\n` +
+                  `Please process my request at your earliest convenience.\n\nThank you.`
+                )}`;
+              message.success("Opening email client...");
+            }}
           >
-            Export {exportPreview.length.toLocaleString()} Records
+            Send Request via Email
           </Button>,
         ]}
       >
-        <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
-          Refine the data to export.{" "}
-          {filteredData.length !== dataSource.length && (
-            <>
-              Table filters already narrowed data from{" "}
-              {dataSource.length.toLocaleString()} to{" "}
-              {filteredData.length.toLocaleString()} records.
-            </>
-          )}
-        </Text>
+        <div style={{ lineHeight: 1.8, fontSize: 14 }}>
+          <p style={{ marginBottom: 12 }}>
+            To obtain air quality monitoring data, please submit a request to the
+            <strong> EMB Region 3 Records Unit</strong>.
+          </p>
 
-        <Row gutter={[16, 16]}>
-          <Col span={24}>
-            <Text strong style={{ display: "block", marginBottom: 4 }}>
-              Date Range
-            </Text>
-            <RangePicker
-              style={{ width: "100%" }}
-              value={exportFilters.dateRange}
-              onChange={(v) =>
-                setExportFilters((f) => ({ ...f, dateRange: v }))
-              }
-              allowClear
-            />
-          </Col>
-          <Col span={24}>
-            <Text strong style={{ display: "block", marginBottom: 4 }}>
-              Status
-            </Text>
-            <Select
-              mode="multiple"
-              placeholder="All statuses"
-              style={{ width: "100%" }}
-              value={exportFilters.statuses}
-              onChange={(v) => setExportFilters((f) => ({ ...f, statuses: v }))}
-              allowClear
-              maxTagCount="responsive"
-              options={STATUS_OPTIONS.map((o) => ({
-                label: <Tag color={o.color}>{o.value}</Tag>,
-                value: o.value,
-              }))}
-            />
-          </Col>
-          <Col span={24}>
-            <Text strong style={{ display: "block", marginBottom: 4 }}>
-              AQI Range ({exportFilters.aqiRange[0]}–{exportFilters.aqiRange[1]}
-              )
-            </Text>
-            <Slider
-              range
-              min={aqiBounds.min}
-              max={Math.max(aqiBounds.max, 500)}
-              value={exportFilters.aqiRange}
-              onChange={(v) => setExportFilters((f) => ({ ...f, aqiRange: v }))}
-              tooltip={{ formatter: (v) => `AQI ${v}` }}
-            />
-          </Col>
-        </Row>
+          <div style={{
+            background: token.colorFillAlter,
+            borderRadius: 10,
+            padding: "14px 18px",
+            marginBottom: 14,
+            border: `1px solid ${token.colorBorderSecondary}`,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📧 Records Unit Email</div>
+            <a
+              href="mailto:recordsr3@emb.gov.ph"
+              style={{ fontSize: 16, fontWeight: 700, color: token.colorLink }}
+            >
+              recordsr3@emb.gov.ph
+            </a>
+          </div>
 
-        <Divider style={{ margin: "16px 0 12px" }} />
-        <div style={{ textAlign: "center" }}>
-          <Text strong style={{ fontSize: 16 }}>
-            {exportPreview.length.toLocaleString()} records
-          </Text>
-          <Text type="secondary"> will be exported</Text>
+          <div style={{
+            background: token.colorFillAlter,
+            borderRadius: 10,
+            padding: "14px 18px",
+            border: `1px solid ${token.colorBorderSecondary}`,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>📍 Current Station</div>
+            <div>{provinceLabel} — {pollutantLabel}</div>
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+              {dataSource.length.toLocaleString()} records available
+            </div>
+          </div>
+
+          <p style={{ marginTop: 14, fontSize: 12, opacity: 0.6 }}>
+            Click <strong>"Send Request via Email"</strong> to open your email client
+            with a pre-filled request template.
+          </p>
         </div>
       </Modal>
 

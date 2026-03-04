@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Skeleton, Spin, Button, Tooltip } from "antd";
+import { Skeleton, Spin, Button, Tooltip, Tag } from "antd";
 import {
   WiThermometer,
   WiHumidity,
@@ -263,9 +263,17 @@ export default function AqiHeroCard({
   aqiTime2,
   aqiLoading2,
   pollutantLabel2,
+  /* ── Fallback (when EMBR3 data is outdated) ── */
+  isFallback = false,
+  fallbackSource = "",
+  /* ── Stale indicator (>7 days old) ── */
+  isStale = false,
+  isStale2 = false,
 }) {
-  const band = getBand(aqiValue);
-  const roundedVal = isFinite(Number(aqiValue)) ? Math.round(Number(aqiValue)) : null;
+  // If fallback is active, override the display value/category/time
+  const displayValue = isFallback ? aqiValue : aqiValue;
+  const band = getBand(displayValue);
+  const roundedVal = isFinite(Number(displayValue)) ? Math.round(Number(displayValue)) : null;
   const sevIdx = AQI_BANDS.indexOf(band);
 
   const hasDual = pollutantLabel2 != null;
@@ -293,13 +301,14 @@ export default function AqiHeroCard({
         "--hero-text": heroText,
         "--hero-text-sub": heroTextSub,
         background: skyBg,
+        ...((isStale && (!hasDual || isStale2)) ? { pointerEvents: "none", userSelect: "none" } : {}),
       }}
     >
       {/* ── Live badge (top-left) ── */}
       {aqiTime && (
-        <span className="aqi-live-badge aqi-live-badge--topleft">
-          <span className="aqi-live-dot" />
-          Live
+        <span className={`aqi-live-badge aqi-live-badge--topleft${isStale ? " aqi-live-badge--stale" : isFallback ? " aqi-live-badge--fallback" : ""}`}>
+          <span className={`aqi-live-dot${isStale ? " aqi-live-dot--stale" : isFallback ? " aqi-live-dot--warn" : ""}`} />
+          {isStale ? "Outdated" : isFallback ? "Alternate" : "Live"}
         </span>
       )}
 
@@ -314,6 +323,18 @@ export default function AqiHeroCard({
 
       {/* ── Cityscape silhouette ── */}
       <CityscapeSilhouette color={cityColor} />
+
+      {/* ── Stale-data watermark (covers the entire card) ── */}
+      {isStale && (
+        <div className="aqi-hero-watermark">
+          <div className="aqi-hero-watermark-text">
+            No available latest data for this station
+          </div>
+          <div className="aqi-hero-watermark-sub">
+            Data is still being analyzed for display
+          </div>
+        </div>
+      )}
 
       {/* ── Content overlay ── */}
       <div className="aqi-hero-content">
@@ -331,10 +352,10 @@ export default function AqiHeroCard({
               )}
             </div>
           ) : hasDual ? (
-            /* ── Dual gauge layout ── */
+            /* ── Dual gauge layout (PM10 + PM2.5 side by side) ── */
             <div className="aqi-hero-dual-gauges">
               {/* Primary gauge */}
-              <div className="aqi-hero-dual-col">
+              <div className="aqi-hero-dual-col" style={isStale ? { filter: "blur(4px) grayscale(0.7)", opacity: 0.45, pointerEvents: "none", userSelect: "none", position: "relative" } : undefined}>
                 <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm">
                   <div
                     className="aqi-hero-gauge aqi-hero-gauge--sm"
@@ -349,11 +370,16 @@ export default function AqiHeroCard({
                   </div>
                 </div>
                 <div className="aqi-hero-dual-label">{pollutantLabel}</div>
-                <div className="aqi-hero-category" style={{ fontSize: 11 }}>{band.name}</div>
+                <Tag color={band.color} className="aqi-hero-status-tag">{band.name}</Tag>
+                {isStale && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", filter: "none", opacity: 1, pointerEvents: "none" }}>
+                    <span style={{ fontSize: 10, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 6, padding: "3px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>No Data</span>
+                  </div>
+                )}
               </div>
 
               {/* Secondary gauge */}
-              <div className="aqi-hero-dual-col">
+              <div className="aqi-hero-dual-col" style={isStale2 ? { filter: "blur(4px) grayscale(0.7)", opacity: 0.45, pointerEvents: "none", userSelect: "none", position: "relative" } : undefined}>
                 {aqiLoading2 ? (
                   <Skeleton.Avatar active size={90} shape="circle" />
                 ) : (
@@ -372,32 +398,46 @@ export default function AqiHeroCard({
                       </div>
                     </div>
                     <div className="aqi-hero-dual-label">{pollutantLabel2}</div>
-                    <div className="aqi-hero-category" style={{ fontSize: 11 }}>{band2.name}</div>
+                    <Tag color={band2.color} className="aqi-hero-status-tag">{band2.name}</Tag>
                   </>
+                )}
+                {isStale2 && (
+                  <div style={{
+                    position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    filter: "none", opacity: 1, pointerEvents: "none",
+                  }}>
+                    <span style={{ fontSize: 10, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 6, padding: "3px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>No Data</span>
+                  </div>
                 )}
               </div>
             </div>
           ) : (
             <>
               {/* Glowing circular gauge */}
-              <div className="aqi-hero-gauge-wrap">
+              <div className="aqi-hero-gauge-wrap" style={isStale ? { position: "relative" } : undefined}>
                 <div
                   className="aqi-hero-gauge"
                   style={{
-                    "--gauge-color": band.color,
-                    "--gauge-glow": hexToRgba(band.color, 0.5),
+                    "--gauge-color": isStale ? "#9ca3af" : band.color,
+                    "--gauge-glow": isStale ? "rgba(156,163,175,0.3)" : hexToRgba(band.color, 0.5),
+                    ...(isStale ? { filter: "grayscale(0.8)", opacity: 0.5 } : {}),
                   }}
                 >
-                  <span className="aqi-hero-face aqi-face-bounce">{band.face}</span>
-                  <span className="aqi-hero-value">{roundedVal ?? "—"}</span>
-                  <span className="aqi-hero-unit">µg/Ncm</span>
+                  <span className="aqi-hero-face aqi-face-bounce">{isStale ? "—" : band.face}</span>
+                  <span className="aqi-hero-value">{isStale ? "—" : (roundedVal ?? "—")}</span>
+                  <span className="aqi-hero-unit">{isStale ? "" : "µg/Ncm"}</span>
                 </div>
                 {/* Pulsing ring */}
-                {sevIdx >= 1 && <div className="aqi-hero-pulse-ring" />}
+                {!isStale && sevIdx >= 1 && <div className="aqi-hero-pulse-ring" />}
+                {isStale && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 2 }}>
+                    <span style={{ fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 8, padding: "4px 12px", fontWeight: 600, whiteSpace: "nowrap", textAlign: "center", lineHeight: 1.3 }}>No latest data<br/>available</span>
+                  </div>
+                )}
               </div>
 
               {/* Status label */}
-              <div className="aqi-hero-category">{band.name}</div>
+              <Tag color={isStale ? "#9ca3af" : band.color} className="aqi-hero-status-tag aqi-hero-status-tag--lg">{isStale ? "No Data" : band.name}</Tag>
             </>
           )}
           {aqiRefreshing && <Spin size="small" className="aqi-hero-spinner" />}
@@ -497,25 +537,19 @@ export default function AqiHeroCard({
             </div>
           )}
 
+          {/* Fallback source notice – just the badge/pulse, no text */}
+
           {/* AQI Category Meter below Updated */}
-          {!aqiLoading && !aqiError && roundedVal != null && (
+          {!aqiLoading && !aqiError && roundedVal != null && !isStale && (
             <div className="aqi-hero-meter-wrap">
               <AqiCategoryMeter
                 value={roundedVal}
                 category={band.name}
                 loading={false}
                 label={pollutantLabel}
+                value2={hasDual && !aqiLoading2 && roundedVal2 != null && !isStale2 ? roundedVal2 : undefined}
+                label2={hasDual && !isStale2 ? pollutantLabel2 : undefined}
               />
-              {hasDual && !aqiLoading2 && roundedVal2 != null && (
-                <div style={{ marginTop: 6 }}>
-                  <AqiCategoryMeter
-                    value={roundedVal2}
-                    category={band2.name}
-                    loading={false}
-                    label={pollutantLabel2}
-                  />
-                </div>
-              )}
             </div>
           )}
         </div>

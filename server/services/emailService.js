@@ -17,7 +17,15 @@ function getEmailTransport() {
   return _emailTransport;
 }
 
-function buildEmailHtml({ province, pollutant, columns, rows, totalRows, filters, generatedAt }) {
+function buildEmailHtml({
+  province,
+  pollutant,
+  columns,
+  rows,
+  totalRows,
+  filters,
+  generatedAt,
+}) {
   const STATUS_COLORS = {
     Good: "#34d399",
     Fair: "#fbbf24",
@@ -29,13 +37,20 @@ function buildEmailHtml({ province, pollutant, columns, rows, totalRows, filters
 
   const filterSummary = [];
   if (filters?.dateRange && filters.dateRange[0]) {
-    filterSummary.push(`Date: ${filters.dateRange[0]} to ${filters.dateRange[1]}`);
+    filterSummary.push(
+      `Date: ${filters.dateRange[0]} to ${filters.dateRange[1]}`,
+    );
   }
   if (filters?.statuses?.length) {
     filterSummary.push(`Status: ${filters.statuses.join(", ")}`);
   }
-  if (filters?.aqiRange && (filters.aqiRange[0] > 0 || filters.aqiRange[1] < 500)) {
-    filterSummary.push(`AQI Range: ${filters.aqiRange[0]}–${filters.aqiRange[1]}`);
+  if (
+    filters?.aqiRange &&
+    (filters.aqiRange[0] > 0 || filters.aqiRange[1] < 500)
+  ) {
+    filterSummary.push(
+      `AQI Range: ${filters.aqiRange[0]}–${filters.aqiRange[1]}`,
+    );
   }
 
   const displayRows = rows.slice(0, 100);
@@ -44,7 +59,10 @@ function buildEmailHtml({ province, pollutant, columns, rows, totalRows, filters
   );
 
   const tableHeader = visibleCols
-    .map((c) => `<th style="padding:8px 12px;text-align:left;background:#f0f5ff;border-bottom:2px solid #1677ff;font-size:12px;color:#1e3a5f;white-space:nowrap;">${c}</th>`)
+    .map(
+      (c) =>
+        `<th style="padding:8px 12px;text-align:left;background:#f0f5ff;border-bottom:2px solid #1677ff;font-size:12px;color:#1e3a5f;white-space:nowrap;">${c}</th>`,
+    )
     .join("");
 
   const tableRows = displayRows
@@ -79,7 +97,6 @@ function buildEmailHtml({ province, pollutant, columns, rows, totalRows, filters
   <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f0f2f5;padding:24px 0;">
     <tr><td align="center">
       <table cellpadding="0" cellspacing="0" border="0" width="700" style="max-width:700px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-        
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#1677ff 0%,#4096ff 100%);padding:28px 32px;">
@@ -128,11 +145,15 @@ function buildEmailHtml({ province, pollutant, columns, rows, totalRows, filters
                 </td>
               </tr>
             </table>
-            ${filterSummary.length ? `
+            ${
+              filterSummary.length
+                ? `
             <div style="margin-top:12px;padding:10px 14px;background:#fffbe6;border-radius:6px;border:1px solid #ffe58f;">
               <p style="margin:0;font-size:11px;color:#8c6d1f;font-weight:600;">APPLIED FILTERS</p>
               <p style="margin:4px 0 0;font-size:12px;color:#614700;">${filterSummary.join(" · ")}</p>
-            </div>` : ""}
+            </div>`
+                : ""
+            }
             <p style="margin:12px 0 0;font-size:11px;color:#8c8c8c;">
               Generated: ${generatedAt} · Showing ${Math.min(displayRows.length, 100)} of ${totalRows.toLocaleString()} records${totalRows > 100 ? " (first 100 included in email)" : ""}
             </p>

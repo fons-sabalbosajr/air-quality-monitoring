@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Spin, Tooltip, Skeleton, Popover } from "antd";
+import { Spin, Tooltip, Skeleton, Popover, Tag } from "antd";
 import { GiMolecule, GiGasMask } from "react-icons/gi";
 import { TbAtom2Filled, TbInfoCircle } from "react-icons/tb";
 import { WiSmoke } from "react-icons/wi";
@@ -21,16 +21,28 @@ const POLLUTANTS = [
     gradient: "linear-gradient(135deg, #8b5cf620, #8b5cf608)",
     info: {
       what: "A colorless, odorless gas produced by incomplete combustion of fossil fuels, biomass, and organic matter.",
-      sources: "Vehicle exhaust, industrial processes, cooking stoves, wildfires, and tobacco smoke.",
-      health: "Reduces oxygen delivery to organs. High exposure can cause headaches, dizziness, confusion, and at extreme levels can be fatal.",
+      sources:
+        "Vehicle exhaust, industrial processes, cooking stoves, wildfires, and tobacco smoke.",
+      health:
+        "Reduces oxygen delivery to organs. High exposure can cause headaches, dizziness, confusion, and at extreme levels can be fatal.",
       guideline: "WHO 24-hr guideline: 4 mg/m³ (4,000 µg/m³).",
     },
     thresholds: [
       { max: 4400, label: "Good", color: "#34d399", bg: "#34d39915" },
       { max: 9400, label: "Fair", color: "#fbbf24", bg: "#fbbf2415" },
-      { max: 12400, label: "Unhealthy (SG)", color: "#fb923c", bg: "#fb923c15" },
+      {
+        max: 12400,
+        label: "Unhealthy (SG)",
+        color: "#fb923c",
+        bg: "#fb923c15",
+      },
       { max: 15400, label: "Unhealthy", color: "#f87171", bg: "#f8717115" },
-      { max: 30400, label: "Very Unhealthy", color: "#a78bfa", bg: "#a78bfa15" },
+      {
+        max: 30400,
+        label: "Very Unhealthy",
+        color: "#a78bfa",
+        bg: "#a78bfa15",
+      },
       { max: Infinity, label: "Hazardous", color: "#fb7185", bg: "#fb718515" },
     ],
   },
@@ -44,8 +56,10 @@ const POLLUTANTS = [
     gradient: "linear-gradient(135deg, #0ea5e920, #0ea5e908)",
     info: {
       what: "A reactive gas formed when sunlight triggers chemical reactions between nitrogen oxides (NOₓ) and volatile organic compounds (VOCs).",
-      sources: "Not emitted directly — formed from vehicle emissions, industrial pollutants, and chemical solvents reacting with sunlight.",
-      health: "Irritates airways, worsens asthma and chronic lung diseases, reduces lung function. Long-term exposure linked to respiratory mortality.",
+      sources:
+        "Not emitted directly — formed from vehicle emissions, industrial pollutants, and chemical solvents reacting with sunlight.",
+      health:
+        "Irritates airways, worsens asthma and chronic lung diseases, reduces lung function. Long-term exposure linked to respiratory mortality.",
       guideline: "WHO 8-hr guideline: 100 µg/m³.",
     },
     thresholds: [
@@ -67,8 +81,10 @@ const POLLUTANTS = [
     gradient: "linear-gradient(135deg, #f9731620, #f9731608)",
     info: {
       what: "A reddish-brown gas with a pungent odor, a major component of urban air pollution.",
-      sources: "Motor vehicle exhaust, power plants, industrial boilers, and off-road equipment combustion.",
-      health: "Inflames airways, aggravates asthma and bronchitis. Prolonged exposure increases susceptibility to respiratory infections.",
+      sources:
+        "Motor vehicle exhaust, power plants, industrial boilers, and off-road equipment combustion.",
+      health:
+        "Inflames airways, aggravates asthma and bronchitis. Prolonged exposure increases susceptibility to respiratory infections.",
       guideline: "WHO 24-hr guideline: 25 µg/m³.",
     },
     thresholds: [
@@ -90,8 +106,10 @@ const POLLUTANTS = [
     gradient: "linear-gradient(135deg, #ef444420, #ef444408)",
     info: {
       what: "A colorless gas with a sharp, irritating smell produced by burning sulfur-containing fuels.",
-      sources: "Coal and oil-fired power plants, metal smelting, petroleum refining, and volcanic activity.",
-      health: "Irritates the nose, throat, and airways. Worsens asthma and can cause difficulty breathing, especially during physical activity.",
+      sources:
+        "Coal and oil-fired power plants, metal smelting, petroleum refining, and volcanic activity.",
+      health:
+        "Irritates the nose, throat, and airways. Worsens asthma and can cause difficulty breathing, especially during physical activity.",
       guideline: "WHO 24-hr guideline: 40 µg/m³.",
     },
     thresholds: [
@@ -106,7 +124,8 @@ const POLLUTANTS = [
 ];
 
 function classify(pollutant, value) {
-  if (value == null || !isFinite(value)) return { label: "—", color: "var(--aqm-muted)", bg: "transparent" };
+  if (value == null || !isFinite(value))
+    return { label: "—", color: "var(--aqm-muted)", bg: "transparent" };
   const t = pollutant.thresholds.find((th) => value <= th.max);
   return t || { label: "—", color: "var(--aqm-muted)", bg: "transparent" };
 }
@@ -136,10 +155,13 @@ export default function PollutantsCard({ latitude, longitude }) {
       const params = new URLSearchParams({
         latitude: String(latitude),
         longitude: String(longitude),
-        current: "carbon_monoxide,ozone,nitrogen_dioxide,sulphur_dioxide,pm10,pm2_5,us_aqi",
+        current:
+          "carbon_monoxide,ozone,nitrogen_dioxide,sulphur_dioxide,pm10,pm2_5,us_aqi",
         timezone: "auto",
       });
-      const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
+      const res = await fetch(
+        `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`,
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json.current || json.current_weather || null);
@@ -162,10 +184,18 @@ export default function PollutantsCard({ latitude, longitude }) {
         <div className="section-header-icon">
           <GiGasMask size={22} />
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <h3 className="section-title">Major Air Pollutants</h3>
-          <p className="section-subtitle">Real-time pollutant concentrations from Open-Meteo</p>
+          <p className="section-subtitle">
+            Real-time pollutant concentrations near station area
+          </p>
         </div>
+        {!loading && !error && data && (
+          <span className="pollutants-live-badge">
+            <span className="pollutants-live-dot" />
+            Live
+          </span>
+        )}
       </div>
 
       {loading ? (
@@ -189,15 +219,24 @@ export default function PollutantsCard({ latitude, longitude }) {
                 key={p.key}
                 title={
                   <div>
-                    <div style={{ fontWeight: 600 }}>{p.label} ({p.short})</div>
-                    <div>{val != null ? `${val.toFixed(1)} ${p.unit}` : "—"}</div>
-                    <div style={{ color: cls.color, fontWeight: 500 }}>{cls.label}</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {p.label} ({p.short})
+                    </div>
+                    <div>
+                      {val != null ? `${val.toFixed(1)} ${p.unit}` : "—"}
+                    </div>
+                    <div style={{ color: cls.color, fontWeight: 500 }}>
+                      {cls.label}
+                    </div>
                   </div>
                 }
               >
                 <div className="pollutant-card">
                   <div className="pollutant-card-header">
-                    <div className="pollutant-icon-circle" style={{ color: p.color, background: `${p.color}15` }}>
+                    <div
+                      className="pollutant-icon-circle"
+                      style={{ color: p.color, background: `${p.color}15` }}
+                    >
                       {p.icon}
                     </div>
                     <div className="pollutant-name-group">
@@ -214,26 +253,34 @@ export default function PollutantsCard({ latitude, longitude }) {
                         content={
                           <div className="pollutant-info-popover">
                             <div className="pollutant-info-row">
-                              <span className="pollutant-info-heading">What is it?</span>
+                              <span className="pollutant-info-heading">
+                                What is it?
+                              </span>
                               <span>{p.info.what}</span>
                             </div>
                             <div className="pollutant-info-row">
-                              <span className="pollutant-info-heading">Sources</span>
+                              <span className="pollutant-info-heading">
+                                Sources
+                              </span>
                               <span>{p.info.sources}</span>
                             </div>
                             <div className="pollutant-info-row">
-                              <span className="pollutant-info-heading">Health Effects</span>
+                              <span className="pollutant-info-heading">
+                                Health Effects
+                              </span>
                               <span>{p.info.health}</span>
                             </div>
                             <div className="pollutant-info-row">
-                              <span className="pollutant-info-heading">Guideline</span>
+                              <span className="pollutant-info-heading">
+                                Guideline
+                              </span>
                               <span>{p.info.guideline}</span>
                             </div>
                           </div>
                         }
                         trigger="click"
                         placement="topRight"
-                        overlayStyle={{ maxWidth: 340 }}
+                        overlayStyle={{ maxWidth: "min(340px, 85vw)" }}
                       >
                         <button
                           className="pollutant-info-btn"
@@ -248,7 +295,14 @@ export default function PollutantsCard({ latitude, longitude }) {
                   </div>
                   <div className="pollutant-card-body">
                     <div className="pollutant-value-row">
-                      <span className="pollutant-big-value" style={{ color: cls.color?.startsWith("var") ? undefined : cls.color }}>
+                      <span
+                        className="pollutant-big-value"
+                        style={{
+                          color: cls.color?.startsWith("var")
+                            ? undefined
+                            : cls.color,
+                        }}
+                      >
                         {val != null ? val.toFixed(1) : "—"}
                       </span>
                       <span className="pollutant-unit-label">{p.unit}</span>
@@ -259,16 +313,20 @@ export default function PollutantsCard({ latitude, longitude }) {
                         className="pollutant-progress-fill"
                         style={{
                           width: `${progress}%`,
-                          background: cls.color?.startsWith("var") ? "#888" : cls.color,
+                          background: cls.color?.startsWith("var")
+                            ? "#888"
+                            : cls.color,
                         }}
                       />
                     </div>
-                    <div className="pollutant-status-tag" style={{
-                      color: cls.color?.startsWith("var") ? undefined : cls.color,
-                      background: cls.bg || "transparent",
-                    }}>
+                    <Tag
+                      color={
+                        cls.color?.startsWith("var") ? undefined : cls.color
+                      }
+                      className="pollutant-status-tag"
+                    >
                       {cls.label}
-                    </div>
+                    </Tag>
                   </div>
                 </div>
               </Tooltip>
