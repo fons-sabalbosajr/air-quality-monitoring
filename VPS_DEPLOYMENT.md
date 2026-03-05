@@ -1,404 +1,340 @@
 # Hostinger VPS KVM2 — Deployment Guide
 
-Complete setup guide for deploying the EMBR3 Air Quality Monitoring application on a **Hostinger VPS KVM2** (2 vCPU, 8 GB RAM, 100 GB NVMe, Ubuntu 22.04/24.04).
+Deploy the EMBR3 Air Quality Monitoring app alongside existing apps (HRPMS, OCSM) on your **Hostinger KVM2 VPS** at `embr3-onlinesystems.cloud`.
+
+---
+
+## Target URLs
+
+| URL | What it serves |
+|-----|----------------|
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring` | **Kiosk** — public AQI display |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring-admin` | **Admin Dashboard** — station selector, charts, map, tabular |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring/api/*` | **REST API** — Node/Express on port 3001 |
+
+> Existing apps (`/hrpms`, `/ocsm`) remain untouched.
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#1-prerequisites)
-2. [Initial VPS Setup & Hardening](#2-initial-vps-setup--hardening)
-3. [Install Runtime Dependencies](#3-install-runtime-dependencies)
-4. [Clone & Configure the Project](#4-clone--configure-the-project)
-5. [Set Up MongoDB](#5-set-up-mongodb)
-6. [Build the Frontend](#6-build-the-frontend)
-7. [Configure Nginx (Reverse Proxy + Static Files)](#7-configure-nginx)
-8. [SSL with Let's Encrypt](#8-ssl-with-lets-encrypt)
-9. [PM2 Process Manager (Node API)](#9-pm2-process-manager)
-10. [Firewall Rules](#10-firewall-rules)
-11. [Verify Deployment](#11-verify-deployment)
-12. [Maintenance & Updates](#12-maintenance--updates)
-13. [Security Checklist](#13-security-checklist)
-14. [Troubleshooting](#14-troubleshooting)
+2. [Install MongoDB (Self-Hosted)](#2-install-mongodb-self-hosted)
+3. [Clone & Configure the Project](#3-clone--configure-the-project)
+4. [Build the Frontend](#4-build-the-frontend)
+5. [Add Nginx Location Blocks](#5-add-nginx-location-blocks)
+6. [Start the API with PM2](#6-start-the-api-with-pm2)
+7. [Verify Deployment](#7-verify-deployment)
+8. [Maintenance & Updates](#8-maintenance--updates)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
 ## 1. Prerequisites
 
-| Item | Details |
-|------|---------|
-| **VPS Plan** | Hostinger KVM2 (2 vCPU / 8 GB RAM / 100 GB NVMe) |
-| **OS** | Ubuntu 22.04 LTS or 24.04 LTS (select during VPS setup) |
-| **Domain** | Point your domain's A record to the VPS public IP |
-| **SSH Key** | Add your public key via Hostinger's panel *or* `ssh-copy-id` |
-| **MongoDB Atlas** | Free M0 cluster (or self-hosted — see Section 5) |
-| **Google Sheets** | Published CSV URLs for each station/pollutant |
+Your VPS already has a working stack serving HRPMS and OCSM. Verify the tools are installed:
 
-### DNS Records (example)
+```bash
+ssh root@72.61.125.232
 
+node -v     # v20.x (or v18+ minimum)
+npm -v      # 10.x
+nginx -v    # nginx/1.x
+pm2 -v      # 5.x+
 ```
-A    aqm.yourdomain.com      → <VPS_IP>
-A    api.aqm.yourdomain.com  → <VPS_IP>
+
+If any of these are missing:
+
+```bash
+# Node 20 LTS (skip if already installed)
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+
+# PM2 (skip if already installed)
+npm install -g pm2
+
+# Nginx (likely already installed)
+apt install -y nginx
+
+# Build tools (if not present)
+apt install -y build-essential git
 ```
 
 ---
 
-## 2. Initial VPS Setup & Hardening
+## 2. Install MongoDB (Self-Hosted)
 
-SSH into your VPS as root, then:
+> Skip this section entirely if MongoDB is already running on your VPS.
 
 ```bash
-# ── Update system ──
-apt update && apt upgrade -y
+# Import MongoDB 7.0 key & repo (Ubuntu 22.04)
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+  gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
 
-# ── Create a deploy user (never run the app as root) ──
-adduser deploy
-usermod -aG sudo deploy
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] \
+  https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
+  tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 
-# ── Copy SSH keys to deploy user ──
-rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
+apt update && apt install -y mongodb-org
 
-# ── Disable root login & password auth ──
-sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-systemctl restart sshd
-
-# ── Set timezone ──
-timedatectl set-timezone Asia/Manila
+# Start & enable on boot
+systemctl start mongod
+systemctl enable mongod
 ```
 
-> From this point, log in as `deploy`:
-> ```bash
-> ssh deploy@<VPS_IP>
-> ```
-
----
-
-## 3. Install Runtime Dependencies
+### Create the app database user
 
 ```bash
-# ── Node.js 20 LTS via NodeSource ──
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
+mongosh --eval '
+  use("db-air_quality_monitoring");
+  db.createUser({
+    user: "aqm_app",
+    pwd: "CHANGE_THIS_TO_A_STRONG_PASSWORD",
+    roles: [{ role: "readWrite", db: "db-air_quality_monitoring" }]
+  });
+'
+```
 
-# Verify
-node -v   # v20.x
-npm -v    # 10.x
+### Enable authentication
 
-# ── Nginx ──
-sudo apt install -y nginx
+```bash
+nano /etc/mongod.conf
+```
 
-# ── PM2 (process manager) ──
-sudo npm install -g pm2
+Find the `#security:` section and change it to:
 
-# ── Certbot (SSL) ──
-sudo apt install -y certbot python3-certbot-nginx
+```yaml
+security:
+  authorization: enabled
+```
 
-# ── Build tools (for native npm modules if needed) ──
-sudo apt install -y build-essential git
+```bash
+systemctl restart mongod
 ```
 
 ---
 
-## 4. Clone & Configure the Project
+## 3. Clone & Configure the Project
 
 ```bash
-# ── Clone repository ──
-cd /home/deploy
-git clone <YOUR_REPO_URL> air-quality-monitoring
+cd /var/www
+git clone https://github.com/fons-sabalbosajr/air-quality-monitoring.git
 cd air-quality-monitoring
+```
 
-# ── Server setup ──
+### Server `.env`
+
+```bash
 cd server
 cp .env.example .env
-nano .env          # Fill in all real values (see below)
-npm ci --production
-
-# ── Frontend setup ──
-cd ../front-end
-cp .env.example .env
-nano .env          # Fill in VITE_API_BASE and VITE_SECURE_STORAGE_KEY
-npm ci
+nano .env
 ```
 
-### Server `.env` — Critical Values
+Fill in these values:
 
 ```env
 PORT=3001
 NODE_ENV=production
 
-# Lock CORS to your frontend domain only
-CORS_ORIGIN=https://aqm.yourdomain.com
+# CORS — your domain
+CORS_ORIGIN=https://embr3-onlinesystems.cloud
 
 # Rate limiting
 RATE_WINDOW_MS=60000
 RATE_MAX=120
 
-# MongoDB Atlas connection string
-MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/db-air_quality_monitoring
+# MongoDB (use the password you set in Step 2)
+MONGO_URI=mongodb://aqm_app:YOUR_STRONG_PASSWORD@127.0.0.1:27017/db-air_quality_monitoring?authSource=db-air_quality_monitoring
+MONGO_DB_NAME=db-air_quality_monitoring
+MONGO_COLLECTION_SERIES=air_data
+MONGO_COLLECTION_META=air_data_meta
+MONGO_COLLECTION_STATION=station_meta
 
-# Google Sheets CSV URLs
-SHEET_PM10_MEYCAUAYAN_URL=https://docs.google.com/spreadsheets/d/.../export?format=csv
-# ... (all station URLs)
+# Ingestion
+INGEST_CRON=*/15 * * * *
+INGEST_TZ=Asia/Manila
+INGEST_ON_START=1
+
+# Google Sheets CSV URLs (paste your actual URLs)
+SHEET_PM10_MEYCAUAYAN_URL=
+SHEET_PM25_MEYCAUAYAN_URL=
+SHEET_PM10_ZAMBALES_URL=
+SHEET_PM25_ZAMBALES_URL=
+SHEET_PM10_CLARK_URL=
+SHEET_PM10_SAN_FERNANDO_URL=
 
 # Weather API
-OWM_API_KEY=your_openweathermap_key
+OWM_API_KEY=
 
 # Email (optional)
-EMAIL_USER=your@gmail.com
-EMAIL_PASS=your_gmail_app_password
+EMAIL_USER=
+EMAIL_PASS=
 ```
-
-### Frontend `.env` — Critical Values
-
-```env
-VITE_API_BASE=https://api.aqm.yourdomain.com
-
-# Generate a strong encryption key:
-#   openssl rand -base64 32
-VITE_SECURE_STORAGE_KEY=YourBase64RandomKeyHere
-```
-
-### Secure file permissions
 
 ```bash
-# Only the deploy user can read .env files
-chmod 600 /home/deploy/air-quality-monitoring/server/.env
-chmod 600 /home/deploy/air-quality-monitoring/front-end/.env
+chmod 600 .env
+```
+
+### Install server dependencies
+
+```bash
+npm ci --production
+```
+
+### Frontend `.env`
+
+```bash
+cd ../front-end
+cp .env.example .env
+nano .env
+```
+
+Fill in:
+
+```env
+VITE_API_BASE=https://embr3-onlinesystems.cloud/air-quality-monitoring/api
+
+# Generate a key:  openssl rand -base64 32
+VITE_SECURE_STORAGE_KEY=PASTE_GENERATED_KEY_HERE
+```
+
+```bash
+chmod 600 .env
+```
+
+### Install frontend dependencies
+
+```bash
+npm ci
 ```
 
 ---
 
-## 5. Set Up MongoDB
-
-### Option A: MongoDB Atlas (Recommended)
-
-1. Create a free M0 cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas).
-2. Create a database user with a strong password.
-3. **Network Access** → Add your VPS IP (or `0.0.0.0/0` for Atlas free tier).
-4. Copy the SRV connection string into `MONGO_URI` in `server/.env`.
-
-### Option B: Self-hosted MongoDB on VPS
+## 4. Build the Frontend
 
 ```bash
-# Import MongoDB 7.0 key & repo
-curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
-  sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] \
-  https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
-  sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-sudo apt update && sudo apt install -y mongodb-org
-
-# Start & enable
-sudo systemctl start mongod
-sudo systemctl enable mongod
-
-# Create app user
-mongosh --eval '
-  use("db-air_quality_monitoring");
-  db.createUser({
-    user: "aqm_app",
-    pwd: "STRONG_PASSWORD_HERE",
-    roles: [{ role: "readWrite", db: "db-air_quality_monitoring" }]
-  });
-'
-
-# Enable auth in /etc/mongod.conf:
-#   security:
-#     authorization: enabled
-sudo systemctl restart mongod
-```
-
-Then set in `server/.env`:
-```env
-MONGO_URI=mongodb://aqm_app:STRONG_PASSWORD_HERE@127.0.0.1:27017/db-air_quality_monitoring?authSource=db-air_quality_monitoring
-```
-
----
-
-## 6. Build the Frontend
-
-```bash
-cd /home/deploy/air-quality-monitoring/front-end
+cd /var/www/air-quality-monitoring/front-end
 npm run build
-# Output: front-end/dist/
+# Output → front-end/dist/
 ```
+
+> The Vite config has `base: '/air-quality-monitoring/'` — all built assets are prefixed for the subpath automatically.
 
 ---
 
-## 7. Configure Nginx
+## 5. Add Nginx Location Blocks
 
-Nginx serves the static frontend and reverse-proxies API requests to the Node server.
+Your existing Nginx config already has a `server { ... }` block for `embr3-onlinesystems.cloud`. We add location blocks **inside** that same server block.
 
 ```bash
-sudo nano /etc/nginx/sites-available/aqm
+nano /etc/nginx/sites-available/default
 ```
 
-Paste:
+> Or wherever your main server block lives (check with `grep -r "server_name" /etc/nginx/sites-enabled/`).
+
+**Add these location blocks** inside the existing `server { ... }` block. Do **NOT** remove the existing `/hrpms` or `/ocsm` blocks:
 
 ```nginx
-# ── Frontend (static SPA) ──
-server {
-    listen 80;
-    server_name aqm.yourdomain.com;
+    # ═══════════════════════════════════════════════════════════
+    # EMBR3 Air Quality Monitoring
+    # ═══════════════════════════════════════════════════════════
 
-    root /home/deploy/air-quality-monitoring/front-end/dist;
-    index index.html;
-
-    # Security headers
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
-    # SPA fallback — all routes serve index.html
-    location / {
-        try_files $uri $uri/ /index.html;
+    # ── Frontend SPA (subpath) ──
+    location /air-quality-monitoring/ {
+        alias /var/www/air-quality-monitoring/front-end/dist/;
+        index index.html;
+        try_files $uri $uri/ /air-quality-monitoring/index.html;
     }
 
-    # Cache static assets aggressively
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
-        expires 30d;
-        add_header Cache-Control "public, immutable";
+    # ── Admin shortcut redirect ──
+    location = /air-quality-monitoring-admin {
+        return 301 /air-quality-monitoring/admin/overview;
+    }
+    location /air-quality-monitoring-admin/ {
+        return 301 /air-quality-monitoring/admin/overview;
     }
 
-    # Block dotfiles
-    location ~ /\. {
-        deny all;
-    }
-}
-
-# ── API reverse proxy ──
-server {
-    listen 80;
-    server_name api.aqm.yourdomain.com;
-
-    # Security headers
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-
-    # Request size limit (matches Express body limit)
-    client_max_body_size 1m;
-
-    location / {
+    # ── API reverse proxy (Node :3001) ──
+    location /air-quality-monitoring/api/ {
+        rewrite ^/air-quality-monitoring/api/(.*) /$1 break;
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Timeouts
         proxy_connect_timeout 10s;
         proxy_read_timeout 30s;
-        proxy_send_timeout 30s;
     }
-
-    # Block dotfiles
-    location ~ /\. {
-        deny all;
-    }
-}
 ```
 
-Enable and test:
+### Test & reload Nginx
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/aqm /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl reload nginx
+nginx -t
+systemctl reload nginx
 ```
+
+If `nginx -t` fails, check for syntax errors (missing semicolons, unclosed braces) near the blocks you added.
 
 ---
 
-## 8. SSL with Let's Encrypt
+## 6. Start the API with PM2
 
 ```bash
-sudo certbot --nginx \
-  -d aqm.yourdomain.com \
-  -d api.aqm.yourdomain.com \
-  --non-interactive \
-  --agree-tos \
-  -m your@email.com
-
-# Auto-renewal is configured automatically. Verify:
-sudo certbot renew --dry-run
-```
-
-Certbot automatically updates the Nginx config to redirect HTTP → HTTPS.
-
----
-
-## 9. PM2 Process Manager
-
-```bash
-cd /home/deploy/air-quality-monitoring/server
-
-# Start the API with PM2
+cd /var/www/air-quality-monitoring/server
 pm2 start server.js --name aqm-api --node-args="--max-old-space-size=512"
-
-# Save process list & enable startup on reboot
 pm2 save
+```
+
+If you haven't set up PM2 startup on this VPS yet:
+
+```bash
 pm2 startup
-# Run the command PM2 prints (sudo env PATH=... pm2 startup ...)
-```
-
-### Useful PM2 commands
-
-```bash
-pm2 status           # Check running processes
-pm2 logs aqm-api     # Tail logs
-pm2 restart aqm-api  # Restart after code changes
-pm2 monit            # Real-time CPU/memory monitor
+# Run the command PM2 prints (starts with: sudo env PATH=... pm2 startup ...)
 ```
 
 ---
 
-## 10. Firewall Rules
+## 7. Verify Deployment
+
+### From the VPS terminal
 
 ```bash
-# Enable UFW
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow ssh
-sudo ufw allow 'Nginx Full'    # ports 80 + 443
-sudo ufw enable
-sudo ufw status verbose
-
-# NOTE: Port 3001 is NOT exposed publicly — Nginx proxies to it internally.
-```
-
----
-
-## 11. Verify Deployment
-
-```bash
-# 1. Health check
-curl -s https://api.aqm.yourdomain.com/health
+# 1. Health check (direct)
+curl -s http://127.0.0.1:3001/health
 # Expected: {"health":"ok","timestamp":...}
 
-# 2. AQI endpoint
-curl -s https://api.aqm.yourdomain.com/api/aqi | head -c 200
+# 2. API via Nginx
+curl -s https://embr3-onlinesystems.cloud/air-quality-monitoring/api/health
+# Expected: {"health":"ok",...}
 
 # 3. Frontend
-curl -sI https://aqm.yourdomain.com
-# Expected: HTTP/2 200, security headers present
+curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring/
+# Expected: HTTP/2 200
 
-# 4. SSL grade
-# Visit: https://www.ssllabs.com/ssltest/analyze.html?d=aqm.yourdomain.com
+# 4. Admin redirect
+curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring-admin
+# Expected: 301 → /air-quality-monitoring/admin/overview
 ```
+
+### From your browser
+
+| URL | Expected |
+|-----|----------|
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring` | Kiosk — auto-cycling AQI display |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring-admin` | Admin — dashboard with sidebar nav |
+| `https://embr3-onlinesystems.cloud/hrpms` | Still works (untouched) |
+| `https://embr3-onlinesystems.cloud/ocsm/` | Still works (untouched) |
 
 ---
 
-## 12. Maintenance & Updates
+## 8. Maintenance & Updates
 
 ### Deploy a new version
 
 ```bash
-cd /home/deploy/air-quality-monitoring
+cd /var/www/air-quality-monitoring
 git pull origin main
 
 # Rebuild frontend
@@ -409,6 +345,22 @@ cd ../server && npm ci --production
 pm2 restart aqm-api
 ```
 
+### Quick deploy from your local machine
+
+```bash
+# From your local project root:
+bash deploy.sh 72.61.125.232 root
+```
+
+### PM2 commands
+
+```bash
+pm2 status           # Check all processes
+pm2 logs aqm-api     # Tail AQM logs
+pm2 restart aqm-api  # Restart after changes
+pm2 monit            # Real-time CPU/memory monitor
+```
+
 ### Log rotation
 
 ```bash
@@ -417,77 +369,36 @@ pm2 set pm2-logrotate:max_size 10M
 pm2 set pm2-logrotate:retain 7
 ```
 
-### Automated backups (MongoDB Atlas)
-
-Atlas handles automated daily backups on paid tiers. For self-hosted:
-
-```bash
-# Add to crontab: daily dump at 2 AM
-crontab -e
-# 0 2 * * * mongodump --uri="mongodb://..." --gzip --out=/home/deploy/backups/$(date +\%F)
-```
-
-### OS updates
-
-```bash
-sudo apt update && sudo apt upgrade -y
-# Reboot if kernel was updated
-sudo reboot
-```
-
 ---
 
-## 13. Security Checklist
-
-| # | Item | Status |
-|---|------|--------|
-| 1 | SSH key-only login (password auth disabled) | ☐ |
-| 2 | Root login disabled | ☐ |
-| 3 | App runs as non-root `deploy` user | ☐ |
-| 4 | UFW firewall enabled (only 22, 80, 443 open) | ☐ |
-| 5 | Port 3001 NOT publicly exposed | ☐ |
-| 6 | `.env` files have `chmod 600` permissions | ☐ |
-| 7 | `.env` files excluded from Git (`.gitignore`) | ☐ |
-| 8 | `CORS_ORIGIN` restricted to frontend domain | ☐ |
-| 9 | Rate limiting enabled on API | ☐ |
-| 10 | Security headers set (HSTS, X-Frame, nosniff) | ☐ |
-| 11 | SSL/TLS via Let's Encrypt (A+ grade) | ☐ |
-| 12 | MongoDB uses auth + strong password | ☐ |
-| 13 | `VITE_SECURE_STORAGE_KEY` set (not fallback) | ☐ |
-| 14 | `NODE_ENV=production` set | ☐ |
-| 15 | Gmail uses App Password (not account password) | ☐ |
-| 16 | No debug/temp files in repo | ☐ |
-
----
-
-## 14. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| `502 Bad Gateway` | Node API not running | `pm2 status` → `pm2 restart aqm-api` |
-| `CORS error` in browser | `CORS_ORIGIN` mismatch | Update `server/.env` CORS_ORIGIN to match frontend URL |
-| Frontend shows blank page | SPA rewrite missing | Check Nginx `try_files $uri $uri/ /index.html;` |
-| `ECONNREFUSED` on :3001 | PM2 not started | `pm2 start server.js --name aqm-api` |
-| SSL cert expired | Certbot renewal failed | `sudo certbot renew --force-renewal` |
-| MongoDB auth error | Wrong credentials | Check `MONGO_URI` in `.env` vs MongoDB user/pass |
-| Rate limit `429` errors | Legitimate traffic spike | Increase `RATE_MAX` in `.env`, `pm2 restart aqm-api` |
-| High memory usage | Node memory leak | `pm2 restart aqm-api` (PM2 auto-restarts at limit) |
-| Build fails on VPS | Low memory during build | Add swap: `sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile` |
-| `permission denied` on .env | File ownership wrong | `chown deploy:deploy .env && chmod 600 .env` |
+| `502 Bad Gateway` on `/air-quality-monitoring/api/` | Node API not running | `pm2 status` → `pm2 restart aqm-api` |
+| Blank page at `/air-quality-monitoring/` | `dist/` not found or wrong alias path | Verify `alias /var/www/air-quality-monitoring/front-end/dist/;` |
+| CORS errors in browser | `CORS_ORIGIN` mismatch | Set `CORS_ORIGIN=https://embr3-onlinesystems.cloud` in `server/.env`, restart |
+| `/air-quality-monitoring-admin` shows 404 | Nginx missing redirect block | Add the `location = /air-quality-monitoring-admin` block |
+| SPA sub-routes 404 on page refresh | Missing `try_files` fallback | Ensure `try_files $uri $uri/ /air-quality-monitoring/index.html;` |
+| API returns `Cannot GET /api/...` | Rewrite rule wrong | Check `rewrite ^/air-quality-monitoring/api/(.*) /$1 break;` |
+| Assets not loading (404) | Base path mismatch | Verify `vite.config.js` has `base: '/air-quality-monitoring/'`, rebuild |
+| Existing apps (`/hrpms`, `/ocsm`) broken | Location block conflict | Ensure AQM blocks are separate, not overriding existing ones |
+| MongoDB auth error | Wrong password in `.env` | Check `MONGO_URI` matches the user/password from Step 2 |
+| Build fails (OOM) on VPS | Low memory | Add swap: `fallocate -l 2G /swapfile && mkswap /swapfile && swapon /swapfile` |
 
 ---
 
-## Quick Reference — File Locations on VPS
+## File Locations on VPS
 
 ```
-/home/deploy/air-quality-monitoring/
+/var/www/air-quality-monitoring/
 ├── server/
 │   ├── .env              ← API secrets (chmod 600)
-│   ├── server.js          ← Entry point (PM2 manages)
-│   └── data/              ← Workbook + cache
+│   ├── server.js         ← Entry point (PM2: aqm-api)
+│   └── data/             ← Runtime cache
 ├── front-end/
 │   ├── .env              ← Build-time vars (chmod 600)
 │   └── dist/             ← Built SPA (Nginx serves)
-├── .gitignore
+├── deploy.sh             ← Automated deploy script
 └── VPS_DEPLOYMENT.md     ← This file
 ```

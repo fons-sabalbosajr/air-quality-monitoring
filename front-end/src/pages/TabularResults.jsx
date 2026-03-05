@@ -584,7 +584,7 @@ export default function TabularResultsPage() {
   }, [provinceKey, province?.pollutants]);
 
   if (!provinceKey) {
-    return <Navigate to="/tabular/meycauayan" replace />;
+    return <Navigate to="/admin/tabular/meycauayan" replace />;
   }
   if (!province) {
     return (

@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-# deploy.sh — EMBR3 Air Quality Monitoring  →  Hostinger KVM2
+# deploy.sh — EMBR3 Air Quality Monitoring → embr3-onlinesystems.cloud
 #
-# Usage (from your LOCAL machine):
-#   bash deploy.sh <VPS_IP> [deploy_user]
+# Usage (from your LOCAL machine, inside the project root):
+#   bash deploy.sh <VPS_IP> [ssh_user]
 #
-# Prerequisites on VPS (one-time — see VPS_DEPLOYMENT.md §2-3):
-#   • Ubuntu 22/24 LTS with Node 20, Nginx, PM2, Certbot
-#   • Non-root user (default: deploy) with sudo & SSH key
-#   • .env files already configured on VPS
+# Example:
+#   bash deploy.sh 72.61.125.232 root
+#
+# Prerequisites on VPS:
+#   • Node 20+, Nginx, PM2 already installed
+#   • .env files configured in /var/www/air-quality-monitoring/
+#   • Nginx location blocks added (see VPS_DEPLOYMENT.md §5)
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
 # ── Args ──
-VPS_IP="${1:?Usage: bash deploy.sh <VPS_IP> [deploy_user]}"
-DEPLOY_USER="${2:-deploy}"
-REMOTE="$DEPLOY_USER@$VPS_IP"
-APP_DIR="/home/$DEPLOY_USER/air-quality-monitoring"
+VPS_IP="${1:?Usage: bash deploy.sh <VPS_IP> [ssh_user]}"
+SSH_USER="${2:-root}"
+REMOTE="$SSH_USER@$VPS_IP"
+APP_DIR="/var/www/air-quality-monitoring"
 
 echo "╔════════════════════════════════════════════════════╗"
 echo "║  EMBR3 AQM  →  Deploy to $VPS_IP                 ║"
@@ -28,7 +31,7 @@ echo "▸ [1/5] Building frontend …"
 (cd front-end && npm ci && npm run build)
 echo "  ✔ Frontend built → front-end/dist/"
 
-# ── 2  Sync project to VPS (exclude heavy/unneeded dirs) ──
+# ── 2  Sync project to VPS ──
 echo ""
 echo "▸ [2/5] Syncing project to VPS …"
 rsync -azP --delete \
@@ -36,12 +39,12 @@ rsync -azP --delete \
   --exclude='.git' \
   --exclude='.env' \
   --exclude='.env.*' \
-  --exclude='!.env.example' \
+  --include='.env.example' \
   --exclude='server/data/.cache' \
   --exclude='*.stackdump' \
   --exclude='nul' \
   ./ "$REMOTE:$APP_DIR/"
-echo "  ✔ Project synced"
+echo "  ✔ Project synced to $APP_DIR/"
 
 # ── 3  Install server production deps on VPS ──
 echo ""
@@ -59,12 +62,14 @@ echo "  ✔ API restarted"
 echo ""
 echo "▸ [5/5] Health check …"
 sleep 3
-ssh "$REMOTE" "curl -sf http://127.0.0.1:3001/health || echo '⚠ Health check failed — check pm2 logs aqm-api'"
+ssh "$REMOTE" "curl -sf http://127.0.0.1:3001/health || echo '⚠ Health check failed — check: pm2 logs aqm-api'"
 
 echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  ✔ Deployment complete!"
-echo "  • Frontend:  https://your-domain.com  (Nginx → dist/)"
-echo "  • API:       https://api.your-domain.com  (Nginx → :3001)"
-echo "  • Logs:      ssh $REMOTE 'pm2 logs aqm-api'"
+echo ""
+echo "  Kiosk:  https://embr3-onlinesystems.cloud/air-quality-monitoring"
+echo "  Admin:  https://embr3-onlinesystems.cloud/air-quality-monitoring-admin"
+echo "  API:    https://embr3-onlinesystems.cloud/air-quality-monitoring/api/health"
+echo "  Logs:   ssh $REMOTE 'pm2 logs aqm-api'"
 echo "════════════════════════════════════════════════════════"

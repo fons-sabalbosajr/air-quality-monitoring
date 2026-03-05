@@ -1303,13 +1303,19 @@ function ThemedLayout({
               fallback={<PageLoadingSkeleton sections={4} />}
             >
               <Routes>
-                <Route path="/" element={<Navigate to="/overview" replace />} />
-                <Route path="/overview" element={<DashboardPage />} />
-                <Route path="/tabular" element={<Navigate to="/tabular/meycauayan" replace />} />
-                <Route path="/tabular/:province" element={<TabularResultsPage />} />
-                {/* Charts route can remain accessible directly if needed */}
-                <Route path="/charts" element={<ChartsPage />} />
-                <Route path="/map" element={<MapPage />} />
+                <Route path="/" element={<KioskPage />} />
+                <Route path="/embr3-latestaqi" element={<Navigate to="/" replace />} />
+                <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
+                <Route path="/admin/overview" element={<DashboardPage />} />
+                <Route path="/admin/tabular" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
+                <Route path="/admin/tabular/:province" element={<TabularResultsPage />} />
+                <Route path="/admin/charts" element={<ChartsPage />} />
+                <Route path="/admin/map" element={<MapPage />} />
+                {/* Legacy routes redirect to /admin */}
+                <Route path="/overview" element={<Navigate to="/admin/overview" replace />} />
+                <Route path="/tabular/*" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
+                <Route path="/charts" element={<Navigate to="/admin/charts" replace />} />
+                <Route path="/map" element={<Navigate to="/admin/map" replace />} />
               </Routes>
             </Suspense>
           </div>
@@ -1403,24 +1409,25 @@ function App() {
   ];
 
   const items = [
-    { key: "/overview", icon: <DashboardOutlined />, label: "Overview" },
+    { key: "/admin/overview", icon: <DashboardOutlined />, label: "Overview" },
     {
       key: "tabular",
       icon: <TableOutlined />,
       label: "Tabular Results",
       children: provinces.map((p) => ({
-        key: `/tabular/${p.key}`,
+        key: `/admin/tabular/${p.key}`,
         label: p.label,
       })),
     },
-    { key: "/map", icon: <EnvironmentOutlined />, label: "Map" },
+    { key: "/admin/map", icon: <EnvironmentOutlined />, label: "Map" },
   ];
 
   const selectableKeys = [
-    '/overview',
-    ...provinces.map((p) => `/tabular/${p.key}`),
-    '/tabular',
-    '/map',
+    '/admin/overview',
+    ...provinces.map((p) => `/admin/tabular/${p.key}`),
+    '/admin/tabular',
+    '/admin/map',
+    '/admin',
     '/',
   ];
 
@@ -1431,7 +1438,7 @@ function App() {
         (k) =>
           location.pathname === k ||
           (k !== "/" && location.pathname.startsWith(k))
-      ) || "/overview";
+      ) || "/admin/overview";
   const selectedKeys = [selectedKey];
 
   // Set dynamic document title to requested app name with current year
@@ -1441,7 +1448,7 @@ function App() {
   }, []);
 
   // ── Kiosk route renders outside the main layout ──
-  if (location.pathname === "/embr3-latestaqi") {
+  if (location.pathname === "/" || location.pathname === "/embr3-latestaqi") {
     return (
       <Suspense
         fallback={
