@@ -4,6 +4,17 @@ node_modules/
 # Environment files
 .env
 .env.*
+!.env.example
+
+# Data & cache (keep .gitkeep)
+data/.cache/
+data/*.xlsm
+data/*.xlsx
+!data/.gitkeep
+
+# Build / temp
+nul
+*.stackdump
 
 # Logs
 logs/

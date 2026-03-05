@@ -1,0 +1,218 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AQI Category Meter – Corporate Design
+   Clean, professional horizontal gauge with refined pointers
+   ═══════════════════════════════════════════════════════════════════ */
+
+.aqi-meter-container {
+  width: 100%;
+  user-select: none;
+  padding: 18px 22px 14px;
+  background: rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* ── Title row ── */
+.aqi-meter-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aqi-meter-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--aqm-strong, #0f172a);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ── Bar wrapper ── */
+.aqi-meter-bar-wrap {
+  position: relative;
+  padding-bottom: 10px; /* minimum safe room for pointer value below */
+}
+
+.aqi-meter-bar-wrap--dual {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* ── Colored bar — sleek rounded track ── */
+.aqi-meter-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.25);
+  position: relative;
+  z-index: 2;
+}
+
+.aqi-meter-segment {
+  transition: opacity 0.4s ease;
+  position: relative;
+}
+
+/* Subtle separator between segments */
+.aqi-meter-segment::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 1px;
+  bottom: 1px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.aqi-meter-segment:last-child::after {
+  display: none;
+}
+
+.aqi-meter-segment--active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Pointer — value badge positioned flush against the bar
+   ══════════════════════════════════════════════════════════════ */
+.aqi-meter-pointer {
+  position: absolute;
+  top: 0;
+  height: 10px; /* matches bar */
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: left 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 5;
+}
+
+/* Value badge — corporate pill style, flush below bar */
+.aqi-meter-pointer-value {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.3;
+}
+
+/* Arrow pointing UP toward the bar (default — badge sits below) */
+.aqi-meter-pointer-value::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 4px solid var(--_badge-bg, #64748b);
+}
+
+/* Label inside the badge (e.g. "PM10:") */
+.aqi-meter-pointer-label {
+  font-weight: 600;
+  font-size: 10px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── PM10 pointer (dual mode) — badge ABOVE ── */
+.aqi-meter-pointer--above {
+  top: 3px; /* tighter dual alignment */
+  margin-top: 20px !important; /* pull up above bar */
+}
+
+.aqi-meter-pointer-value--top {
+  top: auto;
+  bottom: calc(100% - 9px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Arrow pointing DOWN toward the bar (top badge in dual mode) */
+.aqi-meter-pointer-value--top::before {
+  top: auto;
+  bottom: -4px;
+  border-bottom: none;
+  border-top: 4px solid var(--_badge-bg, #64748b);
+}
+
+/* ── PM2.5 pointer (dual mode) — badge BELOW ── */
+.aqi-meter-pointer--below {
+  top: 3px; /* tighter dual alignment */
+  margin-bottom: 25px;
+}
+
+/* Dual mode (PM2.5 badge below) — keep close to bar */
+.aqi-meter-pointer--below .aqi-meter-pointer-value {
+  top: calc(100% - 9px);
+}
+
+/* ── Band labels ── */
+.aqi-meter-labels {
+  display: flex;
+  margin-top: 6px;
+  gap: 2px;
+}
+
+.aqi-meter-band-label {
+  text-align: center;
+}
+
+.aqi-meter-band-label .ant-tag {
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  margin: 0 !important;
+  padding: 0 5px !important;
+  line-height: 16px !important;
+  border-radius: 4px !important;
+  opacity: 0.85;
+}
+
+/* ── Dark mode glassmorphism ── */
+.dark .aqi-meter-container {
+  background: rgba(15, 23, 42, 0.4);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .aqi-meter-container {
+    padding: 14px 12px 10px;
+  }
+  .aqi-meter-labels {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px;
+  }
+  .aqi-meter-band-label {
+    width: auto !important;
+  }
+}

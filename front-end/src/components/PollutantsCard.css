@@ -1,0 +1,203 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Pollutants Card – grid of individual pollutant cards with progress bars
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* =====================================================================
+   Pollutants Section
+   ===================================================================== */
+.pollutants-section {
+  background: var(--aqm-panel-bg);
+  border: 1px solid var(--aqm-panel-border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+/* Live pulse badge for pollutants */
+.pollutants-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 20px;
+  padding: 3px 10px 3px 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.pollutants-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: pollutant-pulse 1.5s ease-in-out infinite;
+}
+@keyframes pollutant-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+.dark .pollutants-live-badge {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.2);
+}
+.pollutants-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.pollutant-card-skeleton {
+  padding: 16px;
+  border: 1px solid var(--aqm-panel-border);
+  border-radius: 14px;
+}
+.pollutants-error {
+  text-align: center;
+  color: var(--aqm-muted);
+  padding: 24px;
+  font-size: 13px;
+}
+
+/* Individual pollutant card */
+.pollutant-card {
+  border: 1px solid var(--aqm-panel-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  background: var(--aqm-panel-bg);
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+  cursor: default;
+}
+.pollutant-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+.pollutant-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* Info icon button inside pollutant card header */
+.pollutant-info-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity 0.2s,
+    background 0.2s;
+}
+.pollutant-info-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+.pollutant-info-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--aqm-text, #333);
+}
+.pollutant-info-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pollutant-info-heading {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--aqm-muted, #888);
+}
+.pollutant-icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pollutant-name-group {
+  display: flex;
+  flex-direction: column;
+}
+.pollutant-short {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--aqm-strong);
+}
+.pollutant-label {
+  font-size: 11px;
+  color: var(--aqm-muted);
+  font-weight: 400;
+}
+.pollutant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pollutant-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.pollutant-big-value {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--aqm-text);
+}
+.pollutant-unit-label {
+  font-size: 11px;
+  color: var(--aqm-muted);
+  font-weight: 500;
+}
+
+/* Progress bar */
+.pollutant-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+.dark .pollutant-progress-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+.pollutant-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+/* Status tag */
+.pollutant-status-tag {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+}

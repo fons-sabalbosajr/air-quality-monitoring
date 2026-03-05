@@ -21,6 +21,7 @@ const {
   readVizData,
   readSheetSeries,
 } = require("./services/workbook");
+const { readGoogleSheetAsSeries } = require("./services/googleSheets");
 const {
   setDb: setBackupDb,
   scheduleBackup,
@@ -38,8 +39,68 @@ const proxyRoutes = require("./routes/proxy");
 
 // ── Express setup ──
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ── Security headers ──
+// Lightweight helmet-style headers without adding a dependency
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains"
+  );
+  // Remove Express fingerprint
+  res.removeHeader("X-Powered-By");
+  next();
+});
+
+// ── CORS — restrict to known origins in production ──
+const CORS_ORIGIN = process.env.CORS_ORIGIN; // comma-separated origins
+app.use(
+  cors(
+    CORS_ORIGIN
+      ? {
+          origin: CORS_ORIGIN.split(",").map((o) => o.trim()),
+          methods: ["GET", "POST", "OPTIONS"],
+          allowedHeaders: ["Content-Type", "Accept"],
+        }
+      : undefined // allow all in dev when CORS_ORIGIN is unset
+  )
+);
+
+// ── Body parsing with size limit ──
+app.use(express.json({ limit: "1mb" }));
+
+// ── Simple rate limiter (in-memory, per-IP) ──
+const _hits = new Map();
+const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS) || 60_000;
+const RATE_MAX = Number(process.env.RATE_MAX) || 120;
+app.use((req, res, next) => {
+  // Skip rate-limit for health checks
+  if (req.path === "/" || req.path === "/health") return next();
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  let entry = _hits.get(ip);
+  if (!entry || now - entry.start > RATE_WINDOW_MS) {
+    entry = { start: now, count: 1 };
+    _hits.set(ip, entry);
+  } else {
+    entry.count += 1;
+  }
+  if (entry.count > RATE_MAX) {
+    return res
+      .status(429)
+      .json({ error: "Too many requests. Please try again later." });
+  }
+  next();
+});
+// Cleanup stale entries every 5 min
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS;
+  for (const [ip, e] of _hits) if (e.start < cutoff) _hits.delete(ip);
+}, 300_000);
 
 // ── Register all routes ──
 app.use(healthRoutes);
@@ -52,7 +113,7 @@ app.use(proxyRoutes);
 
 // ── MongoDB ingestion, backup & station meta ──
 if (MONGO_URI) {
-  scheduleIngestion({ readVizData, readSheetSeries });
+  scheduleIngestion({ readVizData, readSheetSeries, readGoogleSheetAsSeries });
   persistStationMeta();
   // Initialize tabular backup after MongoDB connects
   ensureMongo().then((db) => {

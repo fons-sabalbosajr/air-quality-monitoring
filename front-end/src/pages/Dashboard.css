@@ -1,0 +1,188 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Dashboard Page – station selector, section cards, toolbar
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Dashboard container ── */
+.dashboard-v2 {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ── Reusable section card ── */
+.dashboard-section {
+  background:
+    linear-gradient(
+      135deg,
+      var(--dash-accent-light, rgba(14, 165, 233, 0.04)) 0%,
+      transparent 60%
+    ),
+    var(--aqm-panel-bg);
+  border: 1px solid var(--dash-accent-border, var(--aqm-panel-border));
+  border-radius: 16px;
+  padding: 20px 24px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease,
+    background 0.5s ease;
+}
+.dashboard-section:hover {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.05),
+    inset 0 0 0 1px var(--dash-accent-border, transparent);
+}
+
+/* Section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.section-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--aqi-accent, #0ea5e9);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(
+    135deg,
+    var(--dash-accent, #0ea5e9),
+    var(--dash-accent, #6366f1)
+  );
+}
+.section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--aqm-strong);
+  line-height: 1.3;
+}
+.section-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--aqm-muted);
+  font-weight: 400;
+}
+.section-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.section-empty {
+  text-align: center;
+  color: var(--aqm-muted);
+  padding: 32px 16px;
+  font-size: 13px;
+}
+
+
+.dashboard-station-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.dashboard-station-selector .ant-select-selector {
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+}
+
+/* Station dropdown popup — wide enough for station name + Outdated tag */
+.dashboard-station-popup {
+  min-width: 380px !important;
+}
+
+/* Toolbar area */
+.dashboard-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+/* Date & time display beside Request Data */
+.dashboard-datetime {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--aqm-muted, #64748b);
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--aqm-fill-alt, rgba(0,0,0,0.03));
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.dashboard-datetime-date {
+  font-weight: 700;
+  color: var(--aqm-strong, #0f172a);
+}
+.dashboard-datetime-time {
+  opacity: 0.7;
+}
+
+.dashboard-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 10px !important;
+  font-weight: 500;
+  color: var(--aqm-muted) !important;
+  border-color: var(--aqm-panel-border) !important;
+  background: var(--aqm-panel-bg) !important;
+  transition: all 0.18s ease;
+}
+.dashboard-toolbar-btn:hover {
+  color: var(--aqm-primary) !important;
+  border-color: var(--aqm-primary) !important;
+}
+.dashboard-status-badge {
+  display: inline-flex;
+  align-items: center;
+}
+.dashboard-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--aqm-muted);
+  font-weight: 500;
+}
+@media (max-width: 640px) {
+  .toolbar-btn-label {
+    display: none;
+  }
+  .dashboard-toolbar {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ── Request Data Modal info cards ── */
+.request-modal-info-card {
+  background: var(--aqm-fill-alt, #f5f5f5);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border: 1px solid var(--aqm-border, #e8e8e8);
+  color: var(--aqm-text, #1e293b);
+}
+.request-modal-info-card:last-of-type {
+  margin-bottom: 0;
+}

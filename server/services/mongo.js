@@ -204,8 +204,9 @@ async function fetchLatestFromMongo(sheetKey) {
 /**
  * Run a data ingestion cycle. Requires readVizData and readSheetSeries
  * to be injected to avoid circular dependencies.
+ * Optionally accepts readGoogleSheetAsSeries for Google Sheets station data.
  */
-async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries } = {}) {
+async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries, readGoogleSheetAsSeries } = {}) {
   if (!MONGO_URI) {
     console.warn("[ingest] skipped (MONGO_URI missing)");
     return;
@@ -217,14 +218,42 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
   _ingestRunning = true;
   const started = Date.now();
   try {
-    const viz = await readVizData();
-    const pm10 = await readSheetSeries("PM10");
-    await persistSeriesToMongo("viz_data", viz);
-    await persistSeriesToMongo("PM10", pm10);
+    // Workbook-based ingestion (viz_data + PM10) — may fail if SharePoint auth is stale
+    let vizPts = 0, pm10Pts = 0;
+    try {
+      const viz = await readVizData();
+      const pm10 = await readSheetSeries("PM10");
+      await persistSeriesToMongo("viz_data", viz);
+      await persistSeriesToMongo("PM10", pm10);
+      vizPts = viz.meta?.points || viz.series.length;
+      pm10Pts = pm10.meta?.points || pm10.series.length;
+    } catch (wbErr) {
+      console.warn(`[ingest] workbook ingestion failed: ${wbErr.message}`);
+    }
+
+    // Ingest Google Sheets station data into air_data collection
+    const sheetIngested = [];
+    if (readGoogleSheetAsSeries) {
+      const SHEET_STATIONS = [
+        { province: "meycauayan", pollutant: "pm10" },
+        { province: "meycauayan", pollutant: "pm25" },
+      ];
+      for (const { province, pollutant } of SHEET_STATIONS) {
+        try {
+          const data = await readGoogleSheetAsSeries(province, pollutant);
+          if (data.series.length > 0) {
+            await persistSeriesToMongo(data.meta.sheet, data);
+            sheetIngested.push(`${province}_${pollutant}:${data.series.length}`);
+          }
+        } catch (sheetErr) {
+          console.warn(`[ingest] ${province}/${pollutant} failed: ${sheetErr.message}`);
+        }
+      }
+    }
+
+    const sheetInfo = sheetIngested.length ? `, sheets:[${sheetIngested.join(",")}]` : "";
     console.log(
-      `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${
-        viz.meta?.points || viz.series.length
-      } pts, pm10:${pm10.meta?.points || pm10.series.length} pts)`,
+      `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${vizPts} pts, pm10:${pm10Pts} pts${sheetInfo})`,
     );
   } catch (err) {
     console.error(`[ingest] run ${reason} failed: ${err.message}`);
@@ -233,13 +262,13 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
   }
 }
 
-function scheduleIngestion({ readVizData, readSheetSeries } = {}) {
+function scheduleIngestion({ readVizData, readSheetSeries, readGoogleSheetAsSeries } = {}) {
   if (_ingestScheduled || !MONGO_URI) return;
   try {
     cron.schedule(
       INGEST_CRON,
       () => {
-        runIngestion("cron", { readVizData, readSheetSeries });
+        runIngestion("cron", { readVizData, readSheetSeries, readGoogleSheetAsSeries });
       },
       { timezone: INGEST_TZ },
     );
@@ -247,7 +276,7 @@ function scheduleIngestion({ readVizData, readSheetSeries } = {}) {
       `[ingest] cron scheduled (${INGEST_CRON}${INGEST_TZ ? ` ${INGEST_TZ}` : ""})`,
     );
     if (INGEST_ON_START) {
-      runIngestion("startup", { readVizData, readSheetSeries }).catch((err) =>
+      runIngestion("startup", { readVizData, readSheetSeries, readGoogleSheetAsSeries }).catch((err) =>
         console.error(`[ingest] startup run failed: ${err.message}`),
       );
     }

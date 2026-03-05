@@ -1,0 +1,1988 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Kiosk Page – full-screen auto-cycling station dashboard for public displays
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── EMBR3 Kiosk Contact Card (matches Map contact card) ── */
+.kiosk-contact-card {
+  padding: 20px 24px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(12,74,110,0.08), rgba(22,78,99,0.04));
+  border: 1px solid rgba(12,74,110,0.12);
+}
+.kiosk-contact-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(12,74,110,0.10);
+}
+.kiosk-contact-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.15));
+}
+.kiosk-contact-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--aqm-strong, #1a1a2e);
+  line-height: 1.3;
+}
+.kiosk-contact-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--aqm-muted, #64748b);
+  line-height: 1.3;
+}
+.kiosk-contact-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kiosk-contact-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--aqm-text, #333);
+  line-height: 1.5;
+}
+.kiosk-contact-item svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--aqm-muted, #64748b);
+}
+.kiosk-contact-item a {
+  color: var(--dash-accent, #0ea5e9);
+  text-decoration: none;
+}
+.kiosk-contact-item a:hover {
+  text-decoration: underline;
+}
+.dark .kiosk-contact-card {
+  background: linear-gradient(135deg, rgba(14,165,233,0.08), rgba(6,182,212,0.04));
+  border-color: rgba(14,165,233,0.15);
+}
+.dark .kiosk-contact-header {
+  border-bottom-color: rgba(255,255,255,0.08);
+}
+
+/* ── Kiosk Combined Agency Card (CTA banner + contact details) ── */
+.kiosk-agency-combined-card {
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 28px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--aqm-panel-border, rgba(0,0,0,0.06));
+}
+/* CTA gradient banner (top half) – with background photo */
+.kiosk-agency-cta-banner {
+  position: relative;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #fff;
+  padding: 30px 28px 26px;
+}
+.kiosk-cta-photo-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(12, 74, 110, 0.82) 0%,
+    rgba(22, 78, 99, 0.75) 30%,
+    rgba(21, 94, 117, 0.78) 60%,
+    rgba(14, 116, 144, 0.72) 100%
+  );
+  z-index: 0;
+}
+.kiosk-agency-cta-inner {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+.kiosk-agency-cta-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.kiosk-agency-cta-desc {
+  margin: 0 auto 20px;
+  max-width: 500px;
+  font-size: 12px;
+  line-height: 1.7;
+  opacity: 0.85;
+}
+/* Contact body (bottom half) */
+.kiosk-agency-contact-body {
+  background: var(--aqm-panel-bg, #fff);
+  padding: 20px 24px;
+}
+.kiosk-agency-contact-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--aqm-panel-border, rgba(0,0,0,0.07));
+}
+.dark .kiosk-agency-combined-card {
+  border-color: rgba(14,165,233,0.15);
+}
+.dark .kiosk-agency-contact-body {
+  background: var(--aqm-panel-bg, #1e293b);
+}
+.dark .kiosk-agency-contact-head {
+  border-bottom-color: rgba(255,255,255,0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Kiosk Stations Carousel – Corporate Design
+   ═══════════════════════════════════════════════════════════════════ */
+.kiosk-stations-carousel {
+  padding: 22px 24px 18px;
+}
+.kiosk-carousel-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+  color: var(--aqm-strong, #1a1a2e);
+}
+.kiosk-carousel-header > svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.kiosk-carousel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.kiosk-carousel-subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--aqm-muted, #64748b);
+  font-weight: 400;
+}
+.kiosk-carousel-track-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+.kiosk-carousel-track-wrap::-webkit-scrollbar {
+  height: 4px;
+}
+.kiosk-carousel-track-wrap::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12);
+  border-radius: 4px;
+}
+.dark .kiosk-carousel-track-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+}
+.kiosk-carousel-track {
+  display: flex;
+  gap: 16px;
+  min-width: max-content;
+}
+
+/* ── Individual card ── */
+.kiosk-carousel-card {
+  position: relative;
+  width: 240px;
+  min-width: 240px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--aqm-card-bg, #fff);
+  border: 1.5px solid var(--aqm-panel-border, rgba(0,0,0,0.08));
+  box-shadow:
+    0 2px 8px rgba(0,0,0,0.05),
+    0 1px 3px rgba(0,0,0,0.04);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.kiosk-carousel-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 8px 28px rgba(0,0,0,0.10),
+    0 2px 8px rgba(0,0,0,0.06);
+  border-color: rgba(14,165,233,0.3);
+}
+.kiosk-carousel-card:active {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.kiosk-carousel-card--active {
+  border-color: var(--dash-accent, #0ea5e9);
+  box-shadow:
+    0 0 0 2px rgba(14,165,233,0.2),
+    0 6px 20px rgba(14,165,233,0.12);
+}
+.kiosk-carousel-card--active:hover {
+  border-color: var(--dash-accent, #0ea5e9);
+}
+.dark .kiosk-carousel-card {
+  background: var(--aqm-card-bg, #1e293b);
+  border-color: rgba(255,255,255,0.08);
+}
+.dark .kiosk-carousel-card:hover {
+  border-color: rgba(56,189,248,0.35);
+}
+.dark .kiosk-carousel-card--active {
+  border-color: #38bdf8;
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,0.25),
+    0 6px 20px rgba(56,189,248,0.12);
+}
+
+/* Photo section */
+.kiosk-carousel-card-photo {
+  position: relative;
+  height: 110px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: rgba(0,0,0,0.06);
+}
+.kiosk-carousel-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.30) 100%);
+  transition: background 0.3s ease;
+}
+.kiosk-carousel-card:hover .kiosk-carousel-card-overlay {
+  background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.40) 100%);
+}
+
+/* Viewing badge (replaces old dot) */
+.kiosk-carousel-card-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: rgba(14,165,233,0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.kiosk-carousel-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: carousel-pulse 2s ease-in-out infinite;
+}
+
+/* Info body */
+.kiosk-carousel-card-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kiosk-carousel-card-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--aqm-strong, #1a1a2e);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kiosk-carousel-card-addr {
+  margin: 0;
+  font-size: 11px;
+  color: var(--aqm-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Metadata row – pollutant pill + coordinates */
+.kiosk-carousel-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.kiosk-carousel-card-pollutant {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(6,182,212,0.08));
+  color: var(--dash-accent, #0ea5e9);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.kiosk-carousel-card-coords {
+  font-size: 9px;
+  color: var(--aqm-muted, #94a3b8);
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+/* CTA link */
+.kiosk-carousel-card-cta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dash-accent, #0ea5e9);
+  transition: gap 0.2s ease;
+}
+.kiosk-carousel-card:hover .kiosk-carousel-card-cta {
+  gap: 8px;
+}
+.kiosk-carousel-card--active .kiosk-carousel-card-cta {
+  color: var(--aqm-muted, #64748b);
+}
+
+.dark .kiosk-carousel-card-name {
+  color: #e2e8f0;
+}
+.dark .kiosk-carousel-header {
+  color: #e2e8f0;
+}
+.dark .kiosk-carousel-card-pollutant {
+  background: linear-gradient(135deg, rgba(56,189,248,0.15), rgba(6,182,212,0.10));
+  color: #38bdf8;
+}
+
+@keyframes carousel-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+
+@media (max-width: 768px) {
+  .kiosk-carousel-card {
+    width: 200px;
+    min-width: 200px;
+  }
+  .kiosk-carousel-card-photo {
+    height: 85px;
+  }
+}
+
+/* ── Kiosk Newsletter / Video Card ── */
+.kiosk-newsletter-card {
+  padding: 20px 24px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.07), rgba(139,92,246,0.04));
+  border: 1px solid rgba(99,102,241,0.12);
+}
+.kiosk-newsletter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: var(--aqm-strong, #1a1a2e);
+}
+.kiosk-newsletter-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.kiosk-newsletter-video-wrap {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%; /* 16:9 */
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.05);
+  margin-bottom: 12px;
+}
+.kiosk-newsletter-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 10px;
+}
+.kiosk-newsletter-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--aqm-muted, #64748b);
+  pointer-events: none;
+}
+/* Hide placeholder when iframe has a valid src */
+.kiosk-newsletter-video[src]:not([src=""]) ~ .kiosk-newsletter-placeholder {
+  display: none;
+}
+
+/* ── Video tiles grid ── */
+.kiosk-videos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.kiosk-video-tile {
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.03));
+  border: 1px solid rgba(99,102,241,0.10);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.kiosk-video-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(99,102,241,0.15);
+}
+.kiosk-video-tile .kiosk-newsletter-video-wrap {
+  margin-bottom: 0;
+}
+@media (max-width: 640px) {
+  .kiosk-videos-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kiosk-newsletter-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--aqm-muted, #64748b);
+  line-height: 1.6;
+}
+.dark .kiosk-newsletter-card {
+  background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.06));
+  border-color: rgba(99,102,241,0.18);
+}
+.dark .kiosk-newsletter-header {
+  color: #e2e8f0;
+}
+.dark .kiosk-newsletter-video-wrap {
+  background: rgba(255,255,255,0.04);
+}
+
+/* Legacy kiosk-embr3-card (kept for backward compat) */
+.kiosk-embr3-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(12,74,110,0.08), rgba(22,78,99,0.04));
+  border: 1px solid rgba(12,74,110,0.12);
+}
+.kiosk-embr3-logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.kiosk-embr3-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.kiosk-embr3-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--aqm-text, #222);
+  line-height: 1.3;
+}
+.kiosk-embr3-subtitle {
+  font-size: 11px;
+  color: var(--aqm-muted, #888);
+  line-height: 1.3;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   KIOSK PAGE  –  /embr3-latestaqi
+   Full-screen, no sidebar, auto-cycling station dashboard
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page wrapper ── */
+.kiosk-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family:
+    "Inter",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  transition: background 0.4s ease;
+  overflow-x: hidden;
+  padding-bottom: 90px; /* space for floating nav */
+  position: relative;
+  background: var(--aqm-bg, #f0f2f5);
+}
+.dark .kiosk-page {
+  background: var(--aqm-bg, #141414);
+}
+
+/* ── Header / Brand Bar ── */
+.kiosk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: var(--aqm-card-bg, rgba(255, 255, 255, 0.95));
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 1px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.06));
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.dark .kiosk-header {
+  background: var(--aqm-card-bg, rgba(30, 30, 30, 0.95));
+  border-bottom-color: var(--aqm-panel-border, rgba(255, 255, 255, 0.08));
+}
+
+.kiosk-theme-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1.5px solid var(--aqm-panel-border, #e5e7eb);
+  background: var(--aqm-fill-alt, #f5f5f5);
+  color: var(--aqm-text, #333);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.kiosk-theme-btn:hover {
+  background: var(--aqm-panel-border, #d1d5db);
+  transform: scale(1.1);
+}
+.dark .kiosk-theme-btn {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fbbf24;
+}
+.dark .kiosk-theme-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.kiosk-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.kiosk-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
+}
+.kiosk-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.kiosk-brand-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--aqm-strong, #1a1a2e);
+  letter-spacing: 0.3px;
+}
+.kiosk-brand-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--aqm-muted, #64748b);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* ── Header right group (clock + theme toggle) ── */
+.kiosk-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+/* ── Clock ── */
+.kiosk-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.kiosk-clock-time {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--aqm-strong, #1a1a2e);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+.kiosk-clock-date {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--aqm-muted, #64748b);
+}
+
+/* ── Carousel Controls ── */
+.kiosk-carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 20px 4px;
+}
+.kiosk-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.12));
+  background: var(--aqm-card-bg, rgba(255, 255, 255, 0.9));
+  backdrop-filter: blur(8px);
+  color: var(--aqm-text, #333);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.kiosk-nav-btn:hover {
+  background: var(--aqm-card-bg, rgba(255, 255, 255, 1));
+  border-color: var(--dash-accent, #0ea5e9);
+  transform: scale(1.08);
+}
+.kiosk-nav-btn:active {
+  transform: scale(0.95);
+}
+.dark .kiosk-nav-btn {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.kiosk-station-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 200px;
+}
+.kiosk-dots {
+  display: flex;
+  gap: 8px;
+}
+.kiosk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--aqm-muted, #94a3b8);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+}
+.kiosk-dot--active {
+  background: var(--dash-accent, #0ea5e9);
+  border-color: var(--dash-accent, #0ea5e9);
+  transform: scale(1.3);
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.4);
+}
+.kiosk-dot:hover:not(.kiosk-dot--active) {
+  background: var(--aqm-muted, #94a3b8);
+}
+
+.kiosk-station-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aqm-strong, #1a1a2e);
+}
+.kiosk-station-info-col {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.kiosk-station-addr {
+  font-weight: 400;
+  color: var(--aqm-muted, #64748b);
+  font-size: 11px;
+}
+
+/* ── Progress bar ── */
+.kiosk-progress-track {
+  width: 100%;
+  max-width: 600px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 3px;
+  margin: 6px auto 0;
+  overflow: hidden;
+}
+.dark .kiosk-progress-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+.kiosk-progress-bar {
+  height: 100%;
+  background: var(--dash-accent, #0ea5e9);
+  border-radius: 3px;
+  transition: width 0.05s linear;
+}
+.dark .kiosk-progress-bar {
+  background: var(--dash-accent, #38bdf8);
+}
+
+/* ── Main Content Area ── */
+.kiosk-main {
+  flex: 1;
+  padding: 16px 24px 0;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+.kiosk-main--fade {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.kiosk-section {
+  background: var(--aqm-card-bg, #fff);
+  border-radius: 16px;
+  border: 1px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+.dark .kiosk-section {
+  background: var(--aqm-card-bg, #1e1e2e);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
+.kiosk-hero-section { /* Let the hero card fill naturally */ display: block; }
+
+/* ── Wind Map + Station Details side-by-side row ── */
+.kiosk-wind-station-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+/* ── Kiosk Station Detail Card ── */
+.kiosk-station-detail-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kiosk-station-photo {
+  position: relative;
+  height: 180px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  flex-shrink: 0;
+}
+.kiosk-station-photo-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.10) 0%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+.kiosk-station-photo-content {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px 20px;
+  z-index: 1;
+}
+.kiosk-station-photo-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+.kiosk-station-photo-addr {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.kiosk-station-info-body {
+  padding: 16px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.kiosk-station-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.kiosk-station-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--aqm-panel-bg, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.06));
+  border-radius: 10px;
+}
+.kiosk-station-info-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: var(--aqm-muted, #64748b);
+}
+.kiosk-station-info-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aqm-strong, #1a1a2e);
+}
+.kiosk-station-gmaps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dash-accent, #0ea5e9);
+  text-decoration: none;
+  font-weight: 500;
+  margin-top: auto;
+}
+.kiosk-station-gmaps-link:hover {
+  text-decoration: underline;
+}
+.dark .kiosk-station-info-item {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark .kiosk-station-info-value {
+  color: #e2e8f0;
+}
+
+/* ── Two-column grid for pollutants + histogram ── */
+.kiosk-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+/* ── Floating Bottom Navigation ── */
+.kiosk-bottom-nav {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--aqm-card-bg, rgba(255, 255, 255, 0.95));
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border-radius: 20px;
+  border: 1px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.08));
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.04);
+  z-index: 200;
+  min-width: 280px;
+}
+.dark .kiosk-bottom-nav {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.kiosk-bottom-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--aqm-muted, #64748b);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 14px;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.kiosk-bottom-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--aqm-strong, #1a1a2e);
+}
+.kiosk-bottom-btn--active {
+  background: rgba(14, 165, 233, 0.1);
+  color: var(--dash-accent, #0ea5e9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.dark .kiosk-bottom-btn {
+  color: rgba(255, 255, 255, 0.55);
+}
+.dark .kiosk-bottom-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+.dark .kiosk-bottom-btn--active {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+}
+
+/* Play/Pause button – distinct accent color */
+.kiosk-bottom-btn--playpause {
+  color: #f59e0b;
+}
+.kiosk-bottom-btn--playpause:hover {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+.dark .kiosk-bottom-btn--playpause {
+  color: #fbbf24;
+}
+.dark .kiosk-bottom-btn--playpause:hover {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   KIOSK – Responsive Breakpoints
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet (≤1024px) ── */
+@media (max-width: 1024px) {
+  .kiosk-main {
+    padding: 14px 16px 0;
+    gap: 14px;
+  }
+  .kiosk-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .kiosk-header {
+    padding: 14px 20px;
+  }
+  .kiosk-clock-time {
+    font-size: 18px;
+  }
+  /* Contact card on tablet */
+  .kiosk-contact-card {
+    padding: 18px 20px;
+  }
+  .kiosk-contact-title {
+    font-size: 14px;
+  }
+  .kiosk-contact-item {
+    font-size: 12px;
+  }
+  /* Connection watermark: full-width on kiosk */
+  .kiosk-section .conn-wm {
+    position: static;
+    border-radius: 0;
+    min-width: unset;
+    max-width: unset;
+  }
+}
+
+/* ── Mobile landscape / small tablet (≤768px) ── */
+@media (max-width: 768px) {
+  .kiosk-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .kiosk-wind-station-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .kiosk-header {
+    padding: 12px 16px;
+    flex-wrap: nowrap;
+  }
+  .kiosk-logo {
+    width: 32px;
+    height: 32px;
+  }
+  .kiosk-brand-title {
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .kiosk-brand-sub {
+    font-size: 9px;
+    display: none;
+  }
+  .kiosk-clock {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .kiosk-clock-time {
+    font-size: 14px;
+  }
+  .kiosk-clock-date {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .kiosk-main {
+    padding: 10px 12px 0;
+    gap: 12px;
+  }
+  .kiosk-section {
+    border-radius: 12px;
+  }
+  .kiosk-bottom-btn {
+    padding: 8px 14px;
+    font-size: 10px;
+  }
+  .kiosk-bottom-nav {
+    min-width: 240px;
+    bottom: 12px;
+  }
+  .kiosk-carousel-controls {
+    gap: 8px;
+    padding: 10px 12px 2px;
+  }
+  .kiosk-nav-btn {
+    width: 34px;
+    height: 34px;
+  }
+  .kiosk-station-indicator {
+    min-width: 160px;
+  }
+  /* Kiosk AQI hero: ensure readability */
+  .kiosk-hero-section .aqi-hero-content {
+    padding: 16px 12px;
+  }
+  .kiosk-hero-section .aqi-hero-gauge {
+    width: 100px;
+    height: 100px;
+  }
+  .kiosk-hero-section .aqi-hero-value {
+    font-size: 28px;
+  }
+  /* Weather glass: temp centered left, stats right */
+  .kiosk-hero-section .aqi-hero-weather-glass {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+  .kiosk-hero-section .aqi-hero-wx-top {
+    gap: 8px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .kiosk-hero-section .aqi-hero-wx-temp-block {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .kiosk-hero-section .aqi-hero-wx-temp {
+    font-size: 24px;
+    line-height: 1.1;
+  }
+  .kiosk-hero-section .aqi-hero-wx-condition {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .kiosk-hero-section .aqi-hero-wx-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+  .kiosk-hero-section .aqi-hero-wx-grid {
+    flex: 1;
+    gap: 4px 10px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .kiosk-hero-section .aqi-hero-wx-stat {
+    font-size: 11px;
+  }
+  /* AQI status tag: center + spacing */
+  .kiosk-hero-section .aqi-hero-status-tag {
+    display: block;
+    margin: 4px auto;
+    text-align: center;
+    width: fit-content;
+  }
+  .kiosk-hero-section .aqi-hero-status-tag--lg {
+    font-size: 11px;
+    padding: 2px 10px;
+  }
+  /* AQI metric chips: center with equal spacing */
+  .kiosk-hero-section .aqi-hero-chips {
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+  }
+  .kiosk-hero-section .aqi-hero-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 8px;
+  }
+  /* AQI meter: center */
+  .kiosk-hero-section .aqi-hero-meter-wrap {
+    width: 100%;
+  }
+  /* Pollutant section header: one-liner */
+  .kiosk-page .section-header {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .kiosk-page .section-header-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+  .kiosk-page .section-title {
+    font-size: 14px;
+  }
+  .kiosk-page .section-subtitle {
+    font-size: 10px;
+  }
+  /* Pollutant card: one-liner header */
+  .kiosk-page .pollutants-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .kiosk-page .pollutant-card {
+    padding: 10px 12px;
+  }
+  .kiosk-page .pollutant-card-header {
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: nowrap;
+  }
+  .kiosk-page .pollutant-icon-circle {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+  .kiosk-page .pollutant-name-group {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .kiosk-page .pollutant-short {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .kiosk-page .pollutant-label {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kiosk-page .pollutant-big-value {
+    font-size: 20px;
+  }
+  .kiosk-page .pollutant-info-btn {
+    padding: 2px;
+  }
+  /* Pollutant tooltip: smaller on mobile */
+  .kiosk-page .ant-popover .ant-popover-inner {
+    max-width: min(280px, 85vw);
+    padding: 10px 12px;
+  }
+  .kiosk-page .pollutant-info-popover {
+    font-size: 11px;
+  }
+  .kiosk-page .pollutant-info-popover strong {
+    font-size: 11px;
+  }
+  /* Contact card on mobile */
+  .kiosk-contact-card {
+    padding: 14px 16px;
+  }
+  .kiosk-contact-header {
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+  .kiosk-contact-logo {
+    width: 36px;
+    height: 36px;
+  }
+  .kiosk-contact-title {
+    font-size: 13px;
+  }
+  .kiosk-contact-subtitle {
+    font-size: 11px;
+  }
+  .kiosk-contact-item {
+    font-size: 12px;
+    gap: 8px;
+  }
+  .kiosk-contact-grid {
+    gap: 8px;
+  }
+}
+
+/* ── Small mobile (≤480px) ── */
+@media (max-width: 480px) {
+  .kiosk-header {
+    padding: 10px 12px;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .kiosk-brand {
+    gap: 8px;
+    min-width: 0;
+  }
+  .kiosk-logo {
+    width: 28px;
+    height: 28px;
+  }
+  .kiosk-brand-title {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kiosk-brand-sub {
+    display: none;
+  }
+  .kiosk-clock {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+  .kiosk-clock-time {
+    font-size: 12px;
+  }
+  .kiosk-clock-date {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  .kiosk-header-right {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .kiosk-theme-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .kiosk-main {
+    padding: 8px 8px 0;
+    gap: 10px;
+  }
+  .kiosk-section {
+    border-radius: 10px;
+  }
+  .kiosk-bottom-nav {
+    min-width: auto;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    bottom: 8px;
+    border-radius: 16px;
+    justify-content: space-around;
+  }
+  .kiosk-bottom-btn {
+    padding: 8px 10px;
+    font-size: 10px;
+    gap: 2px;
+    flex: 1;
+  }
+  .kiosk-carousel-controls {
+    gap: 6px;
+    padding: 8px 8px 2px;
+  }
+  .kiosk-station-label {
+    font-size: 11px;
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+  }
+  .kiosk-station-addr {
+    font-size: 10px;
+  }
+  .kiosk-dots {
+    gap: 6px;
+  }
+  .kiosk-dot {
+    width: 8px;
+    height: 8px;
+  }
+  .kiosk-nav-btn {
+    width: 30px;
+    height: 30px;
+  }
+  .kiosk-progress-track {
+    max-width: 280px;
+  }
+  /* AQI Hero: ensure big + readable */
+  .kiosk-hero-section .aqi-hero-content {
+    flex-direction: column;
+    text-align: center;
+    padding: 14px 10px;
+  }
+  .kiosk-hero-section .aqi-hero-gauge {
+    width: 100px;
+    height: 100px;
+  }
+  .kiosk-hero-section .aqi-hero-value {
+    font-size: 26px;
+  }
+  /* Weather glass: temp centered left, stats right */
+  .kiosk-hero-section .aqi-hero-weather-glass {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 6px 10px;
+  }
+  .kiosk-hero-section .aqi-hero-wx-top {
+    gap: 6px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .kiosk-hero-section .aqi-hero-wx-temp-block {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .kiosk-hero-section .aqi-hero-wx-temp {
+    font-size: 20px;
+    line-height: 1.1;
+  }
+  .kiosk-hero-section .aqi-hero-wx-condition {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  .kiosk-hero-section .aqi-hero-wx-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+  .kiosk-hero-section .aqi-hero-wx-grid {
+    flex: 1;
+    gap: 3px 6px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .kiosk-hero-section .aqi-hero-wx-stat {
+    font-size: 10px;
+  }
+  /* AQI status tag: center + spacing */
+  .kiosk-hero-section .aqi-hero-status-tag {
+    display: block;
+    margin: 2px auto;
+    text-align: center;
+    width: fit-content;
+  }
+  .kiosk-hero-section .aqi-hero-status-tag--lg {
+    font-size: 10px;
+    padding: 1px 8px;
+  }
+  /* AQI metric chips: center with equal spacing */
+  .kiosk-hero-section .aqi-hero-chips {
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+  }
+  .kiosk-hero-section .aqi-hero-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 4px 6px;
+  }
+  .kiosk-hero-section .aqi-hero-chip .chip-value {
+    font-size: 12px;
+  }
+  .kiosk-hero-section .aqi-hero-chip .chip-label {
+    font-size: 7px;
+  }
+  /* AQI meter: center */
+  .kiosk-hero-section .aqi-hero-meter-wrap {
+    width: 100%;
+  }
+  /* Pollutant section header: one-liner */
+  .kiosk-page .section-header {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .kiosk-page .section-header-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+  .kiosk-page .section-title {
+    font-size: 13px;
+  }
+  .kiosk-page .section-subtitle {
+    font-size: 9px;
+  }
+  /* Pollutant card: compact one-liner */
+  .kiosk-page .pollutants-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .kiosk-page .pollutant-card {
+    padding: 8px 10px;
+  }
+  .kiosk-page .pollutant-card-header {
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: nowrap;
+  }
+  .kiosk-page .pollutant-icon-circle {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+  }
+  .kiosk-page .pollutant-name-group {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+  }
+  .kiosk-page .pollutant-short {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .kiosk-page .pollutant-label {
+    font-size: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kiosk-page .pollutant-big-value {
+    font-size: 16px;
+  }
+  .kiosk-page .pollutant-status-tag {
+    font-size: 8px;
+    padding: 1px 6px;
+  }
+  .kiosk-page .pollutant-info-btn {
+    padding: 2px;
+  }
+  /* Pollutant tooltip: compact */
+  .kiosk-page .ant-popover .ant-popover-inner {
+    max-width: min(260px, 85vw);
+    padding: 8px 10px;
+  }
+  .kiosk-page .pollutant-info-popover {
+    font-size: 10.5px;
+  }
+  .kiosk-page .pollutant-info-popover strong {
+    font-size: 10.5px;
+  }
+  /* Contact card compact */
+  .kiosk-contact-card {
+    padding: 12px 14px;
+  }
+  .kiosk-contact-header {
+    gap: 8px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+  .kiosk-contact-logo {
+    width: 30px;
+    height: 30px;
+  }
+  .kiosk-contact-title {
+    font-size: 12px;
+  }
+  .kiosk-contact-subtitle {
+    font-size: 10px;
+  }
+  .kiosk-contact-item {
+    font-size: 11px;
+    gap: 6px;
+  }
+  .kiosk-contact-grid {
+    gap: 6px;
+  }
+  /* Connection watermark kiosk override */
+  .conn-wm {
+    min-width: unset;
+    max-width: unset;
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   Kiosk Modal Styles
+   ══════════════════════════════════════════════════════════ */
+.kiosk-tabular-modal .ant-modal-content,
+.kiosk-map-modal .ant-modal-content {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* ── Map modal layout ── */
+.kiosk-map-layout {
+  display: flex;
+  gap: 12px;
+  height: 65vh;
+}
+.kiosk-map-iframe-wrap {
+  flex: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--aqm-border, #d9d9d9);
+  position: relative;
+  min-height: 250px;
+}
+.kiosk-map-station-list {
+  width: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Map modal responsive ── */
+@media (max-width: 768px) {
+  .kiosk-map-layout {
+    flex-direction: column;
+    height: auto;
+  }
+  .kiosk-map-iframe-wrap {
+    height: 45vh;
+    min-height: 200px;
+  }
+  .kiosk-map-station-list {
+    width: 100%;
+    max-height: 35vh;
+    flex-shrink: 0;
+  }
+  .kiosk-map-float-card {
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    min-width: auto;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .kiosk-map-modal .ant-modal-body {
+    padding: 14px 12px 16px;
+  }
+}
+@media (max-width: 480px) {
+  .kiosk-map-iframe-wrap {
+    height: 35vh;
+  }
+  .kiosk-map-station-list {
+    max-height: 30vh;
+    gap: 6px;
+  }
+}
+
+/* ── Floating station info card on map ── */
+.kiosk-map-float-card {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 10;
+  background: var(--aqm-card-bg, rgba(255, 255, 255, 0.96));
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: 220px;
+  max-width: 320px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--aqm-panel-border, rgba(0, 0, 0, 0.08));
+  animation: kiosk-float-in 0.25s ease-out;
+}
+.dark .kiosk-map-float-card {
+  background: rgba(30, 30, 30, 0.94);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+@keyframes kiosk-float-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Station card in map sidebar ── */
+.kiosk-map-stn-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  transition: all 0.2s;
+  font-size: 11px;
+}
+.kiosk-map-stn-card:hover {
+  background: #f0f5ff;
+}
+.kiosk-map-stn-card--active {
+  background: rgba(22, 119, 255, 0.08);
+  border-color: #1677ff;
+}
+.kiosk-map-contact-card {
+  margin-top: 8px;
+  cursor: default;
+}
+
+/* Dark‑theme variants */
+.dark .kiosk-map-stn-card {
+  background: #1e1e2e;
+  border-color: #333;
+  color: #e0e0e0;
+}
+.dark .kiosk-map-stn-card:hover {
+  background: #252540;
+}
+.dark .kiosk-map-stn-card--active {
+  background: rgba(22, 119, 255, 0.15);
+  border-color: #1677ff;
+}
+.dark .kiosk-map-stn-card a {
+  color: #5eaaff;
+}
+
+.kiosk-tabular-modal .ant-modal-body,
+.kiosk-map-modal .ant-modal-body {
+  padding: 20px 24px 24px;
+}
+
+.kiosk-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.kiosk-modal-header h2 {
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+/* Make table scroll smoothly inside kiosk modals */
+.kiosk-tabular-modal .ant-table-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--aqm-border, #e8e8e8);
+}
+
+.kiosk-tabular-modal .ant-table-thead > tr > th {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kiosk-tabular-modal .ant-table-tbody > tr > td {
+  font-size: 12px;
+}
+
+/* ── Tabular blur overlay (data access restriction) ── */
+.kiosk-tabular-blur-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 220px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--aqm-card-bg, rgba(255, 255, 255, 0.7)) 30%,
+    var(--aqm-card-bg, rgba(255, 255, 255, 0.95)) 100%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 16px;
+  z-index: 5;
+  pointer-events: auto;
+}
+.dark .kiosk-tabular-blur-overlay {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(30, 30, 30, 0.7) 30%,
+    rgba(30, 30, 30, 0.95) 100%
+  );
+}
+.kiosk-tabular-blur-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HD-55F-T Android Kiosk Display (55" 1920×1080 Full HD)
+   Optimised for landscape-mounted commercial display panels.
+   ═══════════════════════════════════════════════════════════════════ */
+@media screen and (min-width: 1820px) and (max-width: 1960px) and (min-height: 980px) and (max-height: 1100px) {
+  .kiosk-page {
+    padding-bottom: 110px;
+  }
+  .kiosk-header {
+    padding: 20px 40px;
+  }
+  .kiosk-logo {
+    width: 56px;
+    height: 56px;
+  }
+  .kiosk-brand-title {
+    font-size: 22px;
+  }
+  .kiosk-brand-sub {
+    font-size: 13px;
+  }
+  .kiosk-clock-time {
+    font-size: 28px;
+  }
+  .kiosk-clock-date {
+    font-size: 13px;
+  }
+  .kiosk-carousel-controls {
+    padding: 18px 24px 8px;
+    gap: 16px;
+  }
+  .kiosk-nav-btn {
+    width: 48px;
+    height: 48px;
+  }
+  .kiosk-station-label {
+    font-size: 16px;
+    gap: 8px;
+  }
+  .kiosk-station-addr {
+    font-size: 13px;
+  }
+  .kiosk-dot {
+    width: 14px;
+    height: 14px;
+  }
+  .kiosk-dots {
+    gap: 12px;
+  }
+  .kiosk-main {
+    padding: 24px 40px 0;
+    gap: 24px;
+    max-width: 1800px;
+  }
+  .kiosk-section {
+    border-radius: 20px;
+    box-shadow: 0 6px 32px rgba(0, 0, 0, 0.08);
+  }
+  .kiosk-hero-section .aqi-hero-card {
+    min-height: 380px;
+  }
+  /* AQI meter – larger for kiosk readability */
+  .kiosk-section .aqi-meter-bar {
+    height: 22px;
+    border-radius: 12px;
+  }
+  .kiosk-section .aqi-meter-pointer-value {
+    font-size: 16px;
+    padding: 4px 12px;
+    border-radius: 12px;
+  }
+  .kiosk-section .aqi-meter-label {
+    font-size: 18px;
+  }
+  .kiosk-section .aqi-meter-active-band {
+    font-size: 17px;
+  }
+  .kiosk-section .aqi-meter-range {
+    font-size: 11px;
+  }
+  .kiosk-section .aqi-meter-bar-wrap {
+    padding-bottom: 26px;
+  }
+  .kiosk-section .aqi-meter-bar-wrap:has(.aqi-meter-pointer--above) {
+    padding-top: 28px;
+    padding-bottom: 28px;
+  }
+  .kiosk-section .aqi-meter-pointer--above,
+  .kiosk-section .aqi-meter-pointer--below {
+    top: 28px;
+  }
+  /* Bottom nav – bigger touch targets */
+  .kiosk-bottom-nav {
+    bottom: 20px;
+    padding: 10px 14px;
+    border-radius: 24px;
+    min-width: 360px;
+  }
+  .kiosk-bottom-btn {
+    padding: 14px 28px;
+    font-size: 14px;
+    gap: 5px;
+    border-radius: 18px;
+  }
+  .kiosk-progress-track {
+    max-width: 700px;
+    height: 4px;
+    margin-top: 8px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HD-55F-T in PORTRAIT mode (1080×1920 – rotated kiosk mount)
+   ═══════════════════════════════════════════════════════════════════ */
+@media screen and (min-width: 980px) and (max-width: 1100px) and (min-height: 1820px) and (max-height: 1960px) {
+  .kiosk-page {
+    padding-bottom: 120px;
+  }
+  .kiosk-header {
+    padding: 24px 32px;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .kiosk-brand {
+    justify-content: center;
+  }
+  .kiosk-logo {
+    width: 64px;
+    height: 64px;
+  }
+  .kiosk-brand-title {
+    font-size: 26px;
+    text-align: center;
+  }
+  .kiosk-brand-sub {
+    font-size: 14px;
+    text-align: center;
+  }
+  .kiosk-clock {
+    align-items: center;
+  }
+  .kiosk-clock-time {
+    font-size: 32px;
+  }
+  .kiosk-clock-date {
+    font-size: 14px;
+  }
+  .kiosk-main {
+    padding: 28px 32px 0;
+    gap: 28px;
+  }
+  .kiosk-section {
+    border-radius: 22px;
+  }
+  .kiosk-hero-section .aqi-hero-card {
+    min-height: 440px;
+  }
+  /* AQI meter – extra-large for portrait readability */
+  .kiosk-section .aqi-meter-bar {
+    height: 26px;
+    border-radius: 14px;
+  }
+  .kiosk-section .aqi-meter-pointer-value {
+    font-size: 18px;
+    padding: 5px 14px;
+  }
+  .kiosk-section .aqi-meter-label {
+    font-size: 20px;
+  }
+  .kiosk-section .aqi-meter-active-band {
+    font-size: 19px;
+  }
+  .kiosk-section .aqi-meter-range {
+    font-size: 12px;
+  }
+  .kiosk-section .aqi-meter-bar-wrap {
+    padding-bottom: 30px;
+  }
+  .kiosk-section .aqi-meter-bar-wrap:has(.aqi-meter-pointer--above) {
+    padding-top: 32px;
+    padding-bottom: 32px;
+  }
+  .kiosk-section .aqi-meter-pointer--above,
+  .kiosk-section .aqi-meter-pointer--below {
+    top: 32px;
+  }
+  .kiosk-bottom-nav {
+    bottom: 24px;
+    padding: 12px 16px;
+    border-radius: 28px;
+    min-width: 380px;
+  }
+  .kiosk-bottom-btn {
+    padding: 16px 32px;
+    font-size: 15px;
+    border-radius: 20px;
+  }
+  .kiosk-carousel-controls {
+    padding: 20px 20px 8px;
+    gap: 18px;
+  }
+  .kiosk-nav-btn {
+    width: 52px;
+    height: 52px;
+  }
+  .kiosk-station-label {
+    font-size: 18px;
+  }
+  .kiosk-station-addr {
+    font-size: 14px;
+  }
+  .kiosk-dot {
+    width: 16px;
+    height: 16px;
+  }
+  .kiosk-dots {
+    gap: 14px;
+  }
+}

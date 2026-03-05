@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { theme } from "antd";
 import { getApiBase } from "../util/apiBase";
+import "./WeatherBadge.css";
 
 function codeToCondition(code) {
   // Open-Meteo weather codes mapping (simplified)

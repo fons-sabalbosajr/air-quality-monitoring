@@ -12,6 +12,8 @@
 	--aqm-strong: #0f172a; /* slate-900 for headings on light */
 	--aqm-text: #1e293b;  /* slate-800 – general body text */
 	--aqm-fg: #334155;    /* slate-700 – secondary text */
+	--aqm-fill-alt: #f5f5f5;
+	--aqm-border: #e8e8e8;
 }
 
 .dark {
@@ -23,4 +25,6 @@
 	--aqm-strong: #e2e8f0; /* slate-200 for headings on dark */
 	--aqm-text: #cbd5e1;  /* slate-300 – general body text */
 	--aqm-fg: #94a3b8;    /* slate-400 – secondary text */
+	--aqm-fill-alt: rgba(255, 255, 255, 0.06);
+	--aqm-border: rgba(148, 163, 184, 0.18);
 }

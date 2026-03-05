@@ -4,6 +4,7 @@ import { GiMolecule, GiGasMask } from "react-icons/gi";
 import { TbAtom2Filled, TbInfoCircle } from "react-icons/tb";
 import { WiSmoke } from "react-icons/wi";
 import { MdOutlineAir } from "react-icons/md";
+import "./PollutantsCard.css";
 
 /**
  * Open-Meteo Air Quality API (free, no key required, CORS-friendly).

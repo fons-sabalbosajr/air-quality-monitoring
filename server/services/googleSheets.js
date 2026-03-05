@@ -6,8 +6,8 @@
  * stale formula result caches that produce incorrect dates.
  */
 const { SHEET_CACHE_TTL_MS } = require("../config/env");
-const { TABULAR_SHEETS } = require("../config/sheets");
-const { parseDateValue, formatDateAmPm } = require("../utils/dateUtils");
+const { TABULAR_SHEETS, resolveSheetEntry } = require("../config/sheets");
+const { parseDateValue, formatDateAmPm, detectDateFormat } = require("../utils/dateUtils");
 const { coerceNumber, meanLast } = require("../utils/mathUtils");
 const { phPm10Status24hFromAvg, phPm25Status24hFromAvg } = require("./aqiCalculator");
 
@@ -185,8 +185,12 @@ async function fetchAllSheetsAsTable(sheetUrl) {
  * Phase 1: Clean raw rows — date interpolation, sort, remove placeholders, dedup.
  * Returns rows in CHRONOLOGICAL order (oldest first) with _epochMs attached.
  * Does NOT compute AQI or Rolling Average — that happens at serve time.
+ *
+ * @param {object} table            - { columns, rows }
+ * @param {object} [opts]           - options
+ * @param {string} [opts.dateFormat]- explicit date format override: 'DMY' | 'MDY' | null (auto)
  */
-function prepareRawRows(table) {
+function prepareRawRows(table, opts = {}) {
   const columns = Array.isArray(table?.columns) ? [...table.columns] : [];
   const rows = Array.isArray(table?.rows) ? table.rows : [];
   if (!rows.length) return { columns, rows: [], dateKey: null, concKey: null };
@@ -198,11 +202,22 @@ function prepareRawRows(table) {
     columns.find((c) => /concentration/i.test(c)) ||
     Object.keys(rows[0] || {}).find((k) => /concentration/i.test(k));
 
+  // ── Auto-detect date format (DD/MM/YYYY vs MM/DD/YYYY) ──
+  let dateFmt = opts.dateFormat || null; // explicit override from sheets config
+  if (dateKey && !dateFmt) {
+    const sampleDates = rows.slice(0, 500).map((r) => r[dateKey]);
+    dateFmt = detectDateFormat(sampleDates);
+  }
+  if (!dateFmt) dateFmt = "MDY";
+  if (dateFmt === "DMY") {
+    console.log("[prepareRawRows] Using DD/MM/YYYY date format" + (opts.dateFormat ? " (explicit override)" : " (auto-detected)"));
+  }
+
   // ── Pass 1: Parse all dates → epoch timestamps ──
   const epochs = new Array(rows.length);
   for (let i = 0; i < rows.length; i++) {
     if (dateKey) {
-      const d = parseDateValue(rows[i][dateKey]);
+      const d = parseDateValue(rows[i][dateKey], dateFmt);
       epochs[i] = d ? d.getTime() : 0;
     } else {
       epochs[i] = 0;
@@ -244,7 +259,7 @@ function prepareRawRows(table) {
     }
 
     const interpolated = epochs.filter((e, i) => {
-      const orig = parseDateValue(table.rows[i]?.[dateKey]);
+      const orig = parseDateValue(table.rows[i]?.[dateKey], dateFmt);
       return e > 0 && !orig;
     }).length;
     if (interpolated > 0) {
@@ -283,22 +298,19 @@ function prepareRawRows(table) {
     });
   }
 
-  // ── Pass 2d: Remove trailing rows with empty/zero concentration ──
+  // ── Pass 2d: Remove ALL rows with empty/null/zero concentration ──
+  // Equipment downtime produces rows with dates but no reading.
+  // These corrupt the rolling average and should not appear in output.
   if (concKey) {
-    while (validIndices.length > 0) {
-      const lastIdx = validIndices[validIndices.length - 1];
-      const concVal = rows[lastIdx][concKey];
+    validIndices = validIndices.filter((i) => {
+      const concVal = rows[i][concKey];
       const numVal = coerceNumber(concVal);
       const isEmpty =
         concVal == null ||
         (typeof concVal === "string" && concVal.trim() === "") ||
         numVal === 0;
-      if (isEmpty) {
-        validIndices.pop();
-      } else {
-        break;
-      }
-    }
+      return !isEmpty;
+    });
   }
 
   // ── Pass 2e: Detect and remove shared-formula placeholder rows ──
@@ -372,7 +384,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
 
   const numericSeen = [];
-  const resultRows = new Array(rows.length);
+  const enrichedRows = [];
 
   for (let pos = 0; pos < rows.length; pos++) {
     const r = { ...rows[pos] };
@@ -392,7 +404,24 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     if (concKey) {
       const n = coerceNumber(r[concKey]);
       const isSentinel = n != null && n >= 9999;
-      if (n != null && !isSentinel) numericSeen.push(n);
+
+      // Skip rows with null/empty concentration (equipment downtime)
+      if (n == null) {
+        continue;
+      }
+
+      // Erratic / sentinel values (>=9999): keep the row for tabular display
+      // but exclude from rolling average and mark as "For Validation"
+      if (isSentinel) {
+        r[rollingKey] = null;
+        r["AQI"] = null;
+        r["Status"] = "For Validation";
+        if (aqiCatKey) delete r[aqiCatKey];
+        enrichedRows.push(r);
+        continue;
+      }
+
+      numericSeen.push(n);
 
       const avg24h = numericSeen.length
         ? meanLast(numericSeen, requiredLogs)
@@ -407,8 +436,11 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     }
 
     // Reverse: newest first
-    resultRows[rows.length - 1 - pos] = r;
+    enrichedRows.push(r);
   }
+
+  // Reverse to newest-first
+  enrichedRows.reverse();
 
   const filteredColumns = columns.filter((c) => c !== aqiCatKey);
   const ensureCol = (c) => {
@@ -420,7 +452,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     ensureCol("Status");
   }
 
-  return { columns: filteredColumns, rows: resultRows };
+  return { columns: filteredColumns, rows: enrichedRows };
 }
 
 /**
@@ -428,7 +460,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
  */
 function enhanceTabularRows(table, pollutantKey, opts = {}) {
   try {
-    const prepared = prepareRawRows(table);
+    const prepared = prepareRawRows(table, { dateFormat: opts.dateFormat });
     return { ...table, ...enrichWithAqi(prepared, pollutantKey, opts) };
   } catch (err) {
     console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
@@ -441,7 +473,9 @@ function enhanceTabularRows(table, pollutantKey, opts = {}) {
  * Stores _epochMs on each row for indexing. Used by the backup service.
  */
 async function getRawTabularTable(provinceKey, pollutantKey) {
-  const sheetUrl = TABULAR_SHEETS?.[provinceKey]?.[pollutantKey] || null;
+  const entry = resolveSheetEntry(TABULAR_SHEETS?.[provinceKey]?.[pollutantKey]);
+  const sheetUrl = entry.url;
+  const dateFormat = entry.dateFormat;
   if (!sheetUrl) {
     const err = new Error("Sheet URL not configured");
     err.code = "NOT_CONFIGURED";
@@ -454,7 +488,7 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
   }
   try {
     const table = await fetchAllSheetsAsTable(sheetUrl);
-    const prepared = prepareRawRows(table);
+    const prepared = prepareRawRows(table, { dateFormat });
     const payload = {
       province: provinceKey,
       pollutant: pollutantKey,
@@ -480,7 +514,9 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
 }
 
 async function getTabularTable(provinceKey, pollutantKey) {
-  const sheetUrl = TABULAR_SHEETS?.[provinceKey]?.[pollutantKey] || null;
+  const entry = resolveSheetEntry(TABULAR_SHEETS?.[provinceKey]?.[pollutantKey]);
+  const sheetUrl = entry.url;
+  const dateFormat = entry.dateFormat;
   if (!sheetUrl) {
     const err = new Error("Sheet URL not configured");
     err.code = "NOT_CONFIGURED";
@@ -494,7 +530,7 @@ async function getTabularTable(provinceKey, pollutantKey) {
 
   try {
     let table = await fetchAllSheetsAsTable(sheetUrl);
-    table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1 });
+    table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1, dateFormat });
     const payload = {
       province: provinceKey,
       pollutant: pollutantKey,
@@ -521,6 +557,35 @@ async function getTabularTable(provinceKey, pollutantKey) {
   }
 }
 
+/**
+ * Convert Google Sheets tabular data to a time-series format
+ * compatible with persistSeriesToMongo (the air_data collection).
+ *
+ * Returns { series: [{ t: epochMs, y: concentration }], meta }
+ */
+async function readGoogleSheetAsSeries(province, pollutant) {
+  const raw = await getRawTabularTable(province, pollutant);
+  const concKey = raw.concKey;
+  const series = [];
+  for (const r of raw.rows) {
+    if (!r._epochMs || r._epochMs <= 0) continue;
+    const y = coerceNumber(r[concKey]);
+    if (y == null || !isFinite(y) || y <= 0) continue;
+    series.push({ t: r._epochMs, y });
+  }
+  series.sort((a, b) => a.t - b.t);
+  const sheetKey = `${province}_${pollutant}`;
+  return {
+    series,
+    meta: {
+      sheet: sheetKey,
+      yKey: concKey,
+      yLabel: concKey || "Concentration",
+      points: series.length,
+    },
+  };
+}
+
 module.exports = {
   fetchAllSheetsAsTable,
   enhanceTabularRows,
@@ -528,4 +593,5 @@ module.exports = {
   enrichWithAqi,
   getRawTabularTable,
   getTabularTable,
+  readGoogleSheetAsSeries,
 };

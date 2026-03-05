@@ -252,6 +252,29 @@ function ThemedLayout({
   const [geoPos, setGeoPos] = useState(null);
   const [weatherForecast, setWeatherForecast] = useState([]);
 
+  // Header location label — fetched once from reverse geocode
+  const [headerLocation, setHeaderLocation] = useState(null);
+  useEffect(() => {
+    if (!geoPos?.lat || !geoPos?.lon) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rgUrl = new URL(
+          `/api/reverse-geocode?lat=${encodeURIComponent(geoPos.lat)}&lon=${encodeURIComponent(geoPos.lon)}`,
+          getApiBase()
+        ).toString();
+        const rg = await fetch(rgUrl);
+        if (rg.ok) {
+          const j = await rg.json();
+          if (!cancelled) {
+            setHeaderLocation(j.display || j.name || `${geoPos.lat.toFixed(2)}, ${geoPos.lon.toFixed(2)}`);
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [geoPos?.lat, geoPos?.lon]);
+
   function codeToLabel(code) {
     if (code === 0) return { label: "Clear", icon: "sunny" };
     if ([1, 2].includes(code))
@@ -956,6 +979,12 @@ function ThemedLayout({
               </div>
             )}
             <div className="flex items-center gap-3">
+              {headerLocation && (
+                <span className="aqm-header-location">
+                  <EnvironmentOutlined className="aqm-header-location-icon" />
+                  <span className="aqm-header-location-text">{headerLocation}</span>
+                </span>
+              )}
               <Switch
                 checked={dark}
                 onChange={(v) => setDark(v)}

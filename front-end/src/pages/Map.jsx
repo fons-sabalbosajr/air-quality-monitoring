@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import STATIONS, { getUniqueLocations } from "../config/stations";
+import STATIONS, { getUniqueLocations, getStationPhoto, bgEmbPhoto } from "../config/stations";
 import { Modal, Select, Tag, Segmented } from "antd";
 import {
   TbMapPin,
@@ -15,6 +15,7 @@ import {
 } from "react-icons/tb";
 import Globe from "globe.gl";
 import * as THREE from "three";
+import "./Map.css";
 
 /* ── Theme hook ─────────────────────────────────────────────────────── */
 function useDarkTheme() {
@@ -83,6 +84,8 @@ function codeToCondition(code) {
 const STATION_DESCRIPTIONS = {
   "meycauayan-pm10":
     "The Meycauayan Air Quality Monitoring Station monitors PM10 particulate matter in Meycauayan, Bulacan. Located in a highly urbanized area near industrial zones, this station helps track air quality impacts from manufacturing and vehicular emissions in the region.",
+  "meycauayan-pm25":
+    "The Meycauayan PM2.5 Monitoring Station measures fine particulate matter in Meycauayan, Bulacan. PM2.5 particles are especially harmful as they penetrate deep into the respiratory system, making this station critical for health impact assessment in the industrialized area.",
   "zambales-pm10":
     "The Zambales PM10 Monitoring Station is situated in Santa Cruz, Zambales. This coastal station monitors coarse particulate matter, providing critical data on air quality influenced by natural sea salt aerosols and nearby mining activities.",
   "zambales-pm25":
@@ -269,7 +272,11 @@ export default function MapPage() {
 
       {/* CTA Card */}
       <div className="map-cta-section">
-        <div className="map-cta-card">
+        <div
+          className="map-cta-card"
+          style={{ backgroundImage: `url(${bgEmbPhoto})`, backgroundSize: "cover", backgroundPosition: "center" }}
+        >
+          <div className="map-cta-photo-overlay" />
           <div className="map-cta-bg-shapes">
             <div className="map-cta-shape map-cta-shape-1" />
             <div className="map-cta-shape map-cta-shape-2" />
@@ -338,9 +345,20 @@ function StationDetail({ station, wxData, onFlyTo }) {
   const desc =
     STATION_DESCRIPTIONS[station.key] ||
     "No additional description available for this station.";
+  const photo = getStationPhoto(station.province || station.key);
 
   return (
     <div className="station-detail">
+      {/* Station photo banner */}
+      {photo && (
+        <div
+          className="station-detail-photo"
+          style={{ backgroundImage: `url(${photo})` }}
+        >
+          <div className="station-detail-photo-overlay" />
+        </div>
+      )}
+
       <div className="station-detail-header">
         <div className="station-detail-icon">
           <TbMapPin size={28} />

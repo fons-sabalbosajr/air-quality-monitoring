@@ -1,0 +1,399 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AQI Calendar – monthly calendar heatmap with day detail modal
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* =====================================================================
+   Air Quality Calendar (section)
+   ===================================================================== */
+.aqi-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.aqi-cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.aqi-cal-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.aqi-cal-legend-label {
+  color: var(--aqm-muted);
+}
+.aqi-cal-month-title {
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 10px;
+  color: var(--aqm-strong);
+}
+
+/* Month navigation bar */
+.aqi-cal-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.aqi-cal-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1.5px solid var(--aqm-panel-border);
+  background: var(--aqm-panel-bg);
+  color: var(--aqm-muted);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.aqi-cal-nav-btn:hover {
+  color: var(--aqm-primary);
+  border-color: var(--aqm-primary);
+  background: rgba(var(--aqm-primary-rgb, 59, 130, 246), 0.08);
+}
+
+/* Monthly summary strip */
+.aqi-cal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(var(--aqm-primary-rgb, 59, 130, 246), 0.04);
+  border: 1px solid var(--aqm-panel-border);
+}
+.aqi-cal-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 50px;
+  flex: 1;
+}
+.aqi-cal-summary-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--aqm-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.aqi-cal-summary-value {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+/* Tile status & concentration labels */
+.aqi-cal-status {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 2px;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+}
+.aqi-cal-conc {
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  margin-top: 1px;
+  opacity: 0.55;
+}
+.aqi-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.aqi-cal-weekdays {
+  margin-bottom: 4px;
+}
+.aqi-cal-wday {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--aqm-muted);
+  padding: 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.aqi-cal-cell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1.5px solid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+  min-height: 56px;
+  position: relative;
+  padding-top: 14px;
+}
+.aqi-cal-cell:not(.empty):hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  z-index: 2;
+  position: relative;
+}
+.aqi-cal-cell.has-data {
+  cursor: pointer;
+}
+.aqi-cal-cell.empty {
+  border-color: transparent;
+  background: transparent;
+}
+.aqi-cal-day {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.55;
+}
+.aqi-cal-face {
+  font-size: 16px;
+  line-height: 1;
+}
+.aqi-cal-val {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 1px;
+}
+.aqi-cal-status {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.75;
+  margin-top: 1px;
+}
+
+/* ── Erratic / For Validation indicator ────────────────────────── */
+.aqi-cal-erratic-badge {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 10px;
+  line-height: 1;
+  z-index: 1;
+  filter: drop-shadow(0 0 1px rgba(0,0,0,0.15));
+}
+.aqi-cal-erratic-label {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #ea580c;
+  line-height: 1.2;
+  text-align: center;
+  padding: 0 2px;
+}
+
+/* ── Dual pollutant calendar cells ─────────────────────────────── */
+.aqi-cal-cell--dual {
+  padding: 14px 1px 2px;
+  gap: 1px;
+  justify-content: center;
+}
+.aqi-cal-cell--dual .aqi-cal-day {
+  font-size: 12px;
+}
+.aqi-cal-dual-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  justify-content: center;
+}
+.aqi-cal-dual-face {
+  font-size: 10px;
+  line-height: 1;
+}
+.aqi-cal-dual-lbl {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.aqi-cal-dual-val {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ── History graph dual pollutant legend ──────────────────────── */
+.hist-aqi-dual-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background: var(--aqm-card-bg, #fff);
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  border-radius: 8px;
+  width: fit-content;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--aqm-text, #333);
+}
+.hist-aqi-dual-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.hist-aqi-dual-swatch {
+  width: 14px;
+  height: 10px;
+  display: inline-block;
+}
+
+/* =====================================================================
+
+/* ── AQI Day Detail Modal ── */
+.aqi-day-modal .ant-modal-content {
+  border-radius: 20px;
+  padding: 0;
+  overflow: hidden;
+}
+.aqi-day-content {
+  padding: 0;
+}
+.aqi-day-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 24px 16px;
+}
+.aqi-day-header-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.aqi-day-header-text h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--aqm-text);
+}
+.aqi-day-header-text p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--aqm-muted);
+}
+.aqi-day-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  padding: 0 24px 16px;
+}
+.aqi-day-stat {
+  text-align: center;
+  padding: 12px 8px;
+  border-radius: 12px;
+  background: var(--aqm-hover);
+  border: 1px solid var(--aqm-border);
+}
+.aqi-day-stat-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--aqm-muted);
+  margin-bottom: 4px;
+}
+.aqi-day-stat-value {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+}
+.aqi-day-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px 12px;
+  flex-wrap: wrap;
+}
+.aqi-day-table-wrap {
+  padding: 0 24px 24px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.aqi-day-table-wrap .ant-table-wrapper .ant-table {
+  font-size: 12px;
+}
+.aqi-day-empty {
+  text-align: center;
+  padding: 32px 24px;
+  color: var(--aqm-muted);
+  font-size: 13px;
+}
+@media (max-width: 768px) {
+  .flat-map-sidebar {
+    position: static;
+    width: 100%;
+    max-height: 260px;
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid var(--aqm-border);
+  }
+  .flat-map-container {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+  }
+  .flat-map-iframe {
+    min-height: 320px;
+    height: 50vh;
+  }
+  .aqi-day-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .aqi-day-table-wrap {
+    max-height: 240px;
+    padding: 0 16px 16px;
+  }
+  .aqi-day-header {
+    padding: 16px 16px 12px;
+  }
+  .aqi-day-toolbar {
+    padding: 0 16px 8px;
+  }
+  .map-cta-card {
+    padding: 24px 16px;
+  }
+  .map-cta-title {
+    font-size: 16px;
+  }
+  .map-cta-desc {
+    font-size: 12px;
+  }
+  .map-cta-buttons {
+    flex-direction: column;
+    align-items: center;
+  }
+  .map-cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

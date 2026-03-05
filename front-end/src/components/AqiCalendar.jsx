@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import { TbCalendar, TbDownload, TbFileTypeCsv, TbChevronLeft, TbChevronRight } from "react-icons/tb";
 import { LoadingOutlined } from "@ant-design/icons";
 import STATIONS, { getMergedStations } from "../config/stations";
+import "./AqiCalendar.css";
 
 /* ── AQI colour bands ─────────────────────────────────────────────── */
 const BANDS = [
@@ -142,6 +143,24 @@ export default function AqiCalendar({
     }
     return result;
   }, [data2, hasDual]);
+
+  // Detect days that have erratic / "For Validation" readings
+  const erraticDays = useMemo(() => {
+    const set = new Set();
+    if (!rawRows?.length || !dateCol) return set;
+    const concCol = Object.keys(rawRows[0] || {}).find((k) => /concentration/i.test(k));
+    for (const r of rawRows) {
+      const status = r["Status"] ?? r["status"] ?? "";
+      const conc = concCol ? Number(r[concCol]) : null;
+      if (status === "For Validation" || (conc != null && isFinite(conc) && conc >= 9999)) {
+        try {
+          const d = dayjs(r[dateCol]);
+          if (d.isValid()) set.add(d.format("YYYY-MM-DD"));
+        } catch {}
+      }
+    }
+    return set;
+  }, [rawRows, dateCol]);
 
   // Month navigation
   const goPrevMonth = useCallback(() => {
@@ -428,6 +447,10 @@ export default function AqiCalendar({
           <span className="aqi-cal-legend-swatch" style={{ background: "#e5e7eb" }} />
           <span className="aqi-cal-legend-label">No data</span>
         </span>
+        <span className="aqi-cal-legend-item">
+          <span className="aqi-cal-legend-swatch" style={{ background: "#fff7ed", border: "1.5px solid #fb923c" }}>⚠</span>
+          <span className="aqi-cal-legend-label">For Validation</span>
+        </span>
       </div>
 
       {loading ? (
@@ -512,12 +535,13 @@ export default function AqiCalendar({
               const band = val != null ? getBand(val) : null;
               const val2 = cell.info2?.aqi ?? null;
               const band2 = val2 != null ? getBand(val2) : null;
+              const isErratic = erraticDays.has(cell.dateKey);
               // Use primary band for cell background; if only secondary, use that
               const activeBand = band || band2;
-              const bg = activeBand ? activeBand.bg : "#f3f4f6";
-              const borderColor = activeBand ? activeBand.color : "#e5e7eb";
-              const textColor = activeBand ? activeBand.color : "var(--aqm-muted)";
-              const hasAny = val != null || val2 != null;
+              const bg = activeBand ? activeBand.bg : isErratic ? "#fff7ed" : "#f3f4f6";
+              const borderColor = activeBand ? activeBand.color : isErratic ? "#fb923c" : "#e5e7eb";
+              const textColor = activeBand ? activeBand.color : isErratic ? "#ea580c" : "var(--aqm-muted)";
+              const hasAny = val != null || val2 != null || isErratic;
               return (
                 <Tooltip
                   key={cell.key}
@@ -540,6 +564,11 @@ export default function AqiCalendar({
                           <div style={{ color: band2?.color }}>{band2?.name}</div>
                         </div>
                       ) : null}
+                      {isErratic && (
+                        <div style={{ marginTop: 4, borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: 4, color: "#fb923c", fontSize: 11, fontWeight: 600 }}>
+                          ⚠ Erratic data — For Validation
+                        </div>
+                      )}
                       {!hasAny && <div>No data</div>}
                     </div>
                   }
@@ -555,6 +584,9 @@ export default function AqiCalendar({
                     onClick={() => hasAny && setSelectedDay(cell.dateKey)}
                   >
                     <span className="aqi-cal-day">{cell.day}</span>
+                    {isErratic && (
+                      <span className="aqi-cal-erratic-badge" title="Data for validation">⚠</span>
+                    )}
                     {hasDual ? (
                       /* Dual layout: two AQI values stacked with labels */
                       <>
@@ -576,7 +608,7 @@ export default function AqiCalendar({
                     ) : (
                       /* Single layout */
                       <>
-                        {val != null && (
+                        {val != null ? (
                           <>
                             <span className="aqi-cal-face">{band?.face}</span>
                             <span className="aqi-cal-val">{val}</span>
@@ -584,7 +616,9 @@ export default function AqiCalendar({
                               <span className="aqi-cal-status">{shortStatus(cell.info.status)}</span>
                             )}
                           </>
-                        )}
+                        ) : isErratic ? (
+                          <span className="aqi-cal-erratic-label">For Validation</span>
+                        ) : null}
                       </>
                     )}
                   </div>

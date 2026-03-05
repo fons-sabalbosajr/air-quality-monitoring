@@ -13,7 +13,6 @@ import {
   Select,
   Slider,
   Space,
-  Spin,
   Table,
   Tabs,
   Tag,
@@ -28,13 +27,14 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { useApiEndpoint } from "../util/apiClient";
+import "./TabularResults.css";
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
 
 /* ─── Province / Pollutant config ─── */
 const PROVINCES = [
-  { key: "meycauayan", label: "Meycauayan", pollutants: ["pm10"] },
+  { key: "meycauayan", label: "Meycauayan", pollutants: ["pm10", "pm25"] },
   { key: "zambales", label: "Zambales", pollutants: ["pm10", "pm25"] },
   { key: "clark", label: "Clark", pollutants: ["pm10"] },
   { key: "san-fernando", label: "San Fernando", pollutants: ["pm10"] },
@@ -100,36 +100,22 @@ function useTabularWithProgress(provinceKey, pollutantKey) {
 }
 
 /* ─── Parse date string back to Date for filter comparison ─── */
-const MONTH_ABBR_MAP = {
-  Jan: 0,
-  Feb: 1,
-  Mar: 2,
-  Apr: 3,
-  May: 4,
-  Jun: 5,
-  Jul: 6,
-  Aug: 7,
-  Sep: 8,
-  Oct: 9,
-  Nov: 10,
-  Dec: 11,
-};
-
 function parseFormattedDate(s) {
   if (!s) return null;
-  // "MMM DD, YYYY H:MM AM/PM"  e.g. "Dec 01, 2026 7:00 PM"
-  const m = String(s).match(
-    /^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i,
+  // "MM/DD/YYYY H:MM AM/PM"  e.g. "03/04/2026 2:00 PM"
+  const m2 = String(s).match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i,
   );
-  if (!m) return null;
-  const mon =
-    MONTH_ABBR_MAP[m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()];
-  if (mon == null) return null;
-  let h = Number(m[4]);
-  const ampm = m[6].toUpperCase();
-  if (ampm === "PM" && h < 12) h += 12;
-  if (ampm === "AM" && h === 12) h = 0;
-  return new Date(Number(m[3]), mon, Number(m[2]), h, Number(m[5]));
+  if (m2) {
+    let h = Number(m2[4]);
+    const ampm = m2[6].toUpperCase();
+    if (ampm === "PM" && h < 12) h += 12;
+    if (ampm === "AM" && h === 12) h = 0;
+    return new Date(Number(m2[3]), Number(m2[1]) - 1, Number(m2[2]), h, Number(m2[5]));
+  }
+  // Fallback: try native Date parsing
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 /* ═══════════════════ TabularTable Component ═══════════════════ */

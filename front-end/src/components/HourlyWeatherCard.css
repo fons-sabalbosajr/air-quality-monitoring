@@ -1,0 +1,239 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Hourly Weather Forecast – scrollable 24h tiles with day separators
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Hourly Weather Forecast (corporate / creative) ── */
+.hourly-weather-section {
+  background: var(--aqm-panel-bg, #fff);
+  border: 1px solid var(--aqm-panel-border, rgba(0,0,0,0.06));
+  border-radius: 18px;
+  padding: 0;
+  margin: 18px 0;
+  box-shadow:
+    0 1px 3px rgba(0,0,0,0.04),
+    0 4px 14px rgba(0,0,0,0.03);
+  overflow: hidden;
+}
+.hourly-weather-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--aqm-panel-border, rgba(0,0,0,0.06));
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.hourly-weather-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hourly-weather-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.hourly-weather-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--aqm-text, #222);
+  letter-spacing: 0.1px;
+}
+.hourly-weather-subtitle {
+  margin: 0;
+  font-size: 11px;
+  color: var(--aqm-muted, #888);
+}
+/* "Now" summary badge in header */
+.hourly-weather-now-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 40px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(59,130,246,0.06));
+  border: 1px solid rgba(99,102,241,0.15);
+}
+.hourly-now-icon {
+  display: flex;
+  align-items: center;
+  color: #6366f1;
+}
+.hourly-now-icon svg { width: 26px; height: 26px; }
+.hourly-now-temp {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--aqm-text, #222);
+  line-height: 1;
+}
+.hourly-now-label {
+  font-size: 11px;
+  color: var(--aqm-muted, #888);
+  font-weight: 500;
+}
+.hourly-weather-skeleton {
+  padding: 20px 22px;
+}
+/* Scroll container */
+.hourly-weather-scroll {
+  overflow-x: auto;
+  padding: 14px 16px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.12) transparent;
+}
+.hourly-weather-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.hourly-weather-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12);
+  border-radius: 10px;
+}
+.hourly-weather-track {
+  display: flex;
+  gap: 6px;
+  min-width: max-content;
+}
+/* ── Individual tile ── */
+.hourly-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 12px 10px 10px;
+  border-radius: 14px;
+  min-width: 68px;
+  background: var(--aqm-panel-bg, rgba(0,0,0,0.015));
+  border: 1px solid var(--aqm-panel-border, rgba(0,0,0,0.04));
+  transition: all 0.22s ease;
+  position: relative;
+}
+.hourly-tile:hover {
+  background: rgba(99,102,241,0.05);
+  border-color: rgba(99,102,241,0.18);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.08);
+}
+.hourly-tile--now {
+  background: linear-gradient(180deg, rgba(99,102,241,0.10), rgba(59,130,246,0.06));
+  border-color: rgba(99,102,241,0.22);
+  box-shadow: 0 2px 10px rgba(99,102,241,0.10);
+}
+.hourly-tile--now::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, #6366f1, #3b82f6);
+}
+.hourly-tile-time {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--aqm-muted, #888);
+  letter-spacing: 0.4px;
+}
+.hourly-tile--now .hourly-tile-time {
+  color: #6366f1;
+  font-weight: 800;
+}
+.hourly-tile-icon {
+  color: var(--aqm-text, #555);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  opacity: 0.85;
+}
+.hourly-tile--now .hourly-tile-icon {
+  color: #6366f1;
+  opacity: 1;
+}
+.hourly-tile-temp {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+.hourly-tile-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+.hourly-tile-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--aqm-muted, #888);
+  white-space: nowrap;
+}
+.hourly-stat-icon--blue { color: #3b82f6; }
+.hourly-stat-icon--cyan { color: #06b6d4; }
+/* Mini temp bar at bottom of tile */
+.hourly-tile-bar-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--aqm-panel-border, rgba(0,0,0,0.06));
+  margin-top: 4px;
+  overflow: hidden;
+}
+.hourly-tile-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  min-width: 3px;
+}
+
+/* ── Day separator between hourly tiles ── */
+.hourly-day-separator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 52px;
+  padding: 8px 4px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.hourly-day-separator-line {
+  width: 2px;
+  flex: 1;
+  min-height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, transparent, rgba(99,102,241,0.35), transparent);
+}
+.hourly-day-separator-label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #6366f1;
+  background: rgba(99,102,241,0.10);
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  line-height: 1;
+}
+.dark .hourly-day-separator-label {
+  color: #a5b4fc;
+  background: rgba(99,102,241,0.18);
+}
+.dark .hourly-day-separator-line {
+  background: linear-gradient(180deg, transparent, rgba(165,180,252,0.30), transparent);
+}

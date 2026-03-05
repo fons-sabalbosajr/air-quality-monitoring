@@ -16,70 +16,133 @@ import {
   WiHot,
   WiCloud,
 } from "react-icons/wi";
-import { TbRefresh, TbMapPin, TbClock, TbUvIndex } from "react-icons/tb";
+import {
+  TbRefresh,
+  TbMapPin,
+  TbClock,
+  TbExternalLink,
+  TbBrandFacebook,
+  TbMail,
+} from "react-icons/tb";
 import AqiCategoryMeter from "./AqiCategoryMeter";
+import "./AqiHeroCard.css";
 
 /* ── AQI colour bands (Philippine NAAQGV-style, PM10) ─────────────── */
 const AQI_BANDS = [
   {
-    name: "GOOD", min: 0, max: 50, color: "#34d399", textColor: "#065f46",
-    heroText: "#1a3a4a", heroTextSub: "rgba(20,60,80,0.65)",
+    name: "GOOD",
+    min: 0,
+    max: 50,
+    color: "#34d399",
+    textColor: "#065f46",
+    heroText: "#1a3a4a",
+    heroTextSub: "rgba(20,60,80,0.65)",
     sky: "linear-gradient(180deg, #56ccf2 0%, #87ceeb 40%, #b6e3f4 70%, #e0f7fa 100%)",
-    skyDark: "linear-gradient(180deg, #1a4a6b 0%, #2d6a8f 40%, #3d8ab0 70%, #1a4a6b 100%)",
-    cloudColor: "rgba(255,255,255,0.92)", face: "😊",
-    cityColor: "#1a6b4a", cityColorDark: "#0d3d2b",
+    skyDark:
+      "linear-gradient(180deg, #1a4a6b 0%, #2d6a8f 40%, #3d8ab0 70%, #1a4a6b 100%)",
+    cloudColor: "rgba(255,255,255,0.92)",
+    face: "😊",
+    cityColor: "#1a6b4a",
+    cityColorDark: "#0d3d2b",
   },
   {
-    name: "FAIR", min: 51, max: 100, color: "#fbbf24", textColor: "#78350f",
-    heroText: "#3d2a00", heroTextSub: "rgba(60,40,0,0.6)",
+    name: "FAIR",
+    min: 51,
+    max: 100,
+    color: "#fbbf24",
+    textColor: "#78350f",
+    heroText: "#3d2a00",
+    heroTextSub: "rgba(60,40,0,0.6)",
     sky: "linear-gradient(180deg, #87ceeb 0%, #fde68a 40%, #fef3c7 70%, #fffbeb 100%)",
-    skyDark: "linear-gradient(180deg, #3d5a6b 0%, #6b5a1a 40%, #8b7a2a 70%, #3d4a1a 100%)",
-    cloudColor: "rgba(255,255,255,0.85)", face: "🙂",
-    cityColor: "#6b5a1a", cityColorDark: "#3d3400",
+    skyDark:
+      "linear-gradient(180deg, #3d5a6b 0%, #6b5a1a 40%, #8b7a2a 70%, #3d4a1a 100%)",
+    cloudColor: "rgba(255,255,255,0.85)",
+    face: "🙂",
+    cityColor: "#6b5a1a",
+    cityColorDark: "#3d3400",
   },
   {
-    name: "UNHEALTHY FOR SENSITIVE GROUPS", min: 101, max: 150, color: "#fb923c", textColor: "#7c2d12",
-    heroText: "#ffffff", heroTextSub: "rgba(255,255,255,0.7)",
+    name: "UNHEALTHY FOR SENSITIVE GROUPS",
+    min: 101,
+    max: 150,
+    color: "#fb923c",
+    textColor: "#7c2d12",
+    heroText: "#ffffff",
+    heroTextSub: "rgba(255,255,255,0.7)",
     sky: "linear-gradient(180deg, #d4976a 0%, #e8a87c 30%, #f0c4a0 60%, #fde8d0 100%)",
-    skyDark: "linear-gradient(180deg, #5c3a20 0%, #6b4a2a 30%, #7a5a3a 60%, #4a3020 100%)",
-    cloudColor: "rgba(255,245,235,0.75)", face: "😷",
-    cityColor: "#7c4a1a", cityColorDark: "#4a2a0a",
+    skyDark:
+      "linear-gradient(180deg, #5c3a20 0%, #6b4a2a 30%, #7a5a3a 60%, #4a3020 100%)",
+    cloudColor: "rgba(255,245,235,0.75)",
+    face: "😷",
+    cityColor: "#7c4a1a",
+    cityColorDark: "#4a2a0a",
   },
   {
-    name: "VERY UNHEALTHY", min: 151, max: 200, color: "#f87171", textColor: "#7f1d1d",
-    heroText: "#ffffff", heroTextSub: "rgba(255,255,255,0.7)",
+    name: "VERY UNHEALTHY",
+    min: 151,
+    max: 200,
+    color: "#f87171",
+    textColor: "#7f1d1d",
+    heroText: "#ffffff",
+    heroTextSub: "rgba(255,255,255,0.7)",
     sky: "linear-gradient(180deg, #c0392b 0%, #d35c5c 30%, #e88080 60%, #f8b4b4 100%)",
-    skyDark: "linear-gradient(180deg, #5c1a1a 0%, #7a2a2a 30%, #8b3a3a 60%, #4a1010 100%)",
-    cloudColor: "rgba(255,230,230,0.6)", face: "🤢",
-    cityColor: "#6b1a1a", cityColorDark: "#3d0a0a",
+    skyDark:
+      "linear-gradient(180deg, #5c1a1a 0%, #7a2a2a 30%, #8b3a3a 60%, #4a1010 100%)",
+    cloudColor: "rgba(255,230,230,0.6)",
+    face: "🤢",
+    cityColor: "#6b1a1a",
+    cityColorDark: "#3d0a0a",
   },
   {
-    name: "ACUTELY UNHEALTHY", min: 201, max: 300, color: "#a78bfa", textColor: "#3b0764",
-    heroText: "#ffffff", heroTextSub: "rgba(255,255,255,0.7)",
+    name: "ACUTELY UNHEALTHY",
+    min: 201,
+    max: 300,
+    color: "#a78bfa",
+    textColor: "#3b0764",
+    heroText: "#ffffff",
+    heroTextSub: "rgba(255,255,255,0.7)",
     sky: "linear-gradient(180deg, #5b2c6f 0%, #7d3c98 30%, #a569bd 60%, #d2b4de 100%)",
-    skyDark: "linear-gradient(180deg, #2a0845 0%, #3c1361 30%, #4a1a7a 60%, #1a0530 100%)",
-    cloudColor: "rgba(220,210,240,0.5)", face: "😨",
-    cityColor: "#3b0764", cityColorDark: "#1a0330",
+    skyDark:
+      "linear-gradient(180deg, #2a0845 0%, #3c1361 30%, #4a1a7a 60%, #1a0530 100%)",
+    cloudColor: "rgba(220,210,240,0.5)",
+    face: "😨",
+    cityColor: "#3b0764",
+    cityColorDark: "#1a0330",
   },
   {
-    name: "EMERGENCY", min: 301, max: 999, color: "#fb7185", textColor: "#4c0519",
-    heroText: "#ffffff", heroTextSub: "rgba(255,255,255,0.7)",
+    name: "EMERGENCY",
+    min: 301,
+    max: 999,
+    color: "#fb7185",
+    textColor: "#4c0519",
+    heroText: "#ffffff",
+    heroTextSub: "rgba(255,255,255,0.7)",
     sky: "linear-gradient(180deg, #4a0000 0%, #6b1a1a 25%, #8b2a2a 50%, #5c1010 100%)",
-    skyDark: "linear-gradient(180deg, #2a0000 0%, #4a0a0a 25%, #5c1414 50%, #2a0000 100%)",
-    cloudColor: "rgba(180,140,140,0.35)", face: "☠️",
-    cityColor: "#2a0000", cityColorDark: "#1a0000",
+    skyDark:
+      "linear-gradient(180deg, #2a0000 0%, #4a0a0a 25%, #5c1414 50%, #2a0000 100%)",
+    cloudColor: "rgba(180,140,140,0.35)",
+    face: "☠️",
+    cityColor: "#2a0000",
+    cityColorDark: "#1a0000",
   },
 ];
 
 function getBand(val) {
   const n = Number(val);
   if (!isFinite(n) || n < 0) return AQI_BANDS[0];
-  return AQI_BANDS.find((b) => n >= b.min && n <= b.max) || AQI_BANDS[AQI_BANDS.length - 1];
+  return (
+    AQI_BANDS.find((b) => n >= b.min && n <= b.max) ||
+    AQI_BANDS[AQI_BANDS.length - 1]
+  );
 }
 
 function hexToRgba(hex, alpha) {
   let h = hex.replace("#", "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
@@ -88,14 +151,25 @@ function hexToRgba(hex, alpha) {
 
 /* weather icon mappings – returns { icon, animClass } */
 function weatherIconData(code, size = 32) {
-  if (code == null) return { icon: <WiDaySunny size={size} />, animClass: "wx-anim-sunny" };
-  if (code === 0) return { icon: <WiDaySunny size={size} />, animClass: "wx-anim-sunny" };
-  if ([1, 2].includes(code)) return { icon: <WiDayCloudyHigh size={size} />, animClass: "wx-anim-cloudy" };
-  if (code === 3) return { icon: <WiCloudy size={size} />, animClass: "wx-anim-cloudy" };
-  if ([45, 48].includes(code)) return { icon: <WiFog size={size} />, animClass: "wx-anim-fog" };
-  if ([51, 53, 55, 56, 57, 61, 63, 65, 80, 81, 82].includes(code)) return { icon: <WiRain size={size} />, animClass: "wx-anim-rain" };
-  if ([66, 67, 95, 96, 99].includes(code)) return { icon: <WiThunderstorm size={size} />, animClass: "wx-anim-storm" };
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: <WiSnow size={size} />, animClass: "wx-anim-snow" };
+  if (code == null)
+    return { icon: <WiDaySunny size={size} />, animClass: "wx-anim-sunny" };
+  if (code === 0)
+    return { icon: <WiDaySunny size={size} />, animClass: "wx-anim-sunny" };
+  if ([1, 2].includes(code))
+    return {
+      icon: <WiDayCloudyHigh size={size} />,
+      animClass: "wx-anim-cloudy",
+    };
+  if (code === 3)
+    return { icon: <WiCloudy size={size} />, animClass: "wx-anim-cloudy" };
+  if ([45, 48].includes(code))
+    return { icon: <WiFog size={size} />, animClass: "wx-anim-fog" };
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 80, 81, 82].includes(code))
+    return { icon: <WiRain size={size} />, animClass: "wx-anim-rain" };
+  if ([66, 67, 95, 96, 99].includes(code))
+    return { icon: <WiThunderstorm size={size} />, animClass: "wx-anim-storm" };
+  if ([71, 73, 75, 77, 85, 86].includes(code))
+    return { icon: <WiSnow size={size} />, animClass: "wx-anim-snow" };
   return { icon: <WiDaySunny size={size} />, animClass: "wx-anim-sunny" };
 }
 
@@ -269,16 +343,23 @@ export default function AqiHeroCard({
   /* ── Stale indicator (>7 days old) ── */
   isStale = false,
   isStale2 = false,
+  /* ── Station photo background ── */
+  stationPhoto = null,
 }) {
   // If fallback is active, override the display value/category/time
   const displayValue = isFallback ? aqiValue : aqiValue;
   const band = getBand(displayValue);
-  const roundedVal = isFinite(Number(displayValue)) ? Math.round(Number(displayValue)) : null;
+  const roundedVal = isFinite(Number(displayValue))
+    ? Math.round(Number(displayValue))
+    : null;
   const sevIdx = AQI_BANDS.indexOf(band);
 
   const hasDual = pollutantLabel2 != null;
   const band2 = hasDual ? getBand(aqiValue2) : null;
-  const roundedVal2 = hasDual && isFinite(Number(aqiValue2)) ? Math.round(Number(aqiValue2)) : null;
+  const roundedVal2 =
+    hasDual && isFinite(Number(aqiValue2))
+      ? Math.round(Number(aqiValue2))
+      : null;
 
   // Use weather-based sky background when weather data is available,
   // otherwise fall back to the AQI-band sky
@@ -288,26 +369,40 @@ export default function AqiHeroCard({
   }, [weatherCode, dark, band]);
 
   const cityColor = dark ? band.cityColorDark : band.cityColor;
-  const heroText = dark ? "#ffffff" : band.heroText;
-  const heroTextSub = dark ? "rgba(255,255,255,0.7)" : band.heroTextSub;
+  const heroText = dark || stationPhoto ? "#ffffff" : band.heroText;
+  const heroTextSub = dark || stationPhoto ? "rgba(255,255,255,0.7)" : band.heroTextSub;
 
   return (
     <div
-      className="aqi-hero-card"
+      className={`aqi-hero-card${stationPhoto ? " aqi-hero-card--photo" : ""}`}
       style={{
-        "--aqi-cloud-color": band.cloudColor,
+        "--aqi-cloud-color": stationPhoto
+          ? "rgba(255,255,255,0.5)"
+          : band.cloudColor,
         "--aqi-accent": band.color,
         "--aqi-text": band.textColor || "#fff",
         "--hero-text": heroText,
         "--hero-text-sub": heroTextSub,
         background: skyBg,
-        ...((isStale && (!hasDual || isStale2)) ? { pointerEvents: "none", userSelect: "none" } : {}),
+        ...(isStale && (!hasDual || isStale2) ? { userSelect: "none" } : {}),
       }}
     >
+      {/* ── Station photo background ── */}
+      {stationPhoto && (
+        <div
+          className="hero-photo-layer"
+          style={{ backgroundImage: `url(${stationPhoto})` }}
+        />
+      )}
+
       {/* ── Live badge (top-left) ── */}
       {aqiTime && (
-        <span className={`aqi-live-badge aqi-live-badge--topleft${isStale ? " aqi-live-badge--stale" : isFallback ? " aqi-live-badge--fallback" : ""}`}>
-          <span className={`aqi-live-dot${isStale ? " aqi-live-dot--stale" : isFallback ? " aqi-live-dot--warn" : ""}`} />
+        <span
+          className={`aqi-live-badge aqi-live-badge--topleft${isStale ? " aqi-live-badge--stale" : isFallback ? " aqi-live-badge--fallback" : ""}`}
+        >
+          <span
+            className={`aqi-live-dot${isStale ? " aqi-live-dot--stale" : isFallback ? " aqi-live-dot--warn" : ""}`}
+          />
           {isStale ? "Outdated" : isFallback ? "Alternate" : "Live"}
         </span>
       )}
@@ -333,6 +428,30 @@ export default function AqiHeroCard({
           <div className="aqi-hero-watermark-sub">
             Data is still being analyzed for display
           </div>
+          <div className="aqi-hero-watermark-cta">
+            <a
+              className="aqi-watermark-btn aqi-watermark-btn--primary"
+              href="https://r3.emb.gov.ph"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <TbExternalLink size={14} /> Visit EMB Region III Website
+            </a>
+            <a
+              className="aqi-watermark-btn aqi-watermark-btn--secondary"
+              href="https://www.facebook.com/EMBRegion3"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <TbBrandFacebook size={14} /> Follow on Facebook
+            </a>
+            <a
+              className="aqi-watermark-btn aqi-watermark-btn--secondary"
+              href="mailto:emb_region3@emb.gov.ph"
+            >
+              <TbMail size={14} /> Contact Us
+            </a>
+          </div>
         </div>
       )}
 
@@ -344,7 +463,9 @@ export default function AqiHeroCard({
             <Skeleton.Avatar active size={140} shape="circle" />
           ) : aqiError ? (
             <div className="aqi-hero-error">
-              <div style={{ fontSize: 14, marginBottom: 10, color: "#fff" }}>Unable to load AQI</div>
+              <div style={{ fontSize: 14, marginBottom: 10, color: "#fff" }}>
+                Unable to load AQI
+              </div>
               {onRetry && (
                 <Button size="small" onClick={onRetry} loading={retrying} ghost>
                   Retry
@@ -355,7 +476,20 @@ export default function AqiHeroCard({
             /* ── Dual gauge layout (PM10 + PM2.5 side by side) ── */
             <div className="aqi-hero-dual-gauges">
               {/* Primary gauge */}
-              <div className="aqi-hero-dual-col" style={isStale ? { filter: "blur(4px) grayscale(0.7)", opacity: 0.45, pointerEvents: "none", userSelect: "none", position: "relative" } : undefined}>
+              <div
+                className="aqi-hero-dual-col"
+                style={
+                  isStale
+                    ? {
+                        filter: "blur(4px) grayscale(0.7)",
+                        opacity: 0.45,
+                        pointerEvents: "none",
+                        userSelect: "none",
+                        position: "relative",
+                      }
+                    : undefined
+                }
+              >
                 <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm">
                   <div
                     className="aqi-hero-gauge aqi-hero-gauge--sm"
@@ -364,22 +498,69 @@ export default function AqiHeroCard({
                       "--gauge-glow": hexToRgba(band.color, 0.5),
                     }}
                   >
-                    <span className="aqi-hero-face aqi-face-bounce" style={{ fontSize: 22 }}>{band.face}</span>
-                    <span className="aqi-hero-value" style={{ fontSize: 28 }}>{roundedVal ?? "—"}</span>
-                    <span className="aqi-hero-unit" style={{ fontSize: 8 }}>µg/Ncm</span>
+                    <span
+                      className="aqi-hero-face aqi-face-bounce"
+                      style={{ fontSize: 22 }}
+                    >
+                      {band.face}
+                    </span>
+                    <span className="aqi-hero-value" style={{ fontSize: 28 }}>
+                      {roundedVal ?? "—"}
+                    </span>
+                    <span className="aqi-hero-unit" style={{ fontSize: 8 }}>
+                      µg/Ncm
+                    </span>
                   </div>
                 </div>
                 <div className="aqi-hero-dual-label">{pollutantLabel}</div>
-                <Tag color={band.color} className="aqi-hero-status-tag">{band.name}</Tag>
+                <Tag color={band.color} className="aqi-hero-status-tag">
+                  {band.name}
+                </Tag>
                 {isStale && (
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", filter: "none", opacity: 1, pointerEvents: "none" }}>
-                    <span style={{ fontSize: 10, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 6, padding: "3px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>No Data</span>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      filter: "none",
+                      opacity: 1,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#fff",
+                        background: "rgba(0,0,0,0.55)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      No Data
+                    </span>
                   </div>
                 )}
               </div>
 
               {/* Secondary gauge */}
-              <div className="aqi-hero-dual-col" style={isStale2 ? { filter: "blur(4px) grayscale(0.7)", opacity: 0.45, pointerEvents: "none", userSelect: "none", position: "relative" } : undefined}>
+              <div
+                className="aqi-hero-dual-col"
+                style={
+                  isStale2
+                    ? {
+                        filter: "blur(4px) grayscale(0.7)",
+                        opacity: 0.45,
+                        pointerEvents: "none",
+                        userSelect: "none",
+                        position: "relative",
+                      }
+                    : undefined
+                }
+              >
                 {aqiLoading2 ? (
                   <Skeleton.Avatar active size={90} shape="circle" />
                 ) : (
@@ -392,21 +573,55 @@ export default function AqiHeroCard({
                           "--gauge-glow": hexToRgba(band2.color, 0.5),
                         }}
                       >
-                        <span className="aqi-hero-face aqi-face-bounce" style={{ fontSize: 22 }}>{band2.face}</span>
-                        <span className="aqi-hero-value" style={{ fontSize: 28 }}>{roundedVal2 ?? "—"}</span>
-                        <span className="aqi-hero-unit" style={{ fontSize: 8 }}>µg/Ncm</span>
+                        <span
+                          className="aqi-hero-face aqi-face-bounce"
+                          style={{ fontSize: 22 }}
+                        >
+                          {band2.face}
+                        </span>
+                        <span
+                          className="aqi-hero-value"
+                          style={{ fontSize: 28 }}
+                        >
+                          {roundedVal2 ?? "—"}
+                        </span>
+                        <span className="aqi-hero-unit" style={{ fontSize: 8 }}>
+                          µg/Ncm
+                        </span>
                       </div>
                     </div>
                     <div className="aqi-hero-dual-label">{pollutantLabel2}</div>
-                    <Tag color={band2.color} className="aqi-hero-status-tag">{band2.name}</Tag>
+                    <Tag color={band2.color} className="aqi-hero-status-tag">
+                      {band2.name}
+                    </Tag>
                   </>
                 )}
                 {isStale2 && (
-                  <div style={{
-                    position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                    filter: "none", opacity: 1, pointerEvents: "none",
-                  }}>
-                    <span style={{ fontSize: 10, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 6, padding: "3px 8px", fontWeight: 600, whiteSpace: "nowrap" }}>No Data</span>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      filter: "none",
+                      opacity: 1,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#fff",
+                        background: "rgba(0,0,0,0.55)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      No Data
+                    </span>
                   </div>
                 )}
               </div>
@@ -414,30 +629,76 @@ export default function AqiHeroCard({
           ) : (
             <>
               {/* Glowing circular gauge */}
-              <div className="aqi-hero-gauge-wrap" style={isStale ? { position: "relative" } : undefined}>
+              <div
+                className="aqi-hero-gauge-wrap"
+                style={isStale ? { position: "relative" } : undefined}
+              >
                 <div
                   className="aqi-hero-gauge"
                   style={{
                     "--gauge-color": isStale ? "#9ca3af" : band.color,
-                    "--gauge-glow": isStale ? "rgba(156,163,175,0.3)" : hexToRgba(band.color, 0.5),
-                    ...(isStale ? { filter: "grayscale(0.8)", opacity: 0.5 } : {}),
+                    "--gauge-glow": isStale
+                      ? "rgba(156,163,175,0.3)"
+                      : hexToRgba(band.color, 0.5),
+                    ...(isStale
+                      ? { filter: "grayscale(0.8)", opacity: 0.5 }
+                      : {}),
                   }}
                 >
-                  <span className="aqi-hero-face aqi-face-bounce">{isStale ? "—" : band.face}</span>
-                  <span className="aqi-hero-value">{isStale ? "—" : (roundedVal ?? "—")}</span>
-                  <span className="aqi-hero-unit">{isStale ? "" : "µg/Ncm"}</span>
+                  <span className="aqi-hero-face aqi-face-bounce">
+                    {isStale ? "—" : band.face}
+                  </span>
+                  <span className="aqi-hero-value">
+                    {isStale ? "—" : (roundedVal ?? "—")}
+                  </span>
+                  <span className="aqi-hero-unit">
+                    {isStale ? "" : "µg/Ncm"}
+                  </span>
                 </div>
                 {/* Pulsing ring */}
-                {!isStale && sevIdx >= 1 && <div className="aqi-hero-pulse-ring" />}
+                {!isStale && sevIdx >= 1 && (
+                  <div className="aqi-hero-pulse-ring" />
+                )}
                 {isStale && (
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 2 }}>
-                    <span style={{ fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: 8, padding: "4px 12px", fontWeight: 600, whiteSpace: "nowrap", textAlign: "center", lineHeight: 1.3 }}>No latest data<br/>available</span>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      pointerEvents: "none",
+                      zIndex: 2,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "#fff",
+                        background: "rgba(0,0,0,0.55)",
+                        borderRadius: 8,
+                        padding: "4px 12px",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        textAlign: "center",
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      No latest data
+                      <br />
+                      available
+                    </span>
                   </div>
                 )}
               </div>
 
               {/* Status label */}
-              <Tag color={isStale ? "#9ca3af" : band.color} className="aqi-hero-status-tag aqi-hero-status-tag--lg">{isStale ? "No Data" : band.name}</Tag>
+              <Tag
+                color={isStale ? "#9ca3af" : band.color}
+                className="aqi-hero-status-tag aqi-hero-status-tag--lg"
+              >
+                {isStale ? "No Data" : band.name}
+              </Tag>
             </>
           )}
           {aqiRefreshing && <Spin size="small" className="aqi-hero-spinner" />}
@@ -447,86 +708,105 @@ export default function AqiHeroCard({
         <div className="aqi-hero-right">
           {/* Station info */}
           {!hideWeather && (
-          <div className="aqi-hero-station-block">
-            <div className="aqi-hero-station-name">
-              <TbMapPin size={18} style={{ flexShrink: 0 }} />
-              <span>{stationName || "Station"}</span>
+            <div className="aqi-hero-station-block">
+              <div className="aqi-hero-station-name">
+                <TbMapPin size={18} style={{ flexShrink: 0 }} />
+                <span>{stationName || "Station"}</span>
+              </div>
+              {stationAddress && (
+                <div className="aqi-hero-station-addr">{stationAddress}</div>
+              )}
             </div>
-            {stationAddress && (
-              <div className="aqi-hero-station-addr">{stationAddress}</div>
-            )}
-          </div>
           )}
 
           {/* Weather panel (glass effect) */}
           {!hideWeather && (
-          <div className="aqi-hero-weather-glass">
-            {weatherLoading ? (
-              <Skeleton.Input active style={{ width: 200, height: 32 }} />
-            ) : weatherError ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Weather unavailable</div>
-            ) : (
-              <>
-                <div className="aqi-hero-wx-top">
-                  <div className={`aqi-hero-wx-icon ${weatherIconData(weatherCode, 48).animClass}`}>
-                    {weatherIconData(weatherCode, 48).icon}
-                  </div>
-                  <div className="aqi-hero-wx-temp-block">
-                    <span className="aqi-hero-wx-temp">
-                      {temperature != null ? `${Math.round(temperature)}°` : "—"}
-                    </span>
-                    <span className="aqi-hero-wx-condition">
-                      {weatherLabel(weatherCode)}
-                    </span>
-                  </div>
+            <div className="aqi-hero-weather-glass">
+              {weatherLoading ? (
+                <Skeleton.Input active style={{ width: 200, height: 32 }} />
+              ) : weatherError ? (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  Weather unavailable
                 </div>
-                <div className="aqi-hero-wx-grid">
-                  <Tooltip title="Humidity">
-                    <div className="aqi-hero-wx-stat">
-                      <WiHumidity size={22} />
-                      <span>{humidity != null ? `${Math.round(humidity)}%` : "—"}</span>
+              ) : (
+                <>
+                  <div className="aqi-hero-wx-top">
+                    <div
+                      className={`aqi-hero-wx-icon ${weatherIconData(weatherCode, 48).animClass}`}
+                    >
+                      {weatherIconData(weatherCode, 48).icon}
                     </div>
-                  </Tooltip>
-                  <Tooltip title="Atmospheric Pressure">
-                    <div className="aqi-hero-wx-stat">
-                      <WiBarometer size={22} />
-                      <span>{pressure != null ? `${Math.round(pressure)} hPa` : "—"}</span>
+                    <div className="aqi-hero-wx-temp-block">
+                      <span className="aqi-hero-wx-temp">
+                        {temperature != null
+                          ? `${Math.round(temperature)}°`
+                          : "—"}
+                      </span>
+                      <span className="aqi-hero-wx-condition">
+                        {weatherLabel(weatherCode)}
+                      </span>
                     </div>
-                  </Tooltip>
-                  <Tooltip title="Wind Speed">
-                    <div className="aqi-hero-wx-stat">
-                      <WiStrongWind size={22} />
-                      <span>{windSpeed != null ? `${Math.round(windSpeed)} km/h` : "—"}</span>
-                    </div>
-                  </Tooltip>
-                  {windDirection != null && (
-                    <Tooltip title="Wind Direction">
+                  </div>
+                  <div className="aqi-hero-wx-grid">
+                    <Tooltip title="Humidity">
                       <div className="aqi-hero-wx-stat">
-                        <WiWindDeg size={22} style={{ transform: `rotate(${windDirection}deg)` }} />
-                        <span>{Math.round(windDirection)}°</span>
+                        <WiHumidity size={22} />
+                        <span>
+                          {humidity != null ? `${Math.round(humidity)}%` : "—"}
+                        </span>
                       </div>
                     </Tooltip>
-                  )}
-                  {apparentTemperature != null && (
-                    <Tooltip title="Feels Like">
+                    <Tooltip title="Atmospheric Pressure">
                       <div className="aqi-hero-wx-stat">
-                        <WiHot size={22} />
-                        <span>{Math.round(apparentTemperature)}°</span>
+                        <WiBarometer size={22} />
+                        <span>
+                          {pressure != null
+                            ? `${Math.round(pressure)} hPa`
+                            : "—"}
+                        </span>
                       </div>
                     </Tooltip>
-                  )}
-                  {cloudCover != null && (
-                    <Tooltip title="Cloud Cover">
+                    <Tooltip title="Wind Speed">
                       <div className="aqi-hero-wx-stat">
-                        <WiCloud size={22} />
-                        <span>{Math.round(cloudCover)}%</span>
+                        <WiStrongWind size={22} />
+                        <span>
+                          {windSpeed != null
+                            ? `${Math.round(windSpeed)} km/h`
+                            : "—"}
+                        </span>
                       </div>
                     </Tooltip>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                    {windDirection != null && (
+                      <Tooltip title="Wind Direction">
+                        <div className="aqi-hero-wx-stat">
+                          <WiWindDeg
+                            size={22}
+                            style={{ transform: `rotate(${windDirection}deg)` }}
+                          />
+                          <span>{Math.round(windDirection)}°</span>
+                        </div>
+                      </Tooltip>
+                    )}
+                    {apparentTemperature != null && (
+                      <Tooltip title="Feels Like">
+                        <div className="aqi-hero-wx-stat">
+                          <WiHot size={22} />
+                          <span>{Math.round(apparentTemperature)}°</span>
+                        </div>
+                      </Tooltip>
+                    )}
+                    {cloudCover != null && (
+                      <Tooltip title="Cloud Cover">
+                        <div className="aqi-hero-wx-stat">
+                          <WiCloud size={22} />
+                          <span>{Math.round(cloudCover)}%</span>
+                        </div>
+                      </Tooltip>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* Updated time */}
@@ -547,7 +827,11 @@ export default function AqiHeroCard({
                 category={band.name}
                 loading={false}
                 label={pollutantLabel}
-                value2={hasDual && !aqiLoading2 && roundedVal2 != null && !isStale2 ? roundedVal2 : undefined}
+                value2={
+                  hasDual && !aqiLoading2 && roundedVal2 != null && !isStale2
+                    ? roundedVal2
+                    : undefined
+                }
                 label2={hasDual && !isStale2 ? pollutantLabel2 : undefined}
               />
             </div>

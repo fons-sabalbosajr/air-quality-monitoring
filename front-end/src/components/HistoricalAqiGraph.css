@@ -1,0 +1,112 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Historical AQI Graph – bar chart with legend and tooltip
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* =====================================================================
+   Historical AQI Graph (section)
+   ===================================================================== */
+.hist-aqi-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+.hist-aqi-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--aqm-muted);
+}
+.hist-aqi-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.hist-aqi-stats {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 0 4px;
+}
+.hist-aqi-reading-count {
+  font-size: 11px;
+  color: var(--aqm-muted);
+}
+.hist-aqi-chart-wrap {
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.015);
+  padding: 4px 0;
+}
+.dark .hist-aqi-chart-wrap {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+
+.hist-chart-tooltip {
+  background: var(--aqm-panel-bg, #fff);
+  border: 1.5px solid;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.hist-chart-tooltip-date {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--aqm-strong);
+}
+.hist-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hist-chart-tooltip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.hist-chart-tooltip-val {
+  font-weight: 800;
+  font-size: 16px;
+}
+.hist-chart-tooltip-unit {
+  color: var(--aqm-muted);
+  font-size: 11px;
+}
+.hist-chart-tooltip-cat {
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+
+/* ── History graph dual pollutant legend ──────────────────────── */
+.hist-aqi-dual-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background: var(--aqm-card-bg, #fff);
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  border-radius: 8px;
+  width: fit-content;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--aqm-text, #333);
+}
+.hist-aqi-dual-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.hist-aqi-dual-swatch {
+  width: 14px;
+  height: 10px;
+  display: inline-block;
+}

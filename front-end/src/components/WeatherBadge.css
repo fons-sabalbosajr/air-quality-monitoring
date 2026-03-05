@@ -1,0 +1,203 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Weather Badge – weather detail modal (temperature, forecast, metrics, sunrise/sunset)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Weather Modal styling */
+.wm-header {
+  margin: -8px -8px 12px -8px;
+  padding: 16px 16px 14px 16px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #38bdf8 0%, #22d3ee 40%, #a78bfa 100%);
+  color: white;
+  position: relative;
+  overflow: hidden;
+}
+.wm-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at 80% -10%,
+      rgba(255, 255, 255, 0.35),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 10% 110%,
+      rgba(255, 255, 255, 0.18),
+      transparent 40%
+    );
+  pointer-events: none;
+}
+.wm-anim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.wm-header-inner {
+  position: relative;
+  z-index: 1;
+}
+.wm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.wm-temp {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(90deg, #fff, #fef08a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wm-shimmer 3.6s ease-in-out infinite;
+}
+.wm-cond {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+@keyframes wm-shimmer {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+  }
+}
+
+.wm-forecast {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+@media (min-width: 520px) {
+  .wm-forecast {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.wm-day {
+  background: var(--aqm-panel-bg, #ffffff);
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateY(6px);
+  opacity: 0;
+  animation: wm-rise 420ms ease-out forwards;
+}
+.wm-day:nth-child(1) {
+  animation-delay: 40ms;
+}
+.wm-day:nth-child(2) {
+  animation-delay: 100ms;
+}
+.wm-day:nth-child(3) {
+  animation-delay: 160ms;
+}
+.wm-day:nth-child(4) {
+  animation-delay: 220ms;
+}
+.wm-day:nth-child(5) {
+  animation-delay: 280ms;
+}
+@keyframes wm-rise {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.wm-day-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--aqm-muted, #64748b);
+}
+.wm-day-icon {
+  font-size: 22px;
+  opacity: 0.95;
+}
+.wm-day-temp {
+  font-size: 12px;
+}
+
+/* Metrics grid */
+.wm-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (min-width: 520px) {
+  .wm-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.wm-metric {
+  background: var(--aqm-panel-bg, #ffffff);
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 10px;
+}
+.wm-metric-label {
+  font-size: 11px;
+  color: var(--aqm-muted, #64748b);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.wm-metric-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+.wm-feels {
+  background: linear-gradient(90deg, #fef08a, #fca5a5, #a78bfa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wm-shimmer 3.6s ease-in-out infinite;
+}
+
+/* Sunrise/Sunset row */
+.wm-sunrow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.wm-sun {
+  background: var(--aqm-panel-bg, #ffffff);
+  border: 1px solid var(--aqm-panel-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wm-sun-icon {
+  color: #f59e0b;
+  animation: sun-bob 2.6s ease-in-out infinite;
+}
+.wm-sun-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--aqm-muted, #64748b);
+}
+.wm-sun-time {
+  font-size: 14px;
+  font-weight: 700;
+}
+@keyframes sun-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}

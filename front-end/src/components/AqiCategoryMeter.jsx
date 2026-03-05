@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Tag, Tooltip } from "antd";
+import "./AqiCategoryMeter.css";
 
 /* ── AQI Category bands (Philippine NAAQGV breakpoints) ────────── */
 const BANDS = [
@@ -49,6 +50,15 @@ const BANDS = [
 
 const TOTAL_MAX = 500;
 
+/* Pre-compute each band's proportional width (%) and cumulative start (%) */
+const BAND_WIDTHS = BANDS.map(
+  (b) => ((b.max - b.min + 1) / (TOTAL_MAX + 1)) * 100
+);
+const BAND_STARTS = BAND_WIDTHS.reduce(
+  (acc, w, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + BAND_WIDTHS[i - 1]); return acc; },
+  []
+);
+
 /**
  * AqiCategoryMeter – a horizontal bar showing all AQI categories
  * with a pointer/marker indicating the current reading.
@@ -58,14 +68,17 @@ const TOTAL_MAX = 500;
  *   category  – string label (optional, derived from value if omitted)
  *   loading   – boolean
  */
-/** Helper: compute pointer info for a given value */
+/** Helper: compute pointer info for a given value.
+ *  Uses band-relative mapping so the pointer sits correctly within
+ *  each band’s proportional visual width.
+ */
 function usePointerInfo(value) {
   const numericVal = value != null ? Number(value) : null;
   const clamped =
     numericVal != null && isFinite(numericVal)
       ? Math.max(0, Math.min(numericVal, TOTAL_MAX))
       : null;
-  const pct = clamped != null ? (clamped / TOTAL_MAX) * 100 : null;
+
   const activeBand = useMemo(() => {
     if (clamped == null) return null;
     return (
@@ -73,6 +86,17 @@ function usePointerInfo(value) {
       BANDS[BANDS.length - 1]
     );
   }, [clamped]);
+
+  // Band-relative percentage using proportional widths
+  const pct = useMemo(() => {
+    if (clamped == null) return null;
+    const bandIdx = BANDS.findIndex((b) => clamped >= b.min && clamped <= b.max);
+    const idx = bandIdx >= 0 ? bandIdx : BANDS.length - 1;
+    const band = BANDS[idx];
+    const ratio = (clamped - band.min) / (band.max - band.min + 1);
+    return BAND_STARTS[idx] + ratio * BAND_WIDTHS[idx];
+  }, [clamped]);
+
   return { numericVal, clamped, pct, activeBand };
 }
 
@@ -150,10 +174,10 @@ export default function AqiCategoryMeter({
       </div>
 
       {/* Meter bar */}
-      <div className="aqi-meter-bar-wrap">
+      <div className={`aqi-meter-bar-wrap${hasDual ? " aqi-meter-bar-wrap--dual" : ""}`}>
         <div className="aqi-meter-bar">
-          {BANDS.map((band) => {
-            const width = ((band.max - band.min + 1) / TOTAL_MAX) * 100;
+          {BANDS.map((band, i) => {
+            const width = BAND_WIDTHS[i];
             const isActive = activeBandNames.has(band.name);
             return (
               <Tooltip
@@ -182,58 +206,41 @@ export default function AqiCategoryMeter({
           })}
         </div>
 
-        {/* Primary pointer (PM10 – value ABOVE the line) */}
+        {/* Primary pointer (PM10 – above in dual, below in single) */}
         {p1.pct != null && (
           <div
             className={`aqi-meter-pointer${hasDual ? " aqi-meter-pointer--above" : ""}`}
             style={{ left: `${p1.pct}%` }}
           >
-            {hasDual && (
-              <div
-                className="aqi-meter-pointer-value aqi-meter-pointer-value--top"
-                style={{
-                  background: p1.activeBand?.color || "#64748b",
-                  color: "#fff",
-                }}
-              >
-                {Math.round(p1.numericVal)}
-              </div>
-            )}
             <div
-              className="aqi-meter-pointer-line"
-              style={{ background: p1.activeBand?.color || "#fff" }}
-            />
-            {!hasDual && (
-              <div
-                className="aqi-meter-pointer-value"
-                style={{
-                  background: p1.activeBand?.color || "#64748b",
-                  color: "#fff",
-                }}
-              >
-                {Math.round(p1.numericVal)}
-              </div>
-            )}
+              className={`aqi-meter-pointer-value${hasDual ? " aqi-meter-pointer-value--top" : ""}`}
+              style={{
+                background: p1.activeBand?.color || "#64748b",
+                color: "#fff",
+                "--_badge-bg": p1.activeBand?.color || "#64748b",
+              }}
+            >
+              {hasDual && <span className="aqi-meter-pointer-label">{label}:</span>}
+              {Math.round(p1.numericVal)}
+            </div>
           </div>
         )}
 
-        {/* Secondary pointer (PM2.5 – value BELOW the line) */}
+        {/* Secondary pointer (PM2.5 – below in dual) */}
         {hasDual && p2.pct != null && (
           <div
             className="aqi-meter-pointer aqi-meter-pointer--below"
             style={{ left: `${p2.pct}%` }}
           >
             <div
-              className="aqi-meter-pointer-line"
-              style={{ background: p2.activeBand?.color || "#fff" }}
-            />
-            <div
               className="aqi-meter-pointer-value"
               style={{
                 background: p2.activeBand?.color || "#64748b",
                 color: "#fff",
+                "--_badge-bg": p2.activeBand?.color || "#64748b",
               }}
             >
+              <span className="aqi-meter-pointer-label">{label2}:</span>
               {Math.round(p2.numericVal)}
             </div>
           </div>
@@ -242,8 +249,8 @@ export default function AqiCategoryMeter({
 
       {/* Band labels underneath */}
       <div className="aqi-meter-labels">
-        {BANDS.map((band) => {
-          const width = ((band.max - band.min + 1) / TOTAL_MAX) * 100;
+        {BANDS.map((band, i) => {
+          const width = BAND_WIDTHS[i];
           return (
             <div
               key={band.name}

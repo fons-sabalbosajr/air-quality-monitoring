@@ -3,8 +3,6 @@ import {
   ConfigProvider,
   theme,
   Spin,
-  Tooltip,
-  Badge,
   Modal,
   Table,
   Tag,
@@ -23,14 +21,10 @@ import {
   TbTable,
   TbMap2,
   TbMapPin,
-  TbActivity,
   TbArrowRight,
   TbArrowLeft,
   TbPlayerPause,
   TbPlayerPlay,
-  TbCloud,
-  TbX,
-  TbCurrentLocation,
   TbInfoCircle,
   TbPhone,
   TbMail,
@@ -40,36 +34,43 @@ import {
   TbSun,
   TbMoon,
   TbEye,
+  TbBrandFacebook,
+  TbBrandYoutube,
 } from "react-icons/tb";
 import { AqiProvider, useAqi } from "../context/AqiContext";
-import STATIONS, { getStation } from "../config/stations";
+import STATIONS, { getStationPhoto, getUniqueLocations, bgEmbPhoto } from "../config/stations";
 import useTabularData from "../hooks/useTabularData";
 import useStationWeather from "../hooks/useStationWeather";
 import AqiHeroCard from "../components/AqiHeroCard";
 import HourlyWeatherCard from "../components/HourlyWeatherCard";
+import WindMapCard from "../components/WindMapCard";
 import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import embLogo from "../assets/emblogo.svg";
+import "./Kiosk.css";
 
-/* ── Kiosk-specific stations: merge Zambales PM10+PM2.5 into one ── */
+/* ── Kiosk-specific stations: merge multi-pollutant provinces into one ── */
 const KIOSK_STATIONS = (() => {
   const merged = [];
-  const zambalesAdded = new Set();
+  const provinceAdded = new Set();
   for (const s of STATIONS) {
-    if (s.province === "zambales") {
-      if (!zambalesAdded.has("zambales")) {
+    // Check if this province has multiple pollutants
+    const siblings = STATIONS.filter((o) => o.province === s.province);
+    if (siblings.length > 1) {
+      if (!provinceAdded.has(s.province)) {
+        const labels = siblings.map((o) => o.pollutantLabel);
         merged.push({
-          key: "zambales-merged",
-          province: "zambales",
-          pollutant: "pm10", // primary fetch
-          pollutantLabel: "PM10 & PM2.5",
-          name: "Zambales AQMS",
+          key: `${s.province}-merged`,
+          province: s.province,
+          pollutant: siblings[0].pollutant, // primary fetch
+          pollutantLabel: labels.join(" & "),
+          name: s.name.replace(/\s*\(.*?\)\s*$/, "") || s.name,
           address: s.address,
           lat: s.lat,
           lon: s.lon,
-          merged: true, // flag for dual-pollutant display
-          pollutants: ["pm10", "pm25"],
+          merged: true,
+          pollutants: siblings.map((o) => o.pollutant),
         });
-        zambalesAdded.add("zambales");
+        provinceAdded.add(s.province);
       }
     } else {
       merged.push({ ...s, merged: false });
@@ -135,10 +136,31 @@ function KioskContent() {
     }, 300);
   }, []);
 
+  /** Navigate to a specific station by province key (from carousel click) */
+  const goToStation = useCallback((province) => {
+    const idx = KIOSK_STATIONS.findIndex(
+      (s) => s.province === province,
+    );
+    if (idx >= 0 && idx !== stationIdx) {
+      setTransitioning(true);
+      setTimeout(() => {
+        setStationIdx(idx);
+        setTransitioning(false);
+        // Scroll to top so user sees the AQI hero card
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 300);
+    } else if (idx === stationIdx) {
+      // Already on this station – just scroll to top
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [stationIdx]);
+
   // ── Data hooks ──
   const tabular = useTabularData(station.province, station.pollutant);
-  // Secondary pollutant for merged Zambales (PM2.5)
-  const secondaryPollutant = station.merged ? "pm25" : null;
+  // Secondary pollutant for merged stations (e.g. PM2.5)
+  const secondaryPollutant = station.merged && station.pollutants?.length > 1
+    ? station.pollutants.find((p) => p !== station.pollutant) || null
+    : null;
   const tabular2 = useTabularData(
     secondaryPollutant ? station.province : null,
     secondaryPollutant,
@@ -276,7 +298,7 @@ function KioskContent() {
           <div className="kiosk-brand-text">
             <span className="kiosk-brand-title">EMB Region III</span>
             <span className="kiosk-brand-sub">
-              Air Quality Monitoring System
+              Air Quality Monitoring Dashboard
             </span>
           </div>
         </div>
@@ -363,7 +385,7 @@ function KioskContent() {
             retrying={false}
             stationName={station.name}
             stationAddress={station.address}
-            pollutantLabel={station.merged ? "PM10" : station.pollutantLabel}
+            pollutantLabel={station.merged ? (station.pollutant === "pm10" ? "PM10" : station.pollutant === "pm25" ? "PM2.5" : station.pollutant.toUpperCase()) : station.pollutantLabel}
             isFallback={false}
             fallbackSource={""}
             temperature={weather.data?.temperature}
@@ -382,9 +404,10 @@ function KioskContent() {
             aqiCategory2={station.merged ? latestAqi2?.category : undefined}
             aqiTime2={station.merged ? latestAqi2?.time : undefined}
             aqiLoading2={station.merged ? tabular2.loading : undefined}
-            pollutantLabel2={station.merged ? "PM2.5" : undefined}
+            pollutantLabel2={station.merged && secondaryPollutant ? (secondaryPollutant === "pm25" ? "PM2.5" : secondaryPollutant === "pm10" ? "PM10" : secondaryPollutant.toUpperCase()) : undefined}
             isStale={isStale}
             isStale2={isStale2}
+            stationPhoto={getStationPhoto(station.province || station.key)}
           />
         </section>
 
@@ -398,24 +421,150 @@ function KioskContent() {
           <HourlyWeatherCard latitude={station.lat} longitude={station.lon} />
         </section>
 
-        {/* EMBR3 Featured Videos */}
+        {/* Wind Map + Station Details (side-by-side) */}
+        <div className="kiosk-wind-station-row">
+          {/* Station Details Card */}
+          <section className="kiosk-section kiosk-station-detail-card">
+            <div
+              className="kiosk-station-photo"
+              style={{
+                backgroundImage: `url(${getStationPhoto(station.province || station.key) || ""})`,
+              }}
+            >
+              <div className="kiosk-station-photo-overlay" />
+              <div className="kiosk-station-photo-content">
+                <h3 className="kiosk-station-photo-name">{station.name}</h3>
+                <p className="kiosk-station-photo-addr">
+                  <TbMapPin size={14} />
+                  {station.address}
+                </p>
+              </div>
+            </div>
+            <div className="kiosk-station-info-body">
+              <div className="kiosk-station-info-grid">
+                <div className="kiosk-station-info-item">
+                  <span className="kiosk-station-info-label">Pollutant</span>
+                  <span className="kiosk-station-info-value">{station.pollutantLabel}</span>
+                </div>
+                <div className="kiosk-station-info-item">
+                  <span className="kiosk-station-info-label">Latitude</span>
+                  <span className="kiosk-station-info-value">{station.lat.toFixed(4)}</span>
+                </div>
+                <div className="kiosk-station-info-item">
+                  <span className="kiosk-station-info-label">Longitude</span>
+                  <span className="kiosk-station-info-value">{station.lon.toFixed(4)}</span>
+                </div>
+                <div className="kiosk-station-info-item">
+                  <span className="kiosk-station-info-label">Province</span>
+                  <span className="kiosk-station-info-value" style={{ textTransform: "capitalize" }}>
+                    {(station.province || "").replace(/-/g, " ")}
+                  </span>
+                </div>
+              </div>
+              <a
+                className="kiosk-station-gmaps-link"
+                href={`https://www.google.com/maps?q=${station.lat},${station.lon}&z=15`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <TbMap2 size={14} /> View on Google Maps
+              </a>
+            </div>
+          </section>
+
+          {/* Wind Map */}
+          <section className="kiosk-section">
+            <WindMapCard
+              latitude={station.lat}
+              longitude={station.lon}
+              stationName={station.name}
+            />
+          </section>
+        </div>
+
+        {/* AQMS Stations Carousel */}
+        <section className="kiosk-section">
+          <div className="kiosk-stations-carousel">
+            <div className="kiosk-carousel-header">
+              <TbMapPin size={20} />
+              <div>
+                <h3 className="kiosk-carousel-title">Air Quality Monitoring Stations</h3>
+                <p className="kiosk-carousel-subtitle">Select a station to view its air quality data</p>
+              </div>
+            </div>
+            <div className="kiosk-carousel-track-wrap">
+              <div className="kiosk-carousel-track">
+                {getUniqueLocations().map((s) => {
+                  const photo = getStationPhoto(s.province || s.key);
+                  const isActive = (station.province || station.key).replace(/-(pm10|pm25|merged)$/, "") === s.province;
+                  const pollutants = STATIONS.filter((st) => st.province === s.province);
+                  return (
+                    <div
+                      key={s.key}
+                      className={`kiosk-carousel-card${isActive ? " kiosk-carousel-card--active" : ""}`}
+                      onClick={() => goToStation(s.province)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && goToStation(s.province)}
+                    >
+                      <div
+                        className="kiosk-carousel-card-photo"
+                        style={{ backgroundImage: photo ? `url(${photo})` : "none" }}
+                      >
+                        <div className="kiosk-carousel-card-overlay" />
+                        {isActive && (
+                          <div className="kiosk-carousel-card-live">
+                            <span className="kiosk-carousel-live-dot" />
+                            Viewing
+                          </div>
+                        )}
+                      </div>
+                      <div className="kiosk-carousel-card-body">
+                        <h4 className="kiosk-carousel-card-name">
+                          {s.name.replace(/\s*\(.*?\)\s*$/, "") || s.name}
+                        </h4>
+                        <p className="kiosk-carousel-card-addr">
+                          <TbMapPin size={11} /> {s.address}
+                        </p>
+                        <div className="kiosk-carousel-card-meta">
+                          <span className="kiosk-carousel-card-pollutant">
+                            {pollutants.map((st) => st.pollutantLabel).join(" & ")}
+                          </span>
+                          <span className="kiosk-carousel-card-coords">
+                            {s.lat.toFixed(2)}°N, {s.lon.toFixed(2)}°E
+                          </span>
+                        </div>
+                        <div className="kiosk-carousel-card-cta">
+                          {isActive ? "Currently Viewing" : "View Station"}
+                          <TbArrowRight size={13} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* EMB Region 3 Air Quality Updates – YouTube Videos */}
         <section className="kiosk-section">
           <div className="kiosk-newsletter-card">
             <div className="kiosk-newsletter-header">
-              <TbEye size={20} />
-              <h3 className="kiosk-newsletter-title">EMB Region 3 Featured</h3>
+              <TbBrandYoutube size={20} />
+              <h3 className="kiosk-newsletter-title">EMB Region 3 Air Quality Monitoring Updates</h3>
             </div>
             <div className="kiosk-videos-grid">
               <div className="kiosk-video-tile">
                 <div className="kiosk-newsletter-video-wrap">
                   <iframe
                     className="kiosk-newsletter-video"
-                    src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent('https://www.facebook.com/share/v/18Kqwwbjig/')}&show_text=false&t=0`}
-                    title="EMBR3 Video 1"
-                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                    src="https://www.youtube.com/embed/s0twOwHkiok"
+                    title="EMB Region 3 Air Quality Update 1"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowFullScreen
-                    scrolling="no"
                     frameBorder="0"
+                    loading="lazy"
                   />
                 </div>
               </div>
@@ -423,60 +572,105 @@ function KioskContent() {
                 <div className="kiosk-newsletter-video-wrap">
                   <iframe
                     className="kiosk-newsletter-video"
-                    src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent('https://www.facebook.com/share/v/1ATwPSjbVD/')}&show_text=false&t=0`}
-                    title="EMBR3 Video 2"
-                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                    src="https://www.youtube.com/embed/emoJvMhCSNk"
+                    title="EMB Region 3 Air Quality Update 2"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowFullScreen
-                    scrolling="no"
                     frameBorder="0"
+                    loading="lazy"
                   />
                 </div>
               </div>
             </div>
             <p className="kiosk-newsletter-desc">
-              Stay informed with the latest updates from EMB Region 3 on air quality monitoring, environmental programs, and community initiatives.
+              Stay informed with the latest Air Quality updates from EMB Region 3 — monitoring, environmental programs, and community initiatives.
             </p>
           </div>
         </section>
 
-        {/* EMBR3 Contact Info Card */}
+        {/* EMBR3 Combined Agency Card – Contact + CTA */}
         <section className="kiosk-section">
-          <div className="kiosk-contact-card">
-            <div className="kiosk-contact-header">
-              <img src={embLogo} alt="EMB Logo" className="kiosk-contact-logo" />
-              <div>
-                <h3 className="kiosk-contact-title">EMB Region 3 Office</h3>
-                <p className="kiosk-contact-subtitle">
-                  Environmental Management Bureau – Central Luzon
+          <div className="kiosk-agency-combined-card">
+            {/* CTA gradient banner on top */}
+            <div
+              className="kiosk-agency-cta-banner"
+              style={{ backgroundImage: `url(${bgEmbPhoto})` }}
+            >
+              <div className="kiosk-cta-photo-overlay" />
+              <div className="map-cta-bg-shapes">
+                <div className="map-cta-shape map-cta-shape-1" />
+                <div className="map-cta-shape map-cta-shape-2" />
+                <div className="map-cta-shape map-cta-shape-3" />
+              </div>
+              <div className="kiosk-agency-cta-inner">
+                <TbBuildingSkyscraper size={28} className="map-cta-icon" />
+                <h3 className="kiosk-agency-cta-title">Environmental Management Bureau – Region 3</h3>
+                <p className="kiosk-agency-cta-desc">
+                  Protecting the environment of Central Luzon through monitoring, enforcement, and public awareness.
                 </p>
+                <div className="map-cta-buttons">
+                  <a
+                    className="map-cta-btn map-cta-btn-primary"
+                    href="https://r3.emb.gov.ph"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <TbExternalLink size={16} /> Visit Website
+                  </a>
+                  <a
+                    className="map-cta-btn map-cta-btn-secondary"
+                    href="https://www.facebook.com/EMBRegion3"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <TbBrandFacebook size={16} /> Follow on Facebook
+                  </a>
+                  <a
+                    className="map-cta-btn map-cta-btn-secondary"
+                    href="mailto:emb_region3@emb.gov.ph"
+                  >
+                    <TbMail size={16} /> Email Us
+                  </a>
+                </div>
               </div>
             </div>
-            <div className="kiosk-contact-grid">
-              <div className="kiosk-contact-item">
-                <TbMapPin size={16} />
-                <span>Masinop cor. Matalino St., Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga</span>
-              </div>
-              <div className="kiosk-contact-item">
-                <TbPhone size={16} />
+
+            {/* Contact details below */}
+            <div className="kiosk-agency-contact-body">
+              <div className="kiosk-agency-contact-head">
+                <img src={embLogo} alt="EMB Logo" className="kiosk-contact-logo" />
                 <div>
-                  <div>(045) 963-3623 (Trunk Line)</div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>ORD: local 102 · EMED: local 115/117 · CPD: local 114/106</div>
+                  <h4 className="kiosk-contact-title">EMB Region 3 Office</h4>
+                  <p className="kiosk-contact-subtitle">Environmental Management Bureau – Central Luzon</p>
                 </div>
               </div>
-              <div className="kiosk-contact-item">
-                <TbMail size={16} />
-                <div>
-                  <a href="mailto:emb_region3@emb.gov.ph">emb_region3@emb.gov.ph</a>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Records: <a href="mailto:recordsr3@emb.gov.ph">recordsr3@emb.gov.ph</a></div>
+              <div className="kiosk-contact-grid">
+                <div className="kiosk-contact-item">
+                  <TbMapPin size={16} />
+                  <span>Masinop cor. Matalino St., Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga</span>
                 </div>
-              </div>
-              <div className="kiosk-contact-item">
-                <TbWorld size={16} />
-                <a href="https://r3.emb.gov.ph" target="_blank" rel="noopener noreferrer">r3.emb.gov.ph</a>
-              </div>
-              <div className="kiosk-contact-item">
-                <TbInfoCircle size={16} />
-                <span>ISO 9001:2015 & ISO 14001:2015 Certified</span>
+                <div className="kiosk-contact-item">
+                  <TbPhone size={16} />
+                  <div>
+                    <div>(045) 963-3623 (Trunk Line)</div>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>ORD: local 102 · EMED: local 115/117 · CPD: local 114/106</div>
+                  </div>
+                </div>
+                <div className="kiosk-contact-item">
+                  <TbMail size={16} />
+                  <div>
+                    <a href="mailto:emb_region3@emb.gov.ph">emb_region3@emb.gov.ph</a>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>Records: <a href="mailto:recordsr3@emb.gov.ph">recordsr3@emb.gov.ph</a></div>
+                  </div>
+                </div>
+                <div className="kiosk-contact-item">
+                  <TbWorld size={16} />
+                  <a href="https://r3.emb.gov.ph" target="_blank" rel="noopener noreferrer">r3.emb.gov.ph</a>
+                </div>
+                <div className="kiosk-contact-item">
+                  <TbInfoCircle size={16} />
+                  <span>ISO 9001:2015 & ISO 14001:2015 Certified</span>
+                </div>
               </div>
             </div>
           </div>

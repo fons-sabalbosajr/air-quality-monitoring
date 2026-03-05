@@ -10,6 +10,32 @@
  * deployment without a code change.
  */
 
+/* ── Station photos ─────────────────────────────────────────────── */
+import clarkPhoto from "../assets/clark.webp";
+import meycauayanPhoto from "../assets/meycauayan.webp";
+import sanFernandoPhoto from "../assets/san_fernando.webp";
+import zambalesPhoto from "../assets/zambales.webp";
+import bgEmbPhoto from "../assets/bgemb.webp";
+
+export { bgEmbPhoto };
+
+const STATION_PHOTOS = {
+  clark: clarkPhoto,
+  meycauayan: meycauayanPhoto,
+  "san-fernando": sanFernandoPhoto,
+  zambales: zambalesPhoto,
+};
+
+/** Get the photo URL for a station by its province key */
+export function getStationPhoto(provinceOrKey) {
+  if (!provinceOrKey) return null;
+  // Try direct match first
+  if (STATION_PHOTOS[provinceOrKey]) return STATION_PHOTOS[provinceOrKey];
+  // Strip "-pm10", "-pm25", "-merged" suffixes
+  const province = provinceOrKey.replace(/-(pm10|pm25|merged)$/, "");
+  return STATION_PHOTOS[province] || null;
+}
+
 const env = (key, fallback) => {
   const v = import.meta.env?.[key];
   return v != null && v !== "" ? v : fallback;
@@ -21,7 +47,17 @@ const STATIONS = [
     province: "meycauayan",
     pollutant: "pm10",
     pollutantLabel: "PM10",
-    name: "Meycauayan AQMS",
+    name: "Meycauayan AQMS (PM10)",
+    address: "Meycauayan, Bulacan",
+    lat: Number(env("VITE_STATION_MEYCAUAYAN_LAT", "14.727555")),
+    lon: Number(env("VITE_STATION_MEYCAUAYAN_LON", "120.958200")),
+  },
+  {
+    key: "meycauayan-pm25",
+    province: "meycauayan",
+    pollutant: "pm25",
+    pollutantLabel: "PM2.5",
+    name: "Meycauayan AQMS (PM2.5)",
     address: "Meycauayan, Bulacan",
     lat: Number(env("VITE_STATION_MEYCAUAYAN_LAT", "14.727555")),
     lon: Number(env("VITE_STATION_MEYCAUAYAN_LON", "120.958200")),
@@ -116,6 +152,8 @@ export function getMergedStations() {
       handled.add(s.key);
     }
   }
+  // Sort alphabetically by station name
+  merged.sort((a, b) => a.name.localeCompare(b.name));
   return merged;
 }
 

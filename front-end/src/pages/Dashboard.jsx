@@ -2,18 +2,21 @@ import { useEffect, useState, useMemo } from "react";
 import { Select, Button, Tooltip, message, Modal, Tag } from "antd";
 import dayjs from "dayjs";
 import {
-  TbMapPin, TbFilter,
-  TbRefresh, TbMail,
+  TbMapPin,
+  TbRefresh, TbMail, TbAlertTriangle, TbClock,
 } from "react-icons/tb";
 import { useAqi } from "../context/AqiContext";
-import STATIONS, { getStation, getMergedStations } from "../config/stations";
+import { getMergedStations, getStationPhoto } from "../config/stations";
 import useTabularData from "../hooks/useTabularData";
 import useStationWeather from "../hooks/useStationWeather";
+import { getApiBase } from "../util/apiBase";
 import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import AqiHeroCard from "../components/AqiHeroCard";
 import HourlyWeatherCard from "../components/HourlyWeatherCard";
 import HistoricalAqiGraph from "../components/HistoricalAqiGraph";
 import AqiCalendar from "../components/AqiCalendar";
+import WindMapCard from "../components/WindMapCard";
+import "./Dashboard.css";
 
 /* ── Status colour helper ─────────────────────────────────────────── */
 const STATUS_COLORS = {
@@ -168,16 +171,76 @@ export default function DashboardPage() {
     return diffDays > 7;
   }, [station.merged, latestAqi2]);
 
-  // Station selector dropdown options
-  const stationOptions = DASH_STATIONS.map((s) => ({
-    label: (
-      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <TbMapPin size={14} />
-        {s.name}{s.merged ? ` (${s.pollutantLabel})` : ""}
-      </span>
-    ),
-    value: s.key,
-  }));
+  // ── Check all stations for stale data (>7 days old) ──
+  const [staleStations, setStaleStations] = useState(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAll() {
+      const base = getApiBase();
+      const staleSet = new Set();
+      await Promise.allSettled(
+        DASH_STATIONS.map(async (s) => {
+          try {
+            const url = `${base}/api/tabular/${encodeURIComponent(s.province)}/${encodeURIComponent(s.pollutant)}`;
+            const res = await fetch(url, { headers: { Accept: "application/json" } });
+            if (!res.ok) { staleSet.add(s.key); return; }
+            const json = await res.json();
+            const rows = json?.rows;
+            if (!rows?.length) { staleSet.add(s.key); return; }
+            const dateCol = json.columns?.find((c) => /date|time/i.test(c));
+            const latestRow = rows[0];
+            const dateStr = dateCol ? latestRow[dateCol] : null;
+            if (!dateStr) { staleSet.add(s.key); return; }
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime()) || (Date.now() - d.getTime()) / 86400000 > 7) {
+              staleSet.add(s.key);
+            }
+          } catch {
+            staleSet.add(s.key);
+          }
+        })
+      );
+      if (!cancelled) setStaleStations(staleSet);
+    }
+    checkAll();
+    return () => { cancelled = true; };
+  }, [DASH_STATIONS]);
+
+  // Station selector dropdown options — sorted alphabetically, with stale indicator
+  const stationOptions = DASH_STATIONS.map((s) => {
+    const isOutdated = staleStations.has(s.key);
+    return {
+      label: (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          <TbMapPin size={14} />
+          {s.name}{s.merged ? ` (${s.pollutantLabel})` : ""}
+          {isOutdated && (
+            <Tag
+              color="warning"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontSize: 9,
+                fontWeight: 700,
+                margin: 0,
+                padding: "0 6px",
+                lineHeight: "16px",
+                borderRadius: 4,
+                marginLeft: 4,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              <TbAlertTriangle size={10} />
+              Outdated
+            </Tag>
+          )}
+        </span>
+      ),
+      value: s.key,
+    };
+  });
 
   // Compute accent color from current AQI for dashboard section gradients
   const dashAccent = useMemo(() => {
@@ -190,6 +253,15 @@ export default function DashboardPage() {
     if (v <= 300) return { color: "#a78bfa", light: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.18)" };
     return { color: "#fb7185", light: "rgba(251,113,133,0.07)", border: "rgba(251,113,133,0.2)" };
   }, [latestAqi.value]);
+
+  // Live clock for toolbar
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 30000); // update every 30s
+    return () => clearInterval(iv);
+  }, []);
+  const formattedDate = dayjs(now).format("MMM D, YYYY");
+  const formattedTime = dayjs(now).format("h:mm A");
 
   return (
     <div
@@ -206,12 +278,20 @@ export default function DashboardPage() {
           onChange={setStationKey}
           options={stationOptions}
           size="large"
-          style={{ minWidth: 280 }}
+          style={{ minWidth: 340 }}
           popupMatchSelectWidth={false}
+          popupClassName="dashboard-station-popup"
           suffixIcon={<TbMapPin size={18} />}
         />
 
         <div className="dashboard-toolbar">
+          {/* Today's date & time */}
+          <span className="dashboard-datetime">
+            <TbClock size={14} />
+            <span className="dashboard-datetime-date">{formattedDate}</span>
+            <span className="dashboard-datetime-time">{formattedTime}</span>
+          </span>
+
           {/* Request Data button – directs to Records Unit */}
           <Tooltip title="Request data export from EMB Records Unit">
             <Button
@@ -279,6 +359,7 @@ export default function DashboardPage() {
         pollutantLabel2={secondaryPollutant?.label}
         isStale={isStale}
         isStale2={isStale2}
+        stationPhoto={getStationPhoto(station.province || station.key)}
       />
 
       {/* 3. Hourly Weather Forecast */}
@@ -287,17 +368,28 @@ export default function DashboardPage() {
         longitude={station.lon}
       />
 
-      {/* 3. Historical Air Quality Data (bar chart) */}
-      <HistoricalAqiGraph
-        data={tabular.dailyRows}
-        loading={tabular.loading}
-        error={tabular.error}
-        title={`Historical Air Quality Data – ${station.merged ? station.pollutantLabel : station.pollutantLabel} (AQI Graph)`}
-        label={station.merged ? station.pollutants[0].label : undefined}
-        data2={station.merged ? tabular2.dailyRows : undefined}
-        label2={secondaryPollutant?.label}
-        loading2={station.merged ? tabular2.loading : undefined}
-      />
+      {/* 3. Historical Air Quality Data + Wind Map */}
+      <div className="dashboard-chart-wind-row">
+        <div className="dashboard-chart-wind-main">
+          <HistoricalAqiGraph
+            data={tabular.dailyRows}
+            loading={tabular.loading}
+            error={tabular.error}
+            title={`Historical Air Quality Data – ${station.merged ? station.pollutantLabel : station.pollutantLabel} (AQI Graph)`}
+            label={station.merged ? station.pollutants[0].label : undefined}
+            data2={station.merged ? tabular2.dailyRows : undefined}
+            label2={secondaryPollutant?.label}
+            loading2={station.merged ? tabular2.loading : undefined}
+          />
+        </div>
+        <div className="dashboard-chart-wind-side">
+          <WindMapCard
+            latitude={station.lat}
+            longitude={station.lon}
+            stationName={station.name}
+          />
+        </div>
+      </div>
 
       {/* 4. Air Quality Calendar */}
       <AqiCalendar
@@ -357,28 +449,17 @@ export default function DashboardPage() {
             process your request and provide the data accordingly.
           </p>
 
-          <div style={{
-            background: "var(--aqm-fill-alt, #f5f5f5)",
-            borderRadius: 10,
-            padding: "14px 18px",
-            marginBottom: 14,
-            border: "1px solid var(--aqm-border, #e8e8e8)",
-          }}>
+          <div className="request-modal-info-card">
             <div style={{ fontWeight: 600, marginBottom: 6 }}>📧 Records Unit Email</div>
             <a
               href="mailto:recordsr3@emb.gov.ph"
-              style={{ fontSize: 16, fontWeight: 700, color: "var(--dash-accent, #1677ff)" }}
+              style={{ fontSize: 16, fontWeight: 700, color: "var(--aqm-primary, #1677ff)" }}
             >
               recordsr3@emb.gov.ph
             </a>
           </div>
 
-          <div style={{
-            background: "var(--aqm-fill-alt, #f5f5f5)",
-            borderRadius: 10,
-            padding: "14px 18px",
-            border: "1px solid var(--aqm-border, #e8e8e8)",
-          }}>
+          <div className="request-modal-info-card">
             <div style={{ fontWeight: 600, marginBottom: 6 }}>📍 Current Station</div>
             <div>{station.name}</div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{station.address}</div>

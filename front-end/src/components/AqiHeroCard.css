@@ -1,0 +1,947 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AQI Hero Card – main dashboard card with animated sky, gauges, weather data
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* =====================================================================
+   AQI Hero Card – sky + clouds + cityscape
+   ===================================================================== */
+.aqi-hero-card {
+  position: relative;
+  border-radius: 20px;
+  min-height: 280px;
+  overflow: hidden;
+  transition: background 0.8s ease;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Station photo background layer ── */
+.hero-photo-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.45;
+  transition: opacity 0.6s ease;
+}
+/* Tinted overlay – blends photo with AQI sky colour for corporate look */
+.hero-photo-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.25) 0%,
+    rgba(0, 0, 0, 0.10) 40%,
+    rgba(0, 0, 0, 0.30) 100%
+  );
+  pointer-events: none;
+}
+
+/* ── Cloud layer ── */
+.hero-clouds-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+/* When a photo bg is present, soften clouds and dim cityscape */
+.aqi-hero-card--photo .hero-clouds-layer {
+  opacity: 0.7;
+}
+.aqi-hero-card--photo .hero-cityscape {
+  opacity: 0.4;
+}
+
+.hero-cloud {
+  position: absolute;
+  background: var(--aqi-cloud-color, rgba(255, 255, 255, 0.85));
+  border-radius: 50%;
+  filter: blur(1px);
+  will-change: transform;
+}
+
+/* Cloud shape 1 – large, slow */
+.hero-cloud-1 {
+  width: 180px;
+  height: 60px;
+  top: 18%;
+  left: -200px;
+  border-radius: 60px;
+  animation: cloud-drift 28s linear infinite;
+  opacity: 0.85;
+}
+.hero-cloud-1::before,
+.hero-cloud-1::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+.hero-cloud-1::before {
+  width: 80px;
+  height: 80px;
+  top: -35px;
+  left: 30px;
+}
+.hero-cloud-1::after {
+  width: 100px;
+  height: 70px;
+  top: -25px;
+  right: 25px;
+}
+
+/* Cloud shape 2 – medium */
+.hero-cloud-2 {
+  width: 140px;
+  height: 45px;
+  top: 35%;
+  left: -160px;
+  border-radius: 45px;
+  animation: cloud-drift 22s linear infinite 6s;
+  opacity: 0.7;
+}
+.hero-cloud-2::before {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  top: -28px;
+  left: 20px;
+}
+.hero-cloud-2::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+  width: 70px;
+  height: 50px;
+  top: -18px;
+  right: 15px;
+}
+
+/* Cloud shape 3 – small, fast */
+.hero-cloud-3 {
+  width: 100px;
+  height: 35px;
+  top: 12%;
+  left: -120px;
+  border-radius: 35px;
+  animation: cloud-drift 18s linear infinite 12s;
+  opacity: 0.6;
+}
+.hero-cloud-3::before {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  top: -22px;
+  left: 15px;
+}
+
+/* Cloud shape 4 – tiny accent */
+.hero-cloud-4 {
+  width: 80px;
+  height: 28px;
+  top: 50%;
+  left: -100px;
+  border-radius: 28px;
+  animation: cloud-drift 32s linear infinite 4s;
+  opacity: 0.5;
+}
+.hero-cloud-4::before {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  top: -18px;
+  left: 12px;
+}
+
+/* Cloud shape 5 – wispy */
+.hero-cloud-5 {
+  width: 120px;
+  height: 30px;
+  top: 25%;
+  left: -140px;
+  border-radius: 30px;
+  animation: cloud-drift 35s linear infinite 18s;
+  opacity: 0.45;
+}
+
+@keyframes cloud-drift {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(100vw + 400px));
+  }
+}
+
+/* ── Cityscape silhouette ── */
+.hero-cityscape {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 80px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ── Content overlay ── */
+.aqi-hero-content {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 18px 24px;
+  min-height: 240px;
+  align-items: center;
+}
+
+/* LEFT COLUMN */
+.aqi-hero-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 200px;
+  align-self: center;
+}
+
+/* Gauge with glow */
+.aqi-hero-gauge-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.aqi-hero-gauge {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 4px solid var(--gauge-color, #34d399);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 0 30px var(--gauge-glow, rgba(52, 211, 153, 0.4)),
+    inset 0 0 25px rgba(255, 255, 255, 0.15);
+  transition:
+    border-color 0.6s ease,
+    box-shadow 0.6s ease;
+  position: relative;
+  z-index: 2;
+}
+.aqi-hero-face {
+  font-size: 28px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+.aqi-hero-value {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--hero-text, #fff);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.aqi-hero-unit {
+  font-size: 10px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.8));
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Pulse ring around gauge */
+.aqi-hero-pulse-ring {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 3px solid var(--gauge-color, #34d399);
+  opacity: 0;
+  animation: gauge-pulse 2.5s ease-out infinite;
+  z-index: 1;
+}
+@keyframes gauge-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+/* Category */
+.aqi-hero-category {
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-align: center;
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* AQI Status Tag (antd Tag override for hero card) */
+.aqi-hero-status-tag {
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 11px !important;
+  border-radius: 6px !important;
+  padding: 2px 10px !important;
+  line-height: 1.6 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+.aqi-hero-status-tag--lg {
+  font-size: 13px !important;
+  padding: 4px 14px !important;
+  letter-spacing: 0.8px;
+}
+
+/* Metric chips */
+.aqi-hero-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.aqi-hero-chip {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  padding: 6px 14px;
+  text-align: center;
+  min-width: 60px;
+  transition: background 0.2s;
+}
+.aqi-hero-chip:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.chip-label {
+  display: block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.7));
+  font-weight: 700;
+}
+.chip-value {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.chip-value-sm {
+  font-size: 10px;
+}
+
+.aqi-hero-spinner {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 4;
+}
+.aqi-hero-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* RIGHT COLUMN */
+.aqi-hero-right {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Station block */
+.aqi-hero-station-block {
+  margin-bottom: 2px;
+}
+.aqi-hero-station-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+}
+.aqi-hero-station-addr {
+  font-size: 11px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.75));
+  margin-top: 2px;
+  padding-left: 24px;
+}
+
+/* Weather glass panel */
+.aqi-hero-weather-glass {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aqi-hero-wx-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.aqi-hero-wx-icon {
+  color: #fff;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+  flex-shrink: 0;
+}
+
+/* ── Weather icon animations ───────────────────────────────────── */
+.wx-anim-sunny {
+  animation: wx-spin-glow 6s ease-in-out infinite;
+}
+.wx-anim-cloudy {
+  animation: wx-drift 4s ease-in-out infinite;
+}
+.wx-anim-fog {
+  animation: wx-pulse-fade 3.5s ease-in-out infinite;
+}
+.wx-anim-rain {
+  animation: wx-drip 1.2s ease-in-out infinite;
+}
+.wx-anim-storm {
+  animation: wx-flash 2.5s ease-in-out infinite;
+}
+.wx-anim-snow {
+  animation: wx-float 3s ease-in-out infinite;
+}
+
+@keyframes wx-spin-glow {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 6px rgba(255, 200, 50, 0.4));
+  }
+  50% {
+    transform: rotate(15deg) scale(1.08);
+    filter: drop-shadow(0 0 14px rgba(255, 200, 50, 0.7));
+  }
+}
+@keyframes wx-drift {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+}
+@keyframes wx-pulse-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@keyframes wx-drip {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+@keyframes wx-flash {
+  0%,
+  85%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.1));
+  }
+  88% {
+    opacity: 0.5;
+    filter: drop-shadow(0 0 18px rgba(255, 255, 200, 0.9));
+  }
+  90% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.1));
+  }
+}
+@keyframes wx-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(8deg);
+  }
+}
+
+/* ── Emoji face bounce animation ───────────────────────────────── */
+.aqi-face-bounce {
+  display: inline-block;
+  animation: face-gentle-bounce 3s ease-in-out infinite;
+}
+@keyframes face-gentle-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.06);
+  }
+}
+.aqi-hero-wx-temp-block {
+  display: flex;
+  flex-direction: column;
+}
+.aqi-hero-wx-temp {
+  font-size: 36px;
+  font-weight: 900;
+  color: var(--hero-text, #fff);
+  line-height: 1;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.aqi-hero-wx-condition {
+  font-size: 13px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.8));
+  font-weight: 500;
+}
+.aqi-hero-wx-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.aqi-hero-wx-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.85));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+}
+
+/* Updated time */
+.aqi-hero-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.6));
+  margin-top: auto;
+}
+
+/* ── Fallback / alternate source notice ── */
+.aqi-hero-fallback-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 8px;
+  max-width: 340px;
+}
+.aqi-hero-fallback-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fbbf24;
+  letter-spacing: 0.3px;
+}
+.aqi-hero-fallback-text {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.7));
+}
+.aqi-hero-fallback-text strong {
+  color: var(--hero-text, #fff);
+}
+/* Alternate badge style for Live badge */
+.aqi-live-badge--fallback {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+.aqi-live-dot--warn {
+  background: #fbbf24 !important;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.6) !important;
+}
+/* Stale badge style (>7 days outdated) */
+.aqi-live-badge--stale {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+.aqi-live-dot--stale {
+  background: #ef4444 !important;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6) !important;
+  animation: none !important;
+}
+
+/* ── Stale-data watermark overlay (covers AQI card) ── */
+.stale-data-overlay {
+  position: relative;
+  z-index: 10;
+  margin-bottom: 12px;
+}
+.stale-data-overlay-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px dashed rgba(239, 68, 68, 0.35);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+}
+.stale-data-overlay-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.stale-data-overlay-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ef4444;
+  line-height: 1.5;
+}
+.stale-data-overlay-sub {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+.dark .stale-data-overlay-inner {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.dark .stale-data-overlay-text {
+  color: #fca5a5;
+}
+
+/* ── AQI Hero Card watermark (covers the entire card) ── */
+.aqi-hero-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  border-radius: inherit;
+  pointer-events: auto;
+  animation: aqi-watermark-fadein 0.5s ease-out;
+}
+@keyframes aqi-watermark-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.aqi-hero-watermark-text {
+  font-size: 22px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(239, 68, 68, 0.3);
+  padding: 0 24px;
+  line-height: 1.4;
+}
+.aqi-hero-watermark-sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  margin-top: 8px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+}
+/* ── Watermark CTA buttons ── */
+.aqi-hero-watermark-cta {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+  pointer-events: auto;
+}
+.aqi-watermark-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+  cursor: pointer;
+  border: none;
+  line-height: 1;
+}
+.aqi-watermark-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.aqi-watermark-btn--primary {
+  background: #fff;
+  color: #0c4a6e;
+}
+.aqi-watermark-btn--primary:hover {
+  background: #e0f2fe;
+  color: #0c4a6e;
+}
+.aqi-watermark-btn--secondary {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.aqi-watermark-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+/* Mobile: smaller watermark text */
+@media (max-width: 640px) {
+  .aqi-hero-watermark-text {
+    font-size: 16px;
+    letter-spacing: 1px;
+  }
+  .aqi-hero-watermark-sub {
+    font-size: 11px;
+  }
+  .aqi-hero-watermark-cta {
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .aqi-watermark-btn {
+    padding: 7px 12px;
+    font-size: 10px;
+  }
+}
+
+/* AQI metrics row below Updated */
+.aqi-hero-metrics-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.aqi-metric-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 5px 12px;
+  min-width: 60px;
+}
+.aqi-metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.55));
+  font-weight: 600;
+}
+.aqi-metric-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--hero-text, #fff);
+  line-height: 1.2;
+}
+.aqi-metric-val-sm {
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 80px;
+  text-align: center;
+  line-height: 1.15;
+}
+
+/* AQI Category Meter inside hero card */
+.aqi-hero-meter-wrap {
+  margin-top: 4px;
+  width: 100%;
+}
+.aqi-hero-meter-wrap .aqi-meter-container {
+  background: transparent;
+}
+.aqi-hero-meter-wrap .aqi-meter-label,
+.aqi-hero-meter-wrap .aqi-meter-range {
+  color: var(--hero-text-sub, rgba(255, 255, 255, 0.7));
+}
+.aqi-hero-meter-wrap .aqi-meter-active-band {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+
+/* ── Merged gauge layout (PM10 + PM2.5 compact) ───────────────── */
+.aqi-hero-merged-gauges {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.aqi-hero-merged-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.aqi-hero-merged-tags .aqi-hero-status-tag {
+  font-size: 11px !important;
+  padding: 1px 8px !important;
+  line-height: 1.5 !important;
+}
+
+/* ── Legacy dual gauge classes (kept for back-compat) ── */
+.aqi-hero-dual-gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.aqi-hero-dual-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.aqi-hero-dual-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  margin-top: 2px;
+}
+.aqi-hero-gauge-wrap--sm { /* Slightly smaller gauge for dual layout */ display: contents; }
+.aqi-hero-gauge--sm {
+  width: 110px !important;
+  height: 110px !important;
+  border-width: 3px !important;
+}
+
+/* Dual gauges: side-by-side on mobile screens */
+@media (max-width: 768px) {
+  .aqi-hero-dual-gauges {
+    flex-direction: row;
+    gap: 16px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+}
+
+/* ── Dual pointers: PM10 above / PM2.5 below ── */
+.aqi-meter-pointer--above {
+  flex-direction: column-reverse;
+  top: 0;
+  z-index: 6;
+  margin-top: 5px;
+}
+.aqi-meter-pointer--above .aqi-meter-pointer-value--top {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  margin-top: 0;
+  margin-bottom: 7px;
+}
+.aqi-meter-pointer--below {
+  top: auto;
+  bottom: 0;
+  flex-direction: column;
+  z-index: 6;
+}
+.aqi-meter-pointer--below .aqi-meter-pointer-line {
+  margin-top: 32px;
+}
+.aqi-meter-pointer--below .aqi-meter-pointer-value {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  margin-top:5px;
+}
+
+/* When dual pointers are present, add top/bottom room for separated pointers */
+.aqi-meter-bar-wrap:has(.aqi-meter-pointer--above) {
+  padding-top: 32px;
+  padding-bottom: 36px;
+}
+
+/* Live pulse dot indicator */
+.aqi-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 3px 10px 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.aqi-live-badge--topleft {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+}
+.aqi-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+  animation: live-pulse 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.75);
+    box-shadow: 0 0 12px rgba(52, 211, 153, 0.9);
+  }
+}

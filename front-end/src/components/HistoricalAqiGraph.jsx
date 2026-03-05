@@ -15,6 +15,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import "./HistoricalAqiGraph.css";
 
 /* ── AQI colour bands ─────────────────────────────────────────────── */
 const BANDS = [
@@ -105,7 +106,7 @@ export default function HistoricalAqiGraph({
   label2,
   loading2,
 }) {
-  const [range, setRange] = useState("3m");
+  const [range, setRange] = useState("1m");
   const [customRange, setCustomRange] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
 

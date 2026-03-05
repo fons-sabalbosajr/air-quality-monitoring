@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { TbWorld } from "react-icons/tb";
+import "./IqEarthMapCard.css";
 
 /**
  * IQEarth Air Quality Map – embeds the IQAir visual air quality map

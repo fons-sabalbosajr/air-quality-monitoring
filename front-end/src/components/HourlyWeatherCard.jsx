@@ -20,12 +20,12 @@ import {
   WiRaindrops,
   WiShowers,
 } from "react-icons/wi";
+import "./HourlyWeatherCard.css";
 
 /* ── Weather code → icon / label (day/night aware) ── */
 function weatherMeta(code, hour) {
   const isNight = hour < 6 || hour >= 18;
-  if (code == null)
-    return { icon: <WiCloudy size={32} />, label: "Unknown" };
+  if (code == null) return { icon: <WiCloudy size={32} />, label: "Unknown" };
   if (code === 0)
     return isNight
       ? { icon: <WiNightClear size={36} />, label: "Clear" }
@@ -34,18 +34,12 @@ function weatherMeta(code, hour) {
     return isNight
       ? { icon: <WiNightAltCloudy size={36} />, label: "Partly Cloudy" }
       : { icon: <WiDayCloudy size={36} />, label: "Partly Cloudy" };
-  if (code <= 48)
-    return { icon: <WiFog size={36} />, label: "Foggy" };
-  if (code <= 57)
-    return { icon: <WiRaindrops size={36} />, label: "Drizzle" };
-  if (code <= 67)
-    return { icon: <WiRain size={36} />, label: "Rain" };
-  if (code <= 77)
-    return { icon: <WiSnow size={36} />, label: "Snow" };
-  if (code <= 82)
-    return { icon: <WiShowers size={36} />, label: "Showers" };
-  if (code <= 86)
-    return { icon: <WiSnow size={36} />, label: "Snow Showers" };
+  if (code <= 48) return { icon: <WiFog size={36} />, label: "Foggy" };
+  if (code <= 57) return { icon: <WiRaindrops size={36} />, label: "Drizzle" };
+  if (code <= 67) return { icon: <WiRain size={36} />, label: "Rain" };
+  if (code <= 77) return { icon: <WiSnow size={36} />, label: "Snow" };
+  if (code <= 82) return { icon: <WiShowers size={36} />, label: "Showers" };
+  if (code <= 86) return { icon: <WiSnow size={36} />, label: "Snow Showers" };
   if (code <= 99)
     return { icon: <WiThunderstorm size={36} />, label: "Thunderstorm" };
   return { icon: <WiCloudy size={32} />, label: "Unknown" };
@@ -133,9 +127,33 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
     return h > 12 ? `${h - 12} PM` : `${h} AM`;
   };
 
+  /* ── Day label for separators ── */
+  const formatDayLabel = (iso) => {
+    const d = new Date(iso);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (d.toDateString() === today.toDateString()) return "Today";
+    if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
+    return d.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const isDifferentDay = (a, b) => {
+    if (!a || !b) return false;
+    const da = new Date(a).toDateString();
+    const db = new Date(b).toDateString();
+    return da !== db;
+  };
+
   /* ── Summary for "Now" header ── */
   const nowData = hours[0];
-  const nowMeta = nowData ? weatherMeta(nowData.weatherCode, new Date(nowData.time).getHours()) : null;
+  const nowMeta = nowData
+    ? weatherMeta(nowData.weatherCode, new Date(nowData.time).getHours())
+    : null;
 
   return (
     <div>
@@ -176,47 +194,70 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
               const meta = weatherMeta(h.weatherCode, hr);
               const tc = tempColor(h.temp);
               const isNow = i === 0;
+              const showDaySep =
+                i > 0 && isDifferentDay(hours[i - 1].time, h.time);
               return (
-                <div
-                  key={h.time}
-                  className={`hourly-tile${isNow ? " hourly-tile--now" : ""}`}
-                >
-                  {/* Time label */}
-                  <span className="hourly-tile-time">
-                    {isNow ? "Now" : formatHour(h.time)}
-                  </span>
-
-                  {/* Weather icon */}
-                  <div className="hourly-tile-icon">{meta.icon}</div>
-
-                  {/* Temperature with color accent */}
-                  <span className="hourly-tile-temp" style={{ color: tc }}>
-                    {h.temp != null ? `${Math.round(h.temp)}°` : "—"}
-                  </span>
-
-                  {/* Mini stat bar */}
-                  <div className="hourly-tile-stats">
-                    <span className="hourly-tile-stat" title="Humidity">
-                      <TbDroplet size={11} className="hourly-stat-icon hourly-stat-icon--blue" />
-                      <span>{h.humidity != null ? `${h.humidity}%` : "—"}</span>
+                <>
+                  {showDaySep && (
+                    <div key={`sep-${h.time}`} className="hourly-day-separator">
+                      <div className="hourly-day-separator-line" />
+                      <span className="hourly-day-separator-label">
+                        {formatDayLabel(h.time)}
+                      </span>
+                      <div className="hourly-day-separator-line" />
+                    </div>
+                  )}
+                  <div
+                    key={h.time}
+                    className={`hourly-tile${isNow ? " hourly-tile--now" : ""}`}
+                  >
+                    {/* Time label */}
+                    <span className="hourly-tile-time">
+                      {isNow ? "Now" : formatHour(h.time)}
                     </span>
-                    <span className="hourly-tile-stat" title="Rain chance">
-                      <TbCloudRain size={11} className="hourly-stat-icon hourly-stat-icon--cyan" />
-                      <span>{h.precipProb != null ? `${h.precipProb}%` : "—"}</span>
-                    </span>
-                  </div>
 
-                  {/* Temp bar indicator */}
-                  <div className="hourly-tile-bar-track">
-                    <div
-                      className="hourly-tile-bar-fill"
-                      style={{
-                        width: `${h.temp != null ? Math.min(100, Math.max(8, ((h.temp - 15) / 25) * 100)) : 0}%`,
-                        background: tc,
-                      }}
-                    />
+                    {/* Weather icon */}
+                    <div className="hourly-tile-icon">{meta.icon}</div>
+
+                    {/* Temperature with color accent */}
+                    <span className="hourly-tile-temp" style={{ color: tc }}>
+                      {h.temp != null ? `${Math.round(h.temp)}°` : "—"}
+                    </span>
+
+                    {/* Mini stat bar */}
+                    <div className="hourly-tile-stats">
+                      <span className="hourly-tile-stat" title="Humidity">
+                        <TbDroplet
+                          size={11}
+                          className="hourly-stat-icon hourly-stat-icon--blue"
+                        />
+                        <span>
+                          {h.humidity != null ? `${h.humidity}%` : "—"}
+                        </span>
+                      </span>
+                      <span className="hourly-tile-stat" title="Rain chance">
+                        <TbCloudRain
+                          size={11}
+                          className="hourly-stat-icon hourly-stat-icon--cyan"
+                        />
+                        <span>
+                          {h.precipProb != null ? `${h.precipProb}%` : "—"}
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* Temp bar indicator */}
+                    <div className="hourly-tile-bar-track">
+                      <div
+                        className="hourly-tile-bar-fill"
+                        style={{
+                          width: `${h.temp != null ? Math.min(100, Math.max(8, ((h.temp - 15) / 25) * 100)) : 0}%`,
+                          background: tc,
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
+                </>
               );
             })}
           </div>

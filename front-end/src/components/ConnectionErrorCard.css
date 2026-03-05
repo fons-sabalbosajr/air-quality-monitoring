@@ -1,0 +1,258 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Connection Watermark – floating glassmorphism overlay
+   Non-blocking: dashboard content stays visible & interactive
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Base floating container ─────────────────────────────────────── */
+.conn-wm {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1100;
+  min-width: 260px;
+  max-width: 320px;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  box-shadow:
+    0 8px 32px rgba(239, 68, 68, 0.10),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+  animation: conn-wm-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: inherit;
+}
+.dark .conn-wm {
+  background: rgba(30, 30, 40, 0.78);
+  border-color: rgba(239, 68, 68, 0.28);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 1px 4px rgba(239, 68, 68, 0.08);
+}
+.conn-wm--compact {
+  min-width: 220px;
+  max-width: 260px;
+  padding: 10px 12px 8px;
+  border-radius: 12px;
+}
+@keyframes conn-wm-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Minimised pill ──────────────────────────────────────────────── */
+.conn-wm--pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.10);
+  cursor: pointer;
+  user-select: none;
+  animation: conn-wm-in 0.3s ease-out;
+  min-width: unset;
+  max-width: unset;
+  font-family: inherit;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.dark .conn-wm--pill {
+  background: rgba(30, 30, 40, 0.82);
+}
+.conn-wm--pill:hover {
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.18);
+  transform: translateY(-1px);
+}
+.conn-wm-pill-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.conn-wm-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: conn-wm-dot-pulse 1.8s ease-in-out infinite;
+}
+@keyframes conn-wm-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Controls (minimize / dismiss) ────────────────────────────────── */
+.conn-wm-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+.conn-wm-ctrl-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--aqm-muted, #94a3b8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+}
+.dark .conn-wm-ctrl-btn {
+  background: rgba(255, 255, 255, 0.06);
+}
+.conn-wm-ctrl-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+.conn-wm-ctrl-dash {
+  display: block;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+/* ── Content row (icon + text) ────────────────────────────────────── */
+.conn-wm-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+/* Icon ring */
+.conn-wm-icon-ring {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.conn-wm--compact .conn-wm-icon-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.conn-wm-icon {
+  color: #fff;
+  width: 18px;
+  height: 18px;
+}
+.conn-wm--compact .conn-wm-icon {
+  width: 14px;
+  height: 14px;
+}
+.conn-wm-pulse-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 2px solid rgba(239, 68, 68, 0.25);
+  animation: conn-wm-ring 2.2s ease-in-out infinite;
+}
+@keyframes conn-wm-ring {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.12); opacity: 0; }
+}
+
+/* Text */
+.conn-wm-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-right: 36px;      /* clear dismiss controls */
+}
+.conn-wm-heading {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ef4444;
+  line-height: 1.25;
+}
+.dark .conn-wm-heading {
+  color: #fb7185;
+}
+.conn-wm-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--aqm-muted, #64748b);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Footer (retry + status) ──────────────────────────────────────── */
+.conn-wm-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+.dark .conn-wm-footer {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+.conn-wm-retry-btn {
+  background: linear-gradient(135deg, #ef4444, #f97316) !important;
+  border: none !important;
+  font-size: 11px !important;
+  height: 26px !important;
+  padding: 0 12px !important;
+  border-radius: 7px !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.20) !important;
+}
+.conn-wm-retry-btn:hover {
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.30) !important;
+  transform: translateY(-1px);
+}
+.conn-wm-status-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--aqm-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .conn-wm {
+    bottom: 16px;
+    right: 12px;
+    left: 12px;
+    min-width: unset;
+    max-width: unset;
+  }
+  .conn-wm--pill {
+    bottom: 16px;
+    right: 12px;
+  }
+}

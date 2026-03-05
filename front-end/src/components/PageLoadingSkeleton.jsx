@@ -1,3 +1,5 @@
+import "./PageLoadingSkeleton.css";
+
 /**
  * PageLoadingSkeleton — shimmer loading state for Suspense fallbacks
  * and initial data loading screens. Matches the dashboard card layout.
