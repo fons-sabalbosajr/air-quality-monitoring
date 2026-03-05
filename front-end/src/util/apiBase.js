@@ -18,9 +18,9 @@ export function getApiBase() {
     : null;
   if (metaBase) return metaBase;
 
-  // 4) Same-origin + subpath fallback (matches Nginx /air-quality-monitoring/api/)
+  // 4) Same-origin + subpath fallback (matches Nginx /air-quality-monitoring/ deployment)
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}/air-quality-monitoring/api`;
+    return `${window.location.origin}/air-quality-monitoring`;
   }
 
   // 5) Final fallback: localhost

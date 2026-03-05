@@ -101,7 +101,7 @@ export default function WeatherBadge() {
         if (doReverseGeo) {
           try {
             const base = getApiBase();
-            const rgUrl = new URL(`/api/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, base).toString();
+            const rgUrl = new URL(`${base}/api/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`).toString();
             const rg = await fetch(rgUrl);
             if (rg.ok) {
               const j = await rg.json();

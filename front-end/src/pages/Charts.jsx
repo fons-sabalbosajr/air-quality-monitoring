@@ -24,7 +24,7 @@ export default function ChartsPage() {
     async function runDaily() {
       setLoadingDaily(true);
       try {
-        const res = await fetch(new URL('/api/viz-data', base));
+        const res = await fetch(new URL(base + '/api/viz-data'));
         const json = await res.json();
         if (!cancelled) setDailyRows(json.series || []);
       } catch { /* ignore */ }
@@ -33,7 +33,7 @@ export default function ChartsPage() {
     async function runHourly() {
       setLoadingHourly(true);
       try {
-        const res = await fetch(new URL('/api/pm10-data', base));
+        const res = await fetch(new URL(base + '/api/pm10-data'));
         const json = await res.json();
         if (!cancelled) setHourlyRows(json.series || []);
       } catch { /* ignore */ }

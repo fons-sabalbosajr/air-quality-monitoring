@@ -260,8 +260,7 @@ function ThemedLayout({
     (async () => {
       try {
         const rgUrl = new URL(
-          `/api/reverse-geocode?lat=${encodeURIComponent(geoPos.lat)}&lon=${encodeURIComponent(geoPos.lon)}`,
-          getApiBase()
+          `${getApiBase()}/api/reverse-geocode?lat=${encodeURIComponent(geoPos.lat)}&lon=${encodeURIComponent(geoPos.lon)}`
         ).toString();
         const rg = await fetch(rgUrl);
         if (rg.ok) {
@@ -386,7 +385,7 @@ function ThemedLayout({
           // Reverse geocoding via backend proxy to avoid client-side CORS issues
           let place = null;
           try {
-            const rgUrl = new URL(`/api/reverse-geocode?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`, getApiBase()).toString();
+            const rgUrl = new URL(`${getApiBase()}/api/reverse-geocode?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`).toString();
             const rg = await fetch(rgUrl);
             if (rg.ok) {
               const j = await rg.json();

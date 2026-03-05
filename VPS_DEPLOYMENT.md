@@ -192,7 +192,7 @@ nano .env
 Fill in:
 
 ```env
-VITE_API_BASE=https://embr3-onlinesystems.cloud/air-quality-monitoring/api
+VITE_API_BASE=https://embr3-onlinesystems.cloud/air-quality-monitoring
 
 # Generate a key:  openssl rand -base64 32
 VITE_SECURE_STORAGE_KEY=PASTE_GENERATED_KEY_HERE
@@ -224,29 +224,32 @@ npm run build
 
 ## 5. Add Nginx Location Blocks
 
-Your existing Nginx config already has a `server { ... }` block for `embr3-onlinesystems.cloud`. We add location blocks **inside** that same server block.
+Your VPS uses `/etc/nginx/sites-available/embr3-hr-pms` (symlinked from `sites-enabled/`) to serve HRPMS and OCSM. We add AQM blocks to the **same file**.
 
 ```bash
-nano /etc/nginx/sites-available/default
+nano /etc/nginx/sites-available/embr3-hr-pms
 ```
 
-> Or wherever your main server block lives (check with `grep -r "server_name" /etc/nginx/sites-enabled/`).
-
-**Add these location blocks** inside the existing `server { ... }` block. Do **NOT** remove the existing `/hrpms` or `/ocsm` blocks:
+**Add the following blocks** inside the main `server { ... }` block, right after the OCSM Socket.IO section and **before** the `listen 443 ssl;` line:
 
 ```nginx
-    # ═══════════════════════════════════════════════════════════
-    # EMBR3 Air Quality Monitoring
-    # ═══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════
+    # AQM – Air Quality Monitoring (port 3001)
+    # ══════════════════════════════════════════════════════════════════
 
-    # ── Frontend SPA (subpath) ──
+    # ── Bare /air-quality-monitoring → trailing slash ────────────────
+    location = /air-quality-monitoring {
+        return 301 /air-quality-monitoring/;
+    }
+
+    # ── AQM Front-end (static SPA) ──────────────────────────────────
     location /air-quality-monitoring/ {
         alias /var/www/air-quality-monitoring/front-end/dist/;
         index index.html;
         try_files $uri $uri/ /air-quality-monitoring/index.html;
     }
 
-    # ── Admin shortcut redirect ──
+    # ── Admin shortcut redirect ──────────────────────────────────────
     location = /air-quality-monitoring-admin {
         return 301 /air-quality-monitoring/admin/overview;
     }
@@ -254,18 +257,34 @@ nano /etc/nginx/sites-available/default
         return 301 /air-quality-monitoring/admin/overview;
     }
 
-    # ── API reverse proxy (Node :3001) ──
+    # ── AQM API reverse proxy ───────────────────────────────────────
     location /air-quality-monitoring/api/ {
-        rewrite ^/air-quality-monitoring/api/(.*) /$1 break;
-        proxy_pass http://127.0.0.1:3001;
+        rewrite ^/air-quality-monitoring/api/(.*) /api/$1 break;
+        proxy_pass         http://127.0.0.1:3001;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_connect_timeout 10s;
         proxy_read_timeout 30s;
     }
+```
+
+> **Where exactly?** After the `location /ocsm/socket.io/ { ... }` block and its blank line, before the line `listen 443 ssl; # managed by Certbot`.
+
+### Enable geolocation (important!)
+
+The existing Nginx config contains a `Permissions-Policy` header that blocks geolocation:
+
+```
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()";
+```
+
+AQM uses geolocation for station detection. Change `geolocation=()` to `geolocation=(self)`:
+
+```nginx
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)";
 ```
 
 ### Test & reload Nginx
@@ -380,7 +399,7 @@ pm2 set pm2-logrotate:retain 7
 | CORS errors in browser | `CORS_ORIGIN` mismatch | Set `CORS_ORIGIN=https://embr3-onlinesystems.cloud` in `server/.env`, restart |
 | `/air-quality-monitoring-admin` shows 404 | Nginx missing redirect block | Add the `location = /air-quality-monitoring-admin` block |
 | SPA sub-routes 404 on page refresh | Missing `try_files` fallback | Ensure `try_files $uri $uri/ /air-quality-monitoring/index.html;` |
-| API returns `Cannot GET /api/...` | Rewrite rule wrong | Check `rewrite ^/air-quality-monitoring/api/(.*) /$1 break;` |
+| API returns `Cannot GET /api/...` | Rewrite rule wrong | Check `rewrite ^/air-quality-monitoring/api/(.*) /api/$1 break;` |
 | Assets not loading (404) | Base path mismatch | Verify `vite.config.js` has `base: '/air-quality-monitoring/'`, rebuild |
 | Existing apps (`/hrpms`, `/ocsm`) broken | Location block conflict | Ensure AQM blocks are separate, not overriding existing ones |
 | MongoDB auth error | Wrong password in `.env` | Check `MONGO_URI` matches the user/password from Step 2 |

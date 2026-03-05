@@ -33,7 +33,8 @@ export async function fetchJson(endpointOrUrl, opts = {}) {
     if (/^https?:\/\//i.test(endpointOrUrl)) {
       url = new URL(endpointOrUrl);
     } else {
-      url = new URL(endpointOrUrl, getApiBase());
+      // Concatenate base + path so subpath prefixes like /air-quality-monitoring are preserved
+      url = new URL(getApiBase() + endpointOrUrl);
     }
   } catch (e) {
     throw new Error('Invalid URL: ' + endpointOrUrl);
