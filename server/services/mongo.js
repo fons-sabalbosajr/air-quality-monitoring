@@ -26,6 +26,7 @@ let _metaCollection = null;
 let _stationCollection = null;
 let _ingestScheduled = false;
 let _ingestRunning = false;
+const VERBOSE_INGEST_LOGS = process.env.VERBOSE_INGEST_LOGS === "true";
 
 function inferDbName(uri) {
   if (!uri) return DEFAULT_DB_NAME;
@@ -212,7 +213,9 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
     return;
   }
   if (_ingestRunning) {
-    console.log(`[ingest] overlapping run skipped (${reason})`);
+    if (VERBOSE_INGEST_LOGS) {
+      console.log(`[ingest] overlapping run skipped (${reason})`);
+    }
     return;
   }
   _ingestRunning = true;
@@ -252,9 +255,11 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
     }
 
     const sheetInfo = sheetIngested.length ? `, sheets:[${sheetIngested.join(",")}]` : "";
-    console.log(
-      `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${vizPts} pts, pm10:${pm10Pts} pts${sheetInfo})`,
-    );
+    if (VERBOSE_INGEST_LOGS) {
+      console.log(
+        `[ingest] run ${reason} ok in ${Date.now() - started}ms (viz:${vizPts} pts, pm10:${pm10Pts} pts${sheetInfo})`,
+      );
+    }
   } catch (err) {
     console.error(`[ingest] run ${reason} failed: ${err.message}`);
   } finally {

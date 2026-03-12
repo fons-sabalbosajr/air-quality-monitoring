@@ -35,17 +35,20 @@ import {
   TbMoon,
   TbEye,
   TbBrandFacebook,
+  TbBrandInstagram,
+  TbBrandX,
   TbBrandYoutube,
 } from "react-icons/tb";
 import { AqiProvider, useAqi } from "../context/AqiContext";
 import STATIONS, { getStationPhoto, getUniqueLocations, bgEmbPhoto } from "../config/stations";
-import useTabularData from "../hooks/useTabularData";
-import useStationWeather from "../hooks/useStationWeather";
+import useTabularData, { prefetchTabularData } from "../hooks/useTabularData";
+import useStationWeather, { prefetchStationWeather } from "../hooks/useStationWeather";
 import AqiHeroCard from "../components/AqiHeroCard";
-import HourlyWeatherCard from "../components/HourlyWeatherCard";
+import HourlyWeatherCard, { prefetchHourlyWeather } from "../components/HourlyWeatherCard";
 import WindMapCard from "../components/WindMapCard";
 import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import embLogo from "../assets/emblogo.svg";
+import artaVideo from "../assets/ARTA.mp4";
 import "./Kiosk.css";
 
 /* ── Kiosk-specific stations: merge multi-pollutant provinces into one ── */
@@ -76,13 +79,57 @@ const KIOSK_STATIONS = (() => {
       merged.push({ ...s, merged: false });
     }
   }
+  merged.sort((a, b) => a.name.localeCompare(b.name));
   return merged;
 })();
 
 const CYCLE_INTERVAL = 25000; // 25 seconds per station (longer to allow AQI data to load)
+const TRANSITION_MS = 300;
+
+function getNextRotationState(currentState, isArtaDisplayEnabled) {
+  if (!isArtaDisplayEnabled) {
+    return {
+      stationIdx: (currentState.stationIdx + 1) % KIOSK_STATIONS.length,
+      showCommercialBreak: false,
+    };
+  }
+
+  if (currentState.showCommercialBreak) {
+    return {
+      stationIdx: (currentState.stationIdx + 1) % KIOSK_STATIONS.length,
+      showCommercialBreak: false,
+    };
+  }
+
+  return {
+    stationIdx: currentState.stationIdx,
+    showCommercialBreak: true,
+  };
+}
+
+function getPreviousRotationState(currentState, isArtaDisplayEnabled) {
+  if (!isArtaDisplayEnabled) {
+    return {
+      stationIdx: (currentState.stationIdx - 1 + KIOSK_STATIONS.length) % KIOSK_STATIONS.length,
+      showCommercialBreak: false,
+    };
+  }
+
+  if (currentState.showCommercialBreak) {
+    return {
+      stationIdx: currentState.stationIdx,
+      showCommercialBreak: false,
+    };
+  }
+
+  return {
+    stationIdx: (currentState.stationIdx - 1 + KIOSK_STATIONS.length) % KIOSK_STATIONS.length,
+    showCommercialBreak: true,
+  };
+}
 
 /* ── Inner content (needs AqiProvider context) ─────────────────── */
-function KioskContent() {
+function KioskContent({ withArta = false }) {
   const { setCategory } = useAqi() || { setCategory: () => {} };
 
   // ── Dark mode detection ──
@@ -100,41 +147,141 @@ function KioskContent() {
   }, []);
 
   // ── Station auto-cycling ──
-  const [stationIdx, setStationIdx] = useState(0);
+  const [rotationState, setRotationState] = useState({
+    stationIdx: 0,
+    showCommercialBreak: false,
+  });
   const [paused, setPaused] = useState(false);
   const timerRef = useRef(null);
+  const transitionRef = useRef(null);
+  const commercialVideoRef = useRef(null);
   const [transitioning, setTransitioning] = useState(false);
+  const [commercialLoopCount, setCommercialLoopCount] = useState(0);
+  const [commercialProgress, setCommercialProgress] = useState(0);
+
+  const isArtaEnabled = withArta;
+  const stationIdx = rotationState.stationIdx;
+  const isCommercialBreak = isArtaEnabled && rotationState.showCommercialBreak;
 
   const station = KIOSK_STATIONS[stationIdx];
 
+  const scrollStationIntoView = useCallback(() => {
+    if (window.scrollY > 0) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  const transitionSequence = useCallback((nextView, { scrollToTop = true } = {}) => {
+    window.clearTimeout(transitionRef.current);
+    setTransitioning(true);
+    transitionRef.current = window.setTimeout(() => {
+      setRotationState((currentState) => {
+        const nextState = typeof nextView === "function"
+          ? nextView(currentState)
+          : nextView;
+
+        return {
+          stationIdx: nextState.stationIdx,
+          showCommercialBreak: isArtaEnabled ? Boolean(nextState.showCommercialBreak) : false,
+        };
+      });
+      setTransitioning(false);
+      if (scrollToTop) {
+        scrollStationIntoView();
+      }
+    }, TRANSITION_MS);
+  }, [isArtaEnabled, scrollStationIntoView]);
+
+  useEffect(() => () => window.clearTimeout(transitionRef.current), []);
+
+  useEffect(() => {
+    for (const kioskStation of KIOSK_STATIONS) {
+      prefetchTabularData(kioskStation.province, kioskStation.pollutant);
+      kioskStation.pollutants?.forEach((pollutant) => {
+        if (pollutant !== kioskStation.pollutant) {
+          prefetchTabularData(kioskStation.province, pollutant);
+        }
+      });
+      prefetchStationWeather(kioskStation.lat, kioskStation.lon);
+      prefetchHourlyWeather(kioskStation.lat, kioskStation.lon);
+    }
+  }, []);
+
   // Auto-cycle effect
   useEffect(() => {
-    if (paused) return;
+    if (paused || isCommercialBreak) return;
     timerRef.current = setInterval(() => {
-      setTransitioning(true);
-      setTimeout(() => {
-        setStationIdx((prev) => (prev + 1) % KIOSK_STATIONS.length);
-        setTransitioning(false);
-      }, 400);
+      transitionSequence((currentState) => getNextRotationState(currentState, isArtaEnabled));
     }, CYCLE_INTERVAL);
     return () => clearInterval(timerRef.current);
-  }, [paused]);
+  }, [isArtaEnabled, isCommercialBreak, paused, transitionSequence]);
+
+  useEffect(() => {
+    if (!isCommercialBreak) {
+      setCommercialLoopCount(0);
+      setCommercialProgress(0);
+      return;
+    }
+
+    setCommercialLoopCount(0);
+    setCommercialProgress(0);
+    const video = commercialVideoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {});
+      }
+    }
+  }, [isCommercialBreak, stationIdx]);
+
+  const handleCommercialMetadata = useCallback(() => {
+    const video = commercialVideoRef.current;
+    if (!video) return;
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      setCommercialProgress(0);
+      return;
+    }
+
+    setCommercialProgress(0);
+  }, []);
+
+  const handleCommercialTimeUpdate = useCallback(() => {
+    const video = commercialVideoRef.current;
+    if (!video) return;
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+
+    const totalDuration = video.duration * 2;
+    const completedDuration = commercialLoopCount * video.duration + video.currentTime;
+    setCommercialProgress(Math.min(100, (completedDuration / totalDuration) * 100));
+  }, [commercialLoopCount]);
+
+  const handleCommercialVideoEnded = useCallback(() => {
+    const video = commercialVideoRef.current;
+    if (!video) return;
+
+    if (commercialLoopCount < 1) {
+      setCommercialLoopCount(1);
+      setCommercialProgress(50);
+      video.currentTime = 0;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {});
+      }
+      return;
+    }
+
+    setCommercialProgress(100);
+    transitionSequence((currentState) => getNextRotationState(currentState, true));
+  }, [commercialLoopCount, transitionSequence]);
 
   const goNext = useCallback(() => {
-    setTransitioning(true);
-    setTimeout(() => {
-      setStationIdx((prev) => (prev + 1) % KIOSK_STATIONS.length);
-      setTransitioning(false);
-    }, 300);
-  }, []);
+    transitionSequence((currentState) => getNextRotationState(currentState, isArtaEnabled));
+  }, [isArtaEnabled, transitionSequence]);
 
   const goPrev = useCallback(() => {
-    setTransitioning(true);
-    setTimeout(() => {
-      setStationIdx((prev) => (prev - 1 + KIOSK_STATIONS.length) % KIOSK_STATIONS.length);
-      setTransitioning(false);
-    }, 300);
-  }, []);
+    transitionSequence((currentState) => getPreviousRotationState(currentState, isArtaEnabled));
+  }, [isArtaEnabled, transitionSequence]);
 
   /** Navigate to a specific station by province key (from carousel click) */
   const goToStation = useCallback((province) => {
@@ -142,18 +289,15 @@ function KioskContent() {
       (s) => s.province === province,
     );
     if (idx >= 0 && idx !== stationIdx) {
-      setTransitioning(true);
-      setTimeout(() => {
-        setStationIdx(idx);
-        setTransitioning(false);
-        // Scroll to top so user sees the AQI hero card
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }, 300);
+      transitionSequence({ stationIdx: idx, showCommercialBreak: false });
     } else if (idx === stationIdx) {
-      // Already on this station – just scroll to top
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (isCommercialBreak) {
+        transitionSequence({ stationIdx: idx, showCommercialBreak: false });
+      } else {
+        scrollStationIntoView();
+      }
     }
-  }, [stationIdx]);
+  }, [isCommercialBreak, scrollStationIntoView, stationIdx, transitionSequence]);
 
   // ── Data hooks ──
   const tabular = useTabularData(station.province, station.pollutant);
@@ -238,7 +382,7 @@ function KioskContent() {
   // ── Progress bar for auto-cycle ──
   const [progress, setProgress] = useState(0);
   useEffect(() => {
-    if (paused) return;
+    if (paused || isCommercialBreak) return;
     setProgress(0);
     const step = 50; // ms
     const iv = setInterval(() => {
@@ -248,20 +392,14 @@ function KioskContent() {
       });
     }, step);
     return () => clearInterval(iv);
-  }, [stationIdx, paused]);
+  }, [isCommercialBreak, paused, stationIdx]);
 
   // ── Station dots ──
   const stationDots = KIOSK_STATIONS.map((s, i) => (
     <button
       key={s.key}
       className={`kiosk-dot${i === stationIdx ? " kiosk-dot--active" : ""}`}
-      onClick={() => {
-        setTransitioning(true);
-        setTimeout(() => {
-          setStationIdx(i);
-          setTransitioning(false);
-        }, 300);
-      }}
+      onClick={() => transitionSequence({ stationIdx: i, showCommercialBreak: false })}
       aria-label={s.name}
     />
   ));
@@ -290,7 +428,7 @@ function KioskContent() {
   }, []);
 
   return (
-    <div className="kiosk-page">
+    <div className={`kiosk-page${isCommercialBreak ? " kiosk-page--commercial" : ""}`}>
       {/* ── Top Bar ── */}
       <header className="kiosk-header">
         <div className="kiosk-brand">
@@ -331,13 +469,17 @@ function KioskContent() {
         </button>
         <div className="kiosk-station-indicator">
           <div className="kiosk-dots">{stationDots}</div>
-          <div className="kiosk-station-label" style={{ textAlign: "center", justifyContent: "center" }}>
-            <TbMapPin size={14} />
-            <div className="kiosk-station-info-col" style={{ alignItems: "center" }}>
-              <span>{station.name}</span>
-              <span className="kiosk-station-addr">{station.address}</span>
+          {isCommercialBreak ? (
+            <div className="kiosk-station-label kiosk-station-label--commercial" aria-hidden="true" />
+          ) : (
+            <div className="kiosk-station-label">
+              <TbMapPin size={14} />
+              <div className="kiosk-station-info-col kiosk-station-info-col--centered">
+                <span>{station.name}</span>
+                <span className="kiosk-station-addr">{station.address}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <button
           className="kiosk-nav-btn"
@@ -349,7 +491,7 @@ function KioskContent() {
       </div>
 
       {/* ── Progress bar ── */}
-      {!paused && (
+      {!paused && !isCommercialBreak && (
         <div className="kiosk-progress-track">
           <div
             className="kiosk-progress-bar"
@@ -360,321 +502,387 @@ function KioskContent() {
 
       {/* ── Main Content (card-like fade transition) ── */}
       <main className={`kiosk-main${transitioning ? " kiosk-main--fade" : ""}`}>
-        {/* Connection / API Error */}
-        {(tabular.error || weather.error) && (
-          <section className="kiosk-section" style={{ padding: 0 }}>
-            <ConnectionErrorCard
-              error={tabular.error || weather.error}
-              onRetry={tabular.retry}
-              retrying={tabular.loading}
-              compact
-            />
+        {isCommercialBreak ? (
+          <section className="kiosk-section kiosk-arta-stage-section">
+            <div className="kiosk-arta-break-card kiosk-arta-break-card--stage">
+              <div className="kiosk-arta-progress-panel" aria-label="ARTA commercial progress">
+                <div className="kiosk-arta-progress-track">
+                  <div
+                    className="kiosk-arta-progress-fill"
+                    style={{ width: `${commercialProgress}%` }}
+                  />
+                </div>
+              </div>
+              <div className="kiosk-arta-video-frame kiosk-arta-video-frame--stage">
+                <video
+                  ref={commercialVideoRef}
+                  className="kiosk-arta-video"
+                  autoPlay
+                  muted
+                  playsInline
+                  preload="metadata"
+                  controls={false}
+                  onLoadedMetadata={handleCommercialMetadata}
+                  onTimeUpdate={handleCommercialTimeUpdate}
+                  onEnded={handleCommercialVideoEnded}
+                >
+                  <source src={artaVideo} type="video/mp4" />
+                </video>
+              </div>
+              <div className="kiosk-arta-bulletin-panel">
+                <h4 className="kiosk-arta-bulletin-title">Anti-Red Tape Authority</h4>
+                <div className="kiosk-arta-bulletin-row">
+                  <a
+                    className="kiosk-arta-info-chip"
+                    href="https://arta.gov.ph/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Visit ARTA website"
+                  >
+                    <TbWorld size={15} />
+                    <span>arta.gov.ph</span>
+                  </a>
+                  <a
+                    className="kiosk-arta-info-chip"
+                    href="mailto:complaints@arta.gov.ph"
+                    title="Email complaints@arta.gov.ph"
+                  >
+                    <TbMail size={15} />
+                    <span>complaints@arta.gov.ph</span>
+                  </a>
+                  <a
+                    className="kiosk-arta-info-chip"
+                    href="mailto:info@arta.gov.ph"
+                    title="Email info@arta.gov.ph"
+                  >
+                    <TbMail size={15} />
+                    <span>info@arta.gov.ph</span>
+                  </a>
+                </div>
+                <div className="kiosk-arta-social-row">
+                  <a className="kiosk-arta-social-link" href="https://facebook.com/artagovph" target="_blank" rel="noopener noreferrer" title="Facebook"><TbBrandFacebook size={17} /></a>
+                  <a className="kiosk-arta-social-link" href="https://instagram.com/artagovph" target="_blank" rel="noopener noreferrer" title="Instagram"><TbBrandInstagram size={17} /></a>
+                  <a className="kiosk-arta-social-link" href="https://x.com/artagovph" target="_blank" rel="noopener noreferrer" title="X"><TbBrandX size={17} /></a>
+                  <a className="kiosk-arta-social-link" href="https://www.youtube.com/channel/UChQr6Tl3lqcKfMd4ANNN75w" target="_blank" rel="noopener noreferrer" title="YouTube"><TbBrandYoutube size={17} /></a>
+                </div>
+              </div>
+            </div>
           </section>
-        )}
+        ) : (
+          <>
+            {/* Connection / API Error */}
+            {(tabular.error || weather.error) && (
+              <section className="kiosk-section" style={{ padding: 0 }}>
+                <ConnectionErrorCard
+                  error={tabular.error || weather.error}
+                  onRetry={tabular.retry}
+                  retrying={tabular.loading}
+                  compact
+                />
+              </section>
+            )}
 
-        {/* AQI Hero Card (merged: dual gauges in one card) */}
-        <section className="kiosk-section kiosk-hero-section">
-          <AqiHeroCard
-            aqiValue={latestAqi.value}
-            aqiCategory={latestAqi.category}
-            aqiTime={latestAqi.time}
-            aqiLoading={tabular.loading}
-            aqiError={tabular.error}
-            aqiRefreshing={false}
-            onRetry={tabular.retry}
-            retrying={false}
-            stationName={station.name}
-            stationAddress={station.address}
-            pollutantLabel={station.merged ? (station.pollutant === "pm10" ? "PM10" : station.pollutant === "pm25" ? "PM2.5" : station.pollutant.toUpperCase()) : station.pollutantLabel}
-            isFallback={false}
-            fallbackSource={""}
-            temperature={weather.data?.temperature}
-            humidity={weather.data?.humidity}
-            pressure={weather.data?.pressure}
-            windSpeed={weather.data?.windSpeed}
-            windDirection={weather.data?.windDirection}
-            weatherCode={weather.data?.weatherCode}
-            apparentTemperature={weather.data?.apparentTemperature}
-            uvIndex={weather.data?.uvIndex}
-            cloudCover={weather.data?.cloudCover}
-            weatherLoading={weather.loading}
-            weatherError={weather.error}
-            dark={dark}
-            aqiValue2={station.merged ? latestAqi2?.value : undefined}
-            aqiCategory2={station.merged ? latestAqi2?.category : undefined}
-            aqiTime2={station.merged ? latestAqi2?.time : undefined}
-            aqiLoading2={station.merged ? tabular2.loading : undefined}
-            pollutantLabel2={station.merged && secondaryPollutant ? (secondaryPollutant === "pm25" ? "PM2.5" : secondaryPollutant === "pm10" ? "PM10" : secondaryPollutant.toUpperCase()) : undefined}
-            isStale={isStale}
-            isStale2={isStale2}
-            stationPhoto={getStationPhoto(station.province || station.key)}
-          />
-        </section>
+            {/* AQI Hero Card (merged: dual gauges in one card) */}
+            <section className="kiosk-section kiosk-hero-section">
+              <AqiHeroCard
+                aqiValue={latestAqi.value}
+                aqiCategory={latestAqi.category}
+                aqiTime={latestAqi.time}
+                aqiLoading={tabular.loading}
+                aqiError={tabular.error}
+                aqiRefreshing={false}
+                onRetry={tabular.retry}
+                retrying={false}
+                stationName={station.name}
+                stationAddress={station.address}
+                pollutantLabel={station.merged ? (station.pollutant === "pm10" ? "PM10" : station.pollutant === "pm25" ? "PM2.5" : station.pollutant.toUpperCase()) : station.pollutantLabel}
+                isFallback={false}
+                fallbackSource={""}
+                temperature={weather.data?.temperature}
+                humidity={weather.data?.humidity}
+                pressure={weather.data?.pressure}
+                windSpeed={weather.data?.windSpeed}
+                windDirection={weather.data?.windDirection}
+                weatherCode={weather.data?.weatherCode}
+                apparentTemperature={weather.data?.apparentTemperature}
+                uvIndex={weather.data?.uvIndex}
+                cloudCover={weather.data?.cloudCover}
+                weatherLoading={weather.loading}
+                weatherError={weather.error}
+                dark={dark}
+                aqiValue2={station.merged ? latestAqi2?.value : undefined}
+                aqiCategory2={station.merged ? latestAqi2?.category : undefined}
+                aqiTime2={station.merged ? latestAqi2?.time : undefined}
+                aqiLoading2={station.merged ? tabular2.loading : undefined}
+                pollutantLabel2={station.merged && secondaryPollutant ? (secondaryPollutant === "pm25" ? "PM2.5" : secondaryPollutant === "pm10" ? "PM10" : secondaryPollutant.toUpperCase()) : undefined}
+                isStale={isStale}
+                isStale2={isStale2}
+                stationPhoto={getStationPhoto(station.province || station.key)}
+              />
+            </section>
 
-        {/* AQI Category Meter - full width below hero */}
-        {/* (removed – AQI metrics already displayed in Hero Card) */}
+            {/* Hourly Weather Forecast */}
+            <section className="kiosk-section">
+              <HourlyWeatherCard
+                key={`hourly-${station.province || station.key}`}
+                latitude={station.lat}
+                longitude={station.lon}
+              />
+            </section>
 
-        {/* Stale-data watermark is now built into the AQI Hero Card */}
+            {/* Wind Map + Station Details (side-by-side) */}
+            <div className="kiosk-wind-station-row">
+              <section className="kiosk-section kiosk-station-detail-card">
+                <div
+                  className="kiosk-station-photo"
+                  style={{
+                    backgroundImage: `url(${getStationPhoto(station.province || station.key) || ""})`,
+                  }}
+                >
+                  <div className="kiosk-station-photo-overlay" />
+                  <div className="kiosk-station-photo-content">
+                    <h3 className="kiosk-station-photo-name">{station.name}</h3>
+                    <p className="kiosk-station-photo-addr">
+                      <TbMapPin size={14} />
+                      {station.address}
+                    </p>
+                  </div>
+                </div>
+                <div className="kiosk-station-info-body">
+                  <div className="kiosk-station-info-grid">
+                    <div className="kiosk-station-info-item">
+                      <span className="kiosk-station-info-label">Pollutant</span>
+                      <span className="kiosk-station-info-value">{station.pollutantLabel}</span>
+                    </div>
+                    <div className="kiosk-station-info-item">
+                      <span className="kiosk-station-info-label">Latitude</span>
+                      <span className="kiosk-station-info-value">{station.lat.toFixed(4)}</span>
+                    </div>
+                    <div className="kiosk-station-info-item">
+                      <span className="kiosk-station-info-label">Longitude</span>
+                      <span className="kiosk-station-info-value">{station.lon.toFixed(4)}</span>
+                    </div>
+                    <div className="kiosk-station-info-item">
+                      <span className="kiosk-station-info-label">Province</span>
+                      <span className="kiosk-station-info-value" style={{ textTransform: "capitalize" }}>
+                        {(station.province || "").replace(/-/g, " ")}
+                      </span>
+                    </div>
+                  </div>
+                  <a
+                    className="kiosk-station-gmaps-link"
+                    href={`https://www.google.com/maps?q=${station.lat},${station.lon}&z=15`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <TbMap2 size={14} /> View on Google Maps
+                  </a>
+                </div>
+              </section>
 
-        {/* Hourly Weather Forecast */}
-        <section className="kiosk-section">
-          <HourlyWeatherCard latitude={station.lat} longitude={station.lon} />
-        </section>
+              <section className="kiosk-section">
+                <WindMapCard
+                  key={`wind-${station.province || station.key}`}
+                  latitude={station.lat}
+                  longitude={station.lon}
+                  stationName={station.name}
+                />
+              </section>
+            </div>
 
-        {/* Wind Map + Station Details (side-by-side) */}
-        <div className="kiosk-wind-station-row">
-          {/* Station Details Card */}
-          <section className="kiosk-section kiosk-station-detail-card">
-            <div
-              className="kiosk-station-photo"
-              style={{
-                backgroundImage: `url(${getStationPhoto(station.province || station.key) || ""})`,
-              }}
-            >
-              <div className="kiosk-station-photo-overlay" />
-              <div className="kiosk-station-photo-content">
-                <h3 className="kiosk-station-photo-name">{station.name}</h3>
-                <p className="kiosk-station-photo-addr">
-                  <TbMapPin size={14} />
-                  {station.address}
+            {/* AQMS Stations Carousel */}
+            <section className="kiosk-section">
+              <div className="kiosk-stations-carousel">
+                <div className="kiosk-carousel-header">
+                  <TbMapPin size={20} />
+                  <div>
+                    <h3 className="kiosk-carousel-title">Air Quality Monitoring Stations</h3>
+                    <p className="kiosk-carousel-subtitle">Select a station to view its air quality data</p>
+                  </div>
+                </div>
+                <div className="kiosk-carousel-track-wrap">
+                  <div className="kiosk-carousel-track">
+                    {getUniqueLocations().map((s) => {
+                      const photo = getStationPhoto(s.province || s.key);
+                      const isActive = (station.province || station.key).replace(/-(pm10|pm25|merged)$/, "") === s.province;
+                      const pollutants = STATIONS.filter((st) => st.province === s.province);
+                      return (
+                        <div
+                          key={s.key}
+                          className={`kiosk-carousel-card${isActive ? " kiosk-carousel-card--active" : ""}`}
+                          onClick={() => goToStation(s.province)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === "Enter" && goToStation(s.province)}
+                        >
+                          <div
+                            className="kiosk-carousel-card-photo"
+                            style={{ backgroundImage: photo ? `url(${photo})` : "none" }}
+                          >
+                            <div className="kiosk-carousel-card-overlay" />
+                            {isActive && (
+                              <div className="kiosk-carousel-card-live">
+                                <span className="kiosk-carousel-live-dot" />
+                                Viewing
+                              </div>
+                            )}
+                          </div>
+                          <div className="kiosk-carousel-card-body">
+                            <h4 className="kiosk-carousel-card-name">
+                              {s.name.replace(/\s*\(.*?\)\s*$/, "") || s.name}
+                            </h4>
+                            <p className="kiosk-carousel-card-addr">
+                              <TbMapPin size={11} /> {s.address}
+                            </p>
+                            <div className="kiosk-carousel-card-meta">
+                              <span className="kiosk-carousel-card-pollutant">
+                                {pollutants.map((st) => st.pollutantLabel).join(" & ")}
+                              </span>
+                              <span className="kiosk-carousel-card-coords">
+                                {s.lat.toFixed(2)}°N, {s.lon.toFixed(2)}°E
+                              </span>
+                            </div>
+                            <div className="kiosk-carousel-card-cta">
+                              {isActive ? "Currently Viewing" : "View Station"}
+                              <TbArrowRight size={13} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* EMB Region 3 Air Quality Updates – YouTube Videos */}
+            <section className="kiosk-section">
+              <div className="kiosk-newsletter-card">
+                <div className="kiosk-newsletter-header">
+                  <TbBrandYoutube size={20} />
+                  <h3 className="kiosk-newsletter-title">EMB Region 3 Air Quality Monitoring Updates</h3>
+                </div>
+                <div className="kiosk-videos-grid">
+                  <div className="kiosk-video-tile">
+                    <div className="kiosk-newsletter-video-wrap">
+                      <iframe
+                        className="kiosk-newsletter-video"
+                        src="https://www.youtube.com/embed/s0twOwHkiok"
+                        title="EMB Region 3 Air Quality Update 1"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        frameBorder="0"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                  <div className="kiosk-video-tile">
+                    <div className="kiosk-newsletter-video-wrap">
+                      <iframe
+                        className="kiosk-newsletter-video"
+                        src="https://www.youtube.com/embed/emoJvMhCSNk"
+                        title="EMB Region 3 Air Quality Update 2"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        frameBorder="0"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="kiosk-newsletter-desc">
+                  Stay informed with the latest Air Quality updates from EMB Region 3 — monitoring, environmental programs, and community initiatives.
                 </p>
               </div>
-            </div>
-            <div className="kiosk-station-info-body">
-              <div className="kiosk-station-info-grid">
-                <div className="kiosk-station-info-item">
-                  <span className="kiosk-station-info-label">Pollutant</span>
-                  <span className="kiosk-station-info-value">{station.pollutantLabel}</span>
-                </div>
-                <div className="kiosk-station-info-item">
-                  <span className="kiosk-station-info-label">Latitude</span>
-                  <span className="kiosk-station-info-value">{station.lat.toFixed(4)}</span>
-                </div>
-                <div className="kiosk-station-info-item">
-                  <span className="kiosk-station-info-label">Longitude</span>
-                  <span className="kiosk-station-info-value">{station.lon.toFixed(4)}</span>
-                </div>
-                <div className="kiosk-station-info-item">
-                  <span className="kiosk-station-info-label">Province</span>
-                  <span className="kiosk-station-info-value" style={{ textTransform: "capitalize" }}>
-                    {(station.province || "").replace(/-/g, " ")}
-                  </span>
-                </div>
-              </div>
-              <a
-                className="kiosk-station-gmaps-link"
-                href={`https://www.google.com/maps?q=${station.lat},${station.lon}&z=15`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <TbMap2 size={14} /> View on Google Maps
-              </a>
-            </div>
-          </section>
+            </section>
 
-          {/* Wind Map */}
-          <section className="kiosk-section">
-            <WindMapCard
-              latitude={station.lat}
-              longitude={station.lon}
-              stationName={station.name}
-            />
-          </section>
-        </div>
-
-        {/* AQMS Stations Carousel */}
-        <section className="kiosk-section">
-          <div className="kiosk-stations-carousel">
-            <div className="kiosk-carousel-header">
-              <TbMapPin size={20} />
-              <div>
-                <h3 className="kiosk-carousel-title">Air Quality Monitoring Stations</h3>
-                <p className="kiosk-carousel-subtitle">Select a station to view its air quality data</p>
-              </div>
-            </div>
-            <div className="kiosk-carousel-track-wrap">
-              <div className="kiosk-carousel-track">
-                {getUniqueLocations().map((s) => {
-                  const photo = getStationPhoto(s.province || s.key);
-                  const isActive = (station.province || station.key).replace(/-(pm10|pm25|merged)$/, "") === s.province;
-                  const pollutants = STATIONS.filter((st) => st.province === s.province);
-                  return (
-                    <div
-                      key={s.key}
-                      className={`kiosk-carousel-card${isActive ? " kiosk-carousel-card--active" : ""}`}
-                      onClick={() => goToStation(s.province)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => e.key === "Enter" && goToStation(s.province)}
-                    >
-                      <div
-                        className="kiosk-carousel-card-photo"
-                        style={{ backgroundImage: photo ? `url(${photo})` : "none" }}
+            {/* EMBR3 Combined Agency Card – Contact + CTA */}
+            <section className="kiosk-section">
+              <div className="kiosk-agency-combined-card">
+                <div
+                  className="kiosk-agency-cta-banner"
+                  style={{ backgroundImage: `url(${bgEmbPhoto})` }}
+                >
+                  <div className="kiosk-cta-photo-overlay" />
+                  <div className="map-cta-bg-shapes">
+                    <div className="map-cta-shape map-cta-shape-1" />
+                    <div className="map-cta-shape map-cta-shape-2" />
+                    <div className="map-cta-shape map-cta-shape-3" />
+                  </div>
+                  <div className="kiosk-agency-cta-inner">
+                    <TbBuildingSkyscraper size={28} className="map-cta-icon" />
+                    <h3 className="kiosk-agency-cta-title">Environmental Management Bureau – Region 3</h3>
+                    <p className="kiosk-agency-cta-desc">
+                      Protecting the environment of Central Luzon through monitoring, enforcement, and public awareness.
+                    </p>
+                    <div className="map-cta-buttons">
+                      <a
+                        className="map-cta-btn map-cta-btn-primary"
+                        href="https://r3.emb.gov.ph"
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <div className="kiosk-carousel-card-overlay" />
-                        {isActive && (
-                          <div className="kiosk-carousel-card-live">
-                            <span className="kiosk-carousel-live-dot" />
-                            Viewing
-                          </div>
-                        )}
-                      </div>
-                      <div className="kiosk-carousel-card-body">
-                        <h4 className="kiosk-carousel-card-name">
-                          {s.name.replace(/\s*\(.*?\)\s*$/, "") || s.name}
-                        </h4>
-                        <p className="kiosk-carousel-card-addr">
-                          <TbMapPin size={11} /> {s.address}
-                        </p>
-                        <div className="kiosk-carousel-card-meta">
-                          <span className="kiosk-carousel-card-pollutant">
-                            {pollutants.map((st) => st.pollutantLabel).join(" & ")}
-                          </span>
-                          <span className="kiosk-carousel-card-coords">
-                            {s.lat.toFixed(2)}°N, {s.lon.toFixed(2)}°E
-                          </span>
-                        </div>
-                        <div className="kiosk-carousel-card-cta">
-                          {isActive ? "Currently Viewing" : "View Station"}
-                          <TbArrowRight size={13} />
-                        </div>
+                        <TbExternalLink size={16} /> Visit Website
+                      </a>
+                      <a
+                        className="map-cta-btn map-cta-btn-secondary"
+                        href="https://www.facebook.com/EMBRegion3"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <TbBrandFacebook size={16} /> Follow on Facebook
+                      </a>
+                      <a
+                        className="map-cta-btn map-cta-btn-secondary"
+                        href="mailto:emb_region3@emb.gov.ph"
+                      >
+                        <TbMail size={16} /> Email Us
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="kiosk-agency-contact-body">
+                  <div className="kiosk-agency-contact-head">
+                    <img src={embLogo} alt="EMB Logo" className="kiosk-contact-logo" />
+                    <div>
+                      <h4 className="kiosk-contact-title">EMB Region 3 Office</h4>
+                      <p className="kiosk-contact-subtitle">Environmental Management Bureau – Central Luzon</p>
+                    </div>
+                  </div>
+                  <div className="kiosk-contact-grid">
+                    <div className="kiosk-contact-item">
+                      <TbMapPin size={16} />
+                      <span>Masinop cor. Matalino St., Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga</span>
+                    </div>
+                    <div className="kiosk-contact-item">
+                      <TbPhone size={16} />
+                      <div>
+                        <div>(045) 963-3623 (Trunk Line)</div>
+                        <div style={{ fontSize: 11, opacity: 0.7 }}>ORD: local 102 · EMED: local 115/117 · CPD: local 114/106</div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* EMB Region 3 Air Quality Updates – YouTube Videos */}
-        <section className="kiosk-section">
-          <div className="kiosk-newsletter-card">
-            <div className="kiosk-newsletter-header">
-              <TbBrandYoutube size={20} />
-              <h3 className="kiosk-newsletter-title">EMB Region 3 Air Quality Monitoring Updates</h3>
-            </div>
-            <div className="kiosk-videos-grid">
-              <div className="kiosk-video-tile">
-                <div className="kiosk-newsletter-video-wrap">
-                  <iframe
-                    className="kiosk-newsletter-video"
-                    src="https://www.youtube.com/embed/s0twOwHkiok"
-                    title="EMB Region 3 Air Quality Update 1"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    frameBorder="0"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-              <div className="kiosk-video-tile">
-                <div className="kiosk-newsletter-video-wrap">
-                  <iframe
-                    className="kiosk-newsletter-video"
-                    src="https://www.youtube.com/embed/emoJvMhCSNk"
-                    title="EMB Region 3 Air Quality Update 2"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    frameBorder="0"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-            </div>
-            <p className="kiosk-newsletter-desc">
-              Stay informed with the latest Air Quality updates from EMB Region 3 — monitoring, environmental programs, and community initiatives.
-            </p>
-          </div>
-        </section>
-
-        {/* EMBR3 Combined Agency Card – Contact + CTA */}
-        <section className="kiosk-section">
-          <div className="kiosk-agency-combined-card">
-            {/* CTA gradient banner on top */}
-            <div
-              className="kiosk-agency-cta-banner"
-              style={{ backgroundImage: `url(${bgEmbPhoto})` }}
-            >
-              <div className="kiosk-cta-photo-overlay" />
-              <div className="map-cta-bg-shapes">
-                <div className="map-cta-shape map-cta-shape-1" />
-                <div className="map-cta-shape map-cta-shape-2" />
-                <div className="map-cta-shape map-cta-shape-3" />
-              </div>
-              <div className="kiosk-agency-cta-inner">
-                <TbBuildingSkyscraper size={28} className="map-cta-icon" />
-                <h3 className="kiosk-agency-cta-title">Environmental Management Bureau – Region 3</h3>
-                <p className="kiosk-agency-cta-desc">
-                  Protecting the environment of Central Luzon through monitoring, enforcement, and public awareness.
-                </p>
-                <div className="map-cta-buttons">
-                  <a
-                    className="map-cta-btn map-cta-btn-primary"
-                    href="https://r3.emb.gov.ph"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <TbExternalLink size={16} /> Visit Website
-                  </a>
-                  <a
-                    className="map-cta-btn map-cta-btn-secondary"
-                    href="https://www.facebook.com/EMBRegion3"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <TbBrandFacebook size={16} /> Follow on Facebook
-                  </a>
-                  <a
-                    className="map-cta-btn map-cta-btn-secondary"
-                    href="mailto:emb_region3@emb.gov.ph"
-                  >
-                    <TbMail size={16} /> Email Us
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            {/* Contact details below */}
-            <div className="kiosk-agency-contact-body">
-              <div className="kiosk-agency-contact-head">
-                <img src={embLogo} alt="EMB Logo" className="kiosk-contact-logo" />
-                <div>
-                  <h4 className="kiosk-contact-title">EMB Region 3 Office</h4>
-                  <p className="kiosk-contact-subtitle">Environmental Management Bureau – Central Luzon</p>
-                </div>
-              </div>
-              <div className="kiosk-contact-grid">
-                <div className="kiosk-contact-item">
-                  <TbMapPin size={16} />
-                  <span>Masinop cor. Matalino St., Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga</span>
-                </div>
-                <div className="kiosk-contact-item">
-                  <TbPhone size={16} />
-                  <div>
-                    <div>(045) 963-3623 (Trunk Line)</div>
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>ORD: local 102 · EMED: local 115/117 · CPD: local 114/106</div>
+                    <div className="kiosk-contact-item">
+                      <TbMail size={16} />
+                      <div>
+                        <a href="mailto:emb_region3@emb.gov.ph">emb_region3@emb.gov.ph</a>
+                        <div style={{ fontSize: 11, opacity: 0.7 }}>Records: <a href="mailto:recordsr3@emb.gov.ph">recordsr3@emb.gov.ph</a></div>
+                      </div>
+                    </div>
+                    <div className="kiosk-contact-item">
+                      <TbWorld size={16} />
+                      <a href="https://r3.emb.gov.ph" target="_blank" rel="noopener noreferrer">r3.emb.gov.ph</a>
+                    </div>
+                    <div className="kiosk-contact-item">
+                      <TbInfoCircle size={16} />
+                      <span>ISO 9001:2015 & ISO 14001:2015 Certified</span>
+                    </div>
                   </div>
                 </div>
-                <div className="kiosk-contact-item">
-                  <TbMail size={16} />
-                  <div>
-                    <a href="mailto:emb_region3@emb.gov.ph">emb_region3@emb.gov.ph</a>
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>Records: <a href="mailto:recordsr3@emb.gov.ph">recordsr3@emb.gov.ph</a></div>
-                  </div>
-                </div>
-                <div className="kiosk-contact-item">
-                  <TbWorld size={16} />
-                  <a href="https://r3.emb.gov.ph" target="_blank" rel="noopener noreferrer">r3.emb.gov.ph</a>
-                </div>
-                <div className="kiosk-contact-item">
-                  <TbInfoCircle size={16} />
-                  <span>ISO 9001:2015 & ISO 14001:2015 Certified</span>
-                </div>
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
+          </>
+        )}
       </main>
 
       {/* ── Floating Bottom Navigation ── */}
@@ -944,18 +1152,16 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
           <Button
             key="email"
             type="primary"
-            icon={<MailOutlined />}
             onClick={() => {
-              window.location.href =
-                `mailto:recordsr3@emb.gov.ph?subject=${encodeURIComponent(
-                  `Air Quality Data Request — ${provinceLabel} (${pollutantLabel})`
-                )}&body=${encodeURIComponent(
-                  `Good day,\n\nI would like to request air quality monitoring data for the following:\n\n` +
-                  `Station: ${provinceLabel}\n` +
-                  `Pollutant: ${pollutantLabel}\n` +
-                  `Records available: ${dataSource.length}\n\n` +
-                  `Please process my request at your earliest convenience.\n\nThank you.`
-                )}`;
+              window.location.href = `mailto:recordsr3@emb.gov.ph?subject=${encodeURIComponent(
+                `Air Quality Monitoring Data Request - ${provinceLabel} ${pollutantLabel}`,
+              )}&body=${encodeURIComponent(
+                `Good day,\n\nI would like to request air quality monitoring data for the following:\n\n` +
+                `Station: ${provinceLabel}\n` +
+                `Pollutant: ${pollutantLabel}\n` +
+                `Records available: ${dataSource.length}\n\n` +
+                `Please process my request at your earliest convenience.\n\nThank you.`,
+              )}`;
               message.success("Opening email client...");
             }}
           >
@@ -1124,7 +1330,7 @@ function KioskMapModal({ open, onClose, dark }) {
 }
 
 /* ── Wrapper with providers ────────────────────────────────────── */
-export default function KioskPage() {
+export default function KioskPage({ withArta = false }) {
   // Detect dark mode at wrapper level for ConfigProvider
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -1151,7 +1357,7 @@ export default function KioskPage() {
       }}
     >
       <AqiProvider>
-        <KioskContent />
+        <KioskContent withArta={withArta} />
       </AqiProvider>
     </ConfigProvider>
   );

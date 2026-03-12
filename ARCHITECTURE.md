@@ -94,24 +94,28 @@ App.jsx
 │   ├── PollutantsCard + IqEarthMapCard (side-by-side)
 │   └── AqiCalendar
 │
-├── Kiosk (/embr3-latestaqi)
-│   ├── AqiHeroCard (auto-cycling stations)
+├── Kiosk (/)
+│   ├── AqiHeroCard (auto-cycling stations, alphabetically sorted)
 │   ├── AqiCategoryMeter
 │   ├── HourlyWeatherCard
 │   ├── WindMapCard
 │   ├── YouTube Embeds
 │   └── Agency CTA + Contact Card
 │
-├── Map (/map)
+├── Kiosk + ARTA (/with-arta)
+│   ├── (all Kiosk components above)
+│   └── ARTA Commercial Break (video + bulletin, route-gated)
+│
+├── Map (/admin/map)
 │   ├── 3D Globe (globe.gl + Three.js)
 │   ├── Flat Map (Google Maps embed)
 │   ├── Station Detail Modals
 │   └── Contact + CTA Section
 │
-├── Charts (/charts)
+├── Charts (/admin/charts)
 │   └── Pm10Chart / VizChart (Recharts)
 │
-└── TabularResults (/tabular)
+└── TabularResults (/admin/tabular/:province)
     └── Ant Design Table + Export
 ```
 

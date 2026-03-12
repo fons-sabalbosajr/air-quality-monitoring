@@ -9,7 +9,8 @@ Deploy the EMBR3 Air Quality Monitoring app alongside existing apps (HRPMS, OCSM
 | URL | What it serves |
 |-----|----------------|
 | `https://embr3-onlinesystems.cloud/air-quality-monitoring` | **Kiosk** — public AQI display |
-| `https://embr3-onlinesystems.cloud/air-quality-monitoring-admin` | **Admin Dashboard** — station selector, charts, map, tabular |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring/with-arta` | **Kiosk + ARTA** — kiosk with ARTA commercial break |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring/admin` | **Admin Dashboard** — station selector, charts, map, tabular |
 | `https://embr3-onlinesystems.cloud/air-quality-monitoring/api/*` | **REST API** — Node/Express on port 3001 |
 
 > Existing apps (`/hrpms`, `/ocsm`) remain untouched.

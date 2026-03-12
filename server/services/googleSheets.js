@@ -12,6 +12,7 @@ const { coerceNumber, meanLast } = require("../utils/mathUtils");
 const { phPm10Status24hFromAvg, phPm25Status24hFromAvg } = require("./aqiCalculator");
 
 const _sheetCache = new Map();
+const VERBOSE_SHEETS_LOGS = process.env.VERBOSE_SHEETS_LOGS === "true";
 
 function extractSpreadsheetId(url) {
   if (!url) return null;
@@ -209,7 +210,7 @@ function prepareRawRows(table, opts = {}) {
     dateFmt = detectDateFormat(sampleDates);
   }
   if (!dateFmt) dateFmt = "MDY";
-  if (dateFmt === "DMY") {
+  if (dateFmt === "DMY" && VERBOSE_SHEETS_LOGS) {
     console.log("[prepareRawRows] Using DD/MM/YYYY date format" + (opts.dateFormat ? " (explicit override)" : " (auto-detected)"));
   }
 
@@ -262,7 +263,7 @@ function prepareRawRows(table, opts = {}) {
       const orig = parseDateValue(table.rows[i]?.[dateKey], dateFmt);
       return e > 0 && !orig;
     }).length;
-    if (interpolated > 0) {
+    if (interpolated > 0 && VERBOSE_SHEETS_LOGS) {
       console.log(`[prepareRawRows] Interpolated ${interpolated} missing dates`);
     }
   }

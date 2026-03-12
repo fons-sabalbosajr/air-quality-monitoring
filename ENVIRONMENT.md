@@ -87,6 +87,7 @@ Required only if fetching private SharePoint workbooks.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `VITE_API_BASE` | Yes | — | Server API URL (e.g., `http://localhost:3001` or deployed URL) |
+| `VITE_SECURE_STORAGE_KEY` | Recommended | `aqm-insecure-fallback-key` | AES passphrase for encrypting browser localStorage/sessionStorage. Generate with `openssl rand -base64 32`. |
 
 ### Station Coordinate Overrides
 

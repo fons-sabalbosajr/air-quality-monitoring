@@ -12,23 +12,37 @@ import CryptoJS from 'crypto-js';
 // Set VITE_SECURE_STORAGE_KEY at build time to use a project-specific key.
 // ---------------------------------------------------------------------------
 
-const PASSPHRASE =
-  import.meta.env.VITE_SECURE_STORAGE_KEY || 'aqm-insecure-fallback-key';
+const STORAGE_SECRET = import.meta.env.VITE_SECURE_STORAGE_KEY || 'aqm-insecure-fallback-key';
+
+if (!import.meta.env.VITE_SECURE_STORAGE_KEY) {
+  console.warn('[secureStorage] VITE_SECURE_STORAGE_KEY is not set. Storage will be obscured, but not hardened for production.');
+}
+
+const STORAGE_PROTO = Object.getPrototypeOf(localStorage);
+const RAW_SET_ITEM = STORAGE_PROTO.setItem;
+const RAW_GET_ITEM = STORAGE_PROTO.getItem;
+const RAW_REMOVE_ITEM = STORAGE_PROTO.removeItem;
+const RAW_CLEAR = STORAGE_PROTO.clear;
+const RAW_KEY = STORAGE_PROTO.key;
+
+function getScopedSecret(scope) {
+  return CryptoJS.HmacSHA256(String(scope), STORAGE_SECRET).toString();
+}
 
 /* ---------- Primitives -------------------------------------------------- */
 
-function encryptString(plain) {
+function encryptString(plain, secret) {
   try {
-    return CryptoJS.AES.encrypt(String(plain), PASSPHRASE).toString();
+    return CryptoJS.AES.encrypt(String(plain), secret).toString();
   } catch {
     return plain;
   }
 }
 
-function decryptString(cipher) {
+function decryptString(cipher, secret) {
   if (cipher == null) return null;
   try {
-    const bytes = CryptoJS.AES.decrypt(cipher, PASSPHRASE);
+    const bytes = CryptoJS.AES.decrypt(cipher, secret);
     const out = bytes.toString(CryptoJS.enc.Utf8);
     return out || null;
   } catch {
@@ -38,13 +52,13 @@ function decryptString(cipher) {
 
 /** Deterministic hash of a key so the same logical key always maps to the
  *  same opaque storage key, but is not reversible in the DevTools panel. */
-function hashKey(key) {
-  return CryptoJS.HmacSHA256(String(key), PASSPHRASE).toString();
+function hashKey(key, secret) {
+  return CryptoJS.HmacSHA256(String(key), secret).toString();
 }
 
 /* ---------- Migrate any old plain-text entries -------------------------- */
 
-function migrateStore(store) {
+function migrateStore(store, secret) {
   try {
     const len = store.length;
     const toRemove = [];
@@ -54,22 +68,15 @@ function migrateStore(store) {
       if (!rawKey) continue;
       // Hashed keys are 64-char hex strings; anything else is legacy
       if (/^[0-9a-f]{64}$/i.test(rawKey)) continue;
-      const rawVal = store.getItem(rawKey);
+      const rawVal = RAW_GET_ITEM.call(store, rawKey);
       toRemove.push(rawKey);
       toSet.push({ k: rawKey, v: rawVal });
     }
-    // Use the *original* methods (before patching) via __aqm_raw_*
-    const rawSet =
-      store.__aqm_raw_setItem ||
-      Object.getPrototypeOf(store).setItem.bind(store);
-    const rawRemove =
-      store.__aqm_raw_removeItem ||
-      Object.getPrototypeOf(store).removeItem.bind(store);
     for (const { k, v } of toSet) {
-      rawSet(hashKey(k), encryptString(v ?? ''));
+      RAW_SET_ITEM.call(store, hashKey(k, secret), encryptString(v ?? '', secret));
     }
     for (const k of toRemove) {
-      rawRemove(k);
+      RAW_REMOVE_ITEM.call(store, k);
     }
   } catch {
     /* migration is best-effort */
@@ -79,30 +86,21 @@ function migrateStore(store) {
 /* ---------- Build a secure wrapper around a native store ---------------- */
 
 function makeSecureStore(store) {
-  // Keep pristine references to the native methods
-  const proto = Object.getPrototypeOf(store);
-  const _setItem = proto.setItem.bind(store);
-  const _getItem = proto.getItem.bind(store);
-  const _removeItem = proto.removeItem.bind(store);
-  const _clear = proto.clear.bind(store);
-  const _key = proto.key.bind(store);
-
-  // Expose raw methods for migration helper
-  store.__aqm_raw_setItem = _setItem;
-  store.__aqm_raw_removeItem = _removeItem;
+  const scope = store === sessionStorage ? 'session' : 'local';
+  const secret = getScopedSecret(scope);
 
   return {
     setItem(key, value) {
       try {
         const v = typeof value === 'string' ? value : JSON.stringify(value);
-        _setItem(hashKey(key), encryptString(v));
+        RAW_SET_ITEM.call(store, hashKey(key, secret), encryptString(v, secret));
       } catch {}
     },
     getItem(key) {
       try {
-        const enc = _getItem(hashKey(key));
+        const enc = RAW_GET_ITEM.call(store, hashKey(key, secret));
         if (enc == null) return null;
-        return decryptString(enc);
+        return decryptString(enc, secret);
       } catch {
         return null;
       }
@@ -121,43 +119,41 @@ function makeSecureStore(store) {
     },
     removeItem(key) {
       try {
-        _removeItem(hashKey(key));
+        RAW_REMOVE_ITEM.call(store, hashKey(key, secret));
       } catch {}
     },
     clear() {
       try {
-        _clear();
+        RAW_CLEAR.call(store);
       } catch {}
     },
-
-    /* ---- Global monkey-patch ----------------------------------------- */
-    /** Replace the native setItem / getItem / removeItem so that ANY code
-     *  (including third-party libs) automatically gets encryption. */
-    patchGlobal() {
-      try {
-        const secure = this;
-        proto.setItem = function (k, v) {
-          secure.setItem(k, v);
-        };
-        proto.getItem = function (k) {
-          return secure.getItem(k);
-        };
-        proto.removeItem = function (k) {
-          secure.removeItem(k);
-        };
-        proto.clear = function () {
-          secure.clear();
-        };
-        // key() is not very useful once keys are hashed, but keep it
-        // functional by returning the hashed key as-is.
-        proto.key = function (idx) {
-          return _key(idx);
-        };
-      } catch {
-        /* environments without writable prototypes – just skip */
-      }
-    },
   };
+}
+
+function resolveSecureStore(store) {
+  return store === sessionStorage ? secureSession : secureStorage;
+}
+
+function patchGlobalStorage() {
+  try {
+    STORAGE_PROTO.setItem = function (key, value) {
+      resolveSecureStore(this).setItem(key, value);
+    };
+    STORAGE_PROTO.getItem = function (key) {
+      return resolveSecureStore(this).getItem(key);
+    };
+    STORAGE_PROTO.removeItem = function (key) {
+      resolveSecureStore(this).removeItem(key);
+    };
+    STORAGE_PROTO.clear = function () {
+      resolveSecureStore(this).clear();
+    };
+    STORAGE_PROTO.key = function (idx) {
+      return RAW_KEY.call(this, idx);
+    };
+  } catch {
+    /* environments without writable prototypes – just skip */
+  }
 }
 
 /* ---------- Exports ------------------------------------------------------ */
@@ -166,7 +162,6 @@ export const secureStorage = makeSecureStore(localStorage);
 export const secureSession = makeSecureStore(sessionStorage);
 
 // Migrate any existing plain-text entries, then patch globally
-migrateStore(localStorage);
-migrateStore(sessionStorage);
-secureStorage.patchGlobal();
-secureSession.patchGlobal();
+migrateStore(localStorage, getScopedSecret('local'));
+migrateStore(sessionStorage, getScopedSecret('session'));
+patchGlobalStorage();

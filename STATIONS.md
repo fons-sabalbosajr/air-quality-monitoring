@@ -97,6 +97,14 @@ In the Dashboard, these appear as a single station "Meycauayan AQMS" with dual g
 | `lat` | number | Latitude (WGS84) |
 | `lon` | number | Longitude (WGS84) |
 
+## Kiosk Station Order
+
+Kiosk stations are automatically **sorted alphabetically by name**. Adding a new station will slot it into the correct position in the auto-rotation sequence without manual ordering.
+
+## ARTA Commercial Break
+
+The ARTA interstitial video is enabled by visiting the `/with-arta` route instead of `/`. This is route-gated, not resolution-gated — use it on the kiosk deployment URL to include branded ARTA content between station rotations.
+
 ## API Path Convention
 
 Station data is accessed via:

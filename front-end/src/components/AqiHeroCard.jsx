@@ -360,6 +360,9 @@ export default function AqiHeroCard({
     hasDual && isFinite(Number(aqiValue2))
       ? Math.round(Number(aqiValue2))
       : null;
+  const showFullStaleOverlay = hasDual ? Boolean(isStale && isStale2) : isStale;
+  const hasPartialFreshData = hasDual && (isStale !== isStale2);
+  const badgeTime = aqiTime || aqiTime2;
 
   // Use weather-based sky background when weather data is available,
   // otherwise fall back to the AQI-band sky
@@ -384,7 +387,7 @@ export default function AqiHeroCard({
         "--hero-text": heroText,
         "--hero-text-sub": heroTextSub,
         background: skyBg,
-        ...(isStale && (!hasDual || isStale2) ? { userSelect: "none" } : {}),
+        ...(showFullStaleOverlay ? { userSelect: "none" } : {}),
       }}
     >
       {/* ── Station photo background ── */}
@@ -396,14 +399,14 @@ export default function AqiHeroCard({
       )}
 
       {/* ── Live badge (top-left) ── */}
-      {aqiTime && (
+      {badgeTime && (
         <span
-          className={`aqi-live-badge aqi-live-badge--topleft${isStale ? " aqi-live-badge--stale" : isFallback ? " aqi-live-badge--fallback" : ""}`}
+          className={`aqi-live-badge aqi-live-badge--topleft${showFullStaleOverlay ? " aqi-live-badge--stale" : hasPartialFreshData || isFallback ? " aqi-live-badge--fallback" : ""}`}
         >
           <span
-            className={`aqi-live-dot${isStale ? " aqi-live-dot--stale" : isFallback ? " aqi-live-dot--warn" : ""}`}
+            className={`aqi-live-dot${showFullStaleOverlay ? " aqi-live-dot--stale" : hasPartialFreshData || isFallback ? " aqi-live-dot--warn" : ""}`}
           />
-          {isStale ? "Outdated" : isFallback ? "Alternate" : "Live"}
+          {showFullStaleOverlay ? "Outdated" : hasPartialFreshData ? "Partial Update" : isFallback ? "Alternate" : "Live"}
         </span>
       )}
 
@@ -420,7 +423,7 @@ export default function AqiHeroCard({
       <CityscapeSilhouette color={cityColor} />
 
       {/* ── Stale-data watermark (covers the entire card) ── */}
-      {isStale && (
+      {showFullStaleOverlay && (
         <div className="aqi-hero-watermark">
           <div className="aqi-hero-watermark-text">
             No available latest data for this station

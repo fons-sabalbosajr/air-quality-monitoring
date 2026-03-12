@@ -22,6 +22,102 @@ import {
 } from "react-icons/wi";
 import "./HourlyWeatherCard.css";
 
+const HOURLY_REFRESH_MS = 600_000;
+const HOURLY_WEATHER_CACHE = new Map();
+
+function getHourlyCacheKey(latitude, longitude) {
+  return `${latitude}:${longitude}`;
+}
+
+function readCachedHourlyWeather(latitude, longitude) {
+  const entry = HOURLY_WEATHER_CACHE.get(getHourlyCacheKey(latitude, longitude));
+  if (!entry?.data) return null;
+
+  return {
+    ...entry,
+    fresh: Date.now() - entry.cachedAt < HOURLY_REFRESH_MS,
+  };
+}
+
+async function requestHourlyWeather(latitude, longitude, force = false) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+
+  const cacheKey = getHourlyCacheKey(latitude, longitude);
+  const cached = readCachedHourlyWeather(latitude, longitude);
+  if (!force && cached?.data) return cached.data;
+
+  const existing = HOURLY_WEATHER_CACHE.get(cacheKey);
+  if (existing?.pending) return existing.pending;
+
+  const pending = (async () => {
+    const params = new URLSearchParams({
+      latitude: String(latitude),
+      longitude: String(longitude),
+      hourly: [
+        "temperature_2m",
+        "relative_humidity_2m",
+        "weather_code",
+        "wind_speed_10m",
+        "precipitation_probability",
+      ].join(","),
+      timezone: "auto",
+      forecast_days: "2",
+    });
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    const hourly = json.hourly || {};
+    const times = hourly.time || [];
+    const now = new Date();
+    let startIdx = times.findIndex((time) => new Date(time) >= now);
+    if (startIdx < 0) startIdx = 0;
+
+    const nextHours = [];
+    for (let index = startIdx; index < Math.min(startIdx + 24, times.length); index += 1) {
+      nextHours.push({
+        time: times[index],
+        temp: hourly.temperature_2m?.[index],
+        humidity: hourly.relative_humidity_2m?.[index],
+        weatherCode: hourly.weather_code?.[index],
+        wind: hourly.wind_speed_10m?.[index],
+        precipProb: hourly.precipitation_probability?.[index],
+      });
+    }
+
+    return nextHours;
+  })();
+
+  HOURLY_WEATHER_CACHE.set(cacheKey, {
+    ...(existing || {}),
+    pending,
+  });
+
+  try {
+    const data = await pending;
+    HOURLY_WEATHER_CACHE.set(cacheKey, {
+      data,
+      cachedAt: Date.now(),
+      pending: null,
+    });
+    return data;
+  } catch (error) {
+    if (cached?.data) {
+      HOURLY_WEATHER_CACHE.set(cacheKey, {
+        ...cached,
+        pending: null,
+      });
+    } else {
+      HOURLY_WEATHER_CACHE.delete(cacheKey);
+    }
+    throw error;
+  }
+}
+
+export function prefetchHourlyWeather(latitude, longitude) {
+  return requestHourlyWeather(latitude, longitude).catch(() => null);
+}
+
 /* ── Weather code → icon / label (day/night aware) ── */
 function weatherMeta(code, hour) {
   const isNight = hour < 6 || hour >= 18;
@@ -57,55 +153,33 @@ function tempColor(temp) {
 }
 
 export default function HourlyWeatherCard({ latitude, longitude }) {
-  const [hours, setHours] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialCache = readCachedHourlyWeather(latitude, longitude);
+  const [hours, setHours] = useState(initialCache?.data || []);
+  const [loading, setLoading] = useState(Boolean(Number.isFinite(latitude) && Number.isFinite(longitude) && !initialCache?.data));
   const [error, setError] = useState(null);
 
-  const fetchHourly = useCallback(async () => {
+  const fetchHourly = useCallback(async ({ force = false, background = false } = {}) => {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setHours([]);
       setLoading(false);
+      setError(null);
       return;
     }
-    setLoading(true);
-    setError(null);
+
+    const cached = readCachedHourlyWeather(latitude, longitude);
+    if (cached?.data) {
+      setHours(cached.data);
+      setError(null);
+    }
+
+    if (!background) {
+      setLoading(!cached?.data);
+    }
+
     try {
-      const params = new URLSearchParams({
-        latitude: String(latitude),
-        longitude: String(longitude),
-        hourly: [
-          "temperature_2m",
-          "relative_humidity_2m",
-          "weather_code",
-          "wind_speed_10m",
-          "precipitation_probability",
-        ].join(","),
-        timezone: "auto",
-        forecast_days: "2",
-      });
-      const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?${params}`,
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-
-      const h = json.hourly || {};
-      const times = h.time || [];
-      const now = new Date();
-      let startIdx = times.findIndex((t) => new Date(t) >= now);
-      if (startIdx < 0) startIdx = 0;
-
-      const result = [];
-      for (let i = startIdx; i < Math.min(startIdx + 24, times.length); i++) {
-        result.push({
-          time: times[i],
-          temp: h.temperature_2m?.[i],
-          humidity: h.relative_humidity_2m?.[i],
-          weatherCode: h.weather_code?.[i],
-          wind: h.wind_speed_10m?.[i],
-          precipProb: h.precipitation_probability?.[i],
-        });
-      }
-      setHours(result);
+      const nextHours = await requestHourlyWeather(latitude, longitude, force);
+      setHours(nextHours);
+      setError(null);
     } catch (e) {
       setError(e.message || "Failed to fetch hourly forecast");
     } finally {
@@ -114,8 +188,24 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
   }, [latitude, longitude]);
 
   useEffect(() => {
-    fetchHourly();
-    const iv = setInterval(fetchHourly, 600_000);
+    const cached = readCachedHourlyWeather(latitude, longitude);
+    if (cached?.data) {
+      setHours(cached.data);
+      setLoading(false);
+      setError(null);
+    } else {
+      setHours([]);
+      setLoading(Boolean(Number.isFinite(latitude) && Number.isFinite(longitude)));
+      setError(null);
+    }
+
+    if (!cached?.fresh) {
+      fetchHourly({ force: true, background: Boolean(cached?.data) });
+    }
+
+    const iv = setInterval(() => {
+      fetchHourly({ force: true, background: true });
+    }, HOURLY_REFRESH_MS);
     return () => clearInterval(iv);
   }, [fetchHourly]);
 

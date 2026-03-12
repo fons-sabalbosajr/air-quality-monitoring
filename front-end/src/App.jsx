@@ -1303,6 +1303,7 @@ function ThemedLayout({
             >
               <Routes>
                 <Route path="/" element={<KioskPage />} />
+                <Route path="/with-arta" element={<KioskPage withArta />} />
                 <Route path="/embr3-latestaqi" element={<Navigate to="/" replace />} />
                 <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
                 <Route path="/admin/overview" element={<DashboardPage />} />
@@ -1447,7 +1448,8 @@ function App() {
   }, []);
 
   // ── Kiosk route renders outside the main layout ──
-  if (location.pathname === "/" || location.pathname === "/embr3-latestaqi") {
+  const isKioskRoute = location.pathname === "/" || location.pathname === "/embr3-latestaqi" || location.pathname === "/with-arta";
+  if (isKioskRoute) {
     return (
       <Suspense
         fallback={
@@ -1464,7 +1466,7 @@ function App() {
           </div>
         }
       >
-        <KioskPage />
+        <KioskPage withArta={location.pathname === "/with-arta"} />
       </Suspense>
     );
   }

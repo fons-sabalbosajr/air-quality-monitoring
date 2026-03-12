@@ -150,6 +150,7 @@ async function runBackupCycle(reason = "scheduled") {
   if (!MONGO_URI || !_db) return;
   if (_backupRunning) return;
   _backupRunning = true;
+  const verboseBackupLogs = process.env.VERBOSE_INGEST_LOGS === "true";
 
   const results = [];
   try {
@@ -161,7 +162,7 @@ async function runBackupCycle(reason = "scheduled") {
       }
     }
     const updated = results.filter((r) => r.updated).length;
-    if (updated > 0) {
+    if (updated > 0 && verboseBackupLogs) {
       console.log(
         `[backup] ${reason}: ${updated}/${results.length} datasets updated`,
       );

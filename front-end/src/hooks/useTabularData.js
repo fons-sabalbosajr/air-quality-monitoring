@@ -16,51 +16,157 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
 
+const TABULAR_REFRESH_MS = 300_000;
+const TABULAR_CACHE = new Map();
+
+function getCacheKey(province, pollutant) {
+  return `${province || ""}:${pollutant || ""}`;
+}
+
+function readCachedTabular(province, pollutant) {
+  const entry = TABULAR_CACHE.get(getCacheKey(province, pollutant));
+  if (!entry?.data) return null;
+
+  return {
+    ...entry,
+    fresh: Date.now() - entry.cachedAt < TABULAR_REFRESH_MS,
+  };
+}
+
+async function requestTabularData(province, pollutant, force = false) {
+  if (!province || !pollutant) return null;
+
+  const cacheKey = getCacheKey(province, pollutant);
+  const cached = readCachedTabular(province, pollutant);
+  if (!force && cached?.data) return cached.data;
+
+  const existing = TABULAR_CACHE.get(cacheKey);
+  if (existing?.pending) return existing.pending;
+
+  const pending = (async () => {
+    const base = getApiBase();
+    const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    return {
+      raw: json,
+      fetchedAt: json.fetchedAt || new Date().toISOString(),
+      source: json.source || "sheet",
+      backupMeta: json.backupMeta || null,
+    };
+  })();
+
+  TABULAR_CACHE.set(cacheKey, {
+    ...(existing || {}),
+    pending,
+  });
+
+  try {
+    const data = await pending;
+    TABULAR_CACHE.set(cacheKey, {
+      data,
+      cachedAt: Date.now(),
+      pending: null,
+    });
+    return data;
+  } catch (error) {
+    if (cached?.data) {
+      TABULAR_CACHE.set(cacheKey, {
+        ...cached,
+        pending: null,
+      });
+    } else {
+      TABULAR_CACHE.delete(cacheKey);
+    }
+    throw error;
+  }
+}
+
+export function prefetchTabularData(province, pollutant) {
+  return requestTabularData(province, pollutant).catch(() => null);
+}
+
 export default function useTabularData(province, pollutant) {
-  const [raw, setRaw] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const initialCache = readCachedTabular(province, pollutant);
+  const [raw, setRaw] = useState(initialCache?.data?.raw || null);
+  const [loading, setLoading] = useState(Boolean(province && pollutant && !initialCache?.data));
   const [error, setError] = useState(null);
-  const [fetchedAt, setFetchedAt] = useState(null);
-  const [source, setSource] = useState(null);
-  const [backupMeta, setBackupMeta] = useState(null);
+  const [fetchedAt, setFetchedAt] = useState(initialCache?.data?.fetchedAt || null);
+  const [source, setSource] = useState(initialCache?.data?.source || null);
+  const [backupMeta, setBackupMeta] = useState(initialCache?.data?.backupMeta || null);
   const mountedRef = useRef(true);
+
+  const applyPayload = useCallback((payload) => {
+    if (!payload) return;
+    setRaw(payload.raw);
+    setFetchedAt(payload.fetchedAt);
+    setSource(payload.source);
+    setBackupMeta(payload.backupMeta);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async ({ force = false, background = false } = {}) => {
     if (!province || !pollutant) {
+      setRaw(null);
       setLoading(false);
+      setFetchedAt(null);
+      setSource(null);
+      setBackupMeta(null);
+      setError(null);
       return;
     }
-    setLoading(true);
-    setError(null);
+
+    const cached = readCachedTabular(province, pollutant);
+    if (cached?.data) {
+      applyPayload(cached.data);
+    }
+
+    if (!background) {
+      setLoading(!cached?.data);
+    }
+
     try {
-      const base = getApiBase();
-      const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const payload = await requestTabularData(province, pollutant, force);
       if (!mountedRef.current) return;
-      setRaw(json);
-      setFetchedAt(json.fetchedAt || new Date().toISOString());
-      setSource(json.source || "sheet");
-      setBackupMeta(json.backupMeta || null);
+      applyPayload(payload);
     } catch (e) {
       if (!mountedRef.current) return;
       setError(e.message || "Failed to fetch data");
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [province, pollutant]);
+  }, [applyPayload, province, pollutant]);
 
   useEffect(() => {
-    fetchData();
-    const iv = setInterval(fetchData, 300_000);
+    const cached = readCachedTabular(province, pollutant);
+    if (cached?.data) {
+      applyPayload(cached.data);
+      setLoading(false);
+    } else {
+      setRaw(null);
+      setFetchedAt(null);
+      setSource(null);
+      setBackupMeta(null);
+      setError(null);
+      setLoading(Boolean(province && pollutant));
+    }
+
+    if (!cached?.fresh) {
+      fetchData({ force: true, background: Boolean(cached?.data) });
+    }
+
+    const iv = setInterval(() => {
+      fetchData({ force: true, background: true });
+    }, TABULAR_REFRESH_MS);
     return () => clearInterval(iv);
-  }, [fetchData]);
+  }, [applyPayload, fetchData, pollutant, province]);
 
   // Parse rows into usable shape
   const rows = useMemo(() => {

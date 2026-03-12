@@ -7,7 +7,9 @@ Real-time air quality monitoring dashboard for **EMB Region 3** (Central Luzon, 
 | Feature | Description |
 |---------|-------------|
 | **Live AQI Dashboard** | Real-time Air Quality Index with animated sky, weather data, and dual-pollutant gauges |
-| **Kiosk Mode** | Full-screen auto-cycling display optimised for HD-55F-T 55" panels |
+| **Kiosk Mode** | Full-screen auto-cycling display with station carousel (alphabetically sorted) |
+| **Kiosk + ARTA** | Kiosk with ARTA commercial break interstitial via `/with-arta` route |
+| **Encrypted Storage** | Browser localStorage/sessionStorage are AES-encrypted and HMAC-hashed automatically |
 | **3D Globe + Flat Map** | Interactive station visualisation with globe.gl and Google Maps |
 | **Historical Data** | Calendar heatmap, bar charts, and tabular results with CSV/email export |
 | **Weather Integration** | 24-hour forecast tiles, Windy.com wind maps, real-time temperature/humidity |
@@ -84,7 +86,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full system architecture and data flo
 | [API.md](API.md) | API endpoint reference (18 endpoints) |
 | [ENVIRONMENT.md](ENVIRONMENT.md) | Environment variable reference |
 | [STATIONS.md](STATIONS.md) | Station configuration and management |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Render.com deployment guide |
+| [VPS_DEPLOYMENT.md](VPS_DEPLOYMENT.md) | Hostinger KVM2 VPS deployment guide |
 
 ## Tech Stack
 
@@ -93,7 +95,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full system architecture and data flo
 | Frontend | React 19, Vite 7, Ant Design 5, Recharts 3, globe.gl, Three.js |
 | Backend | Express 5, ExcelJS, MongoDB driver, Nodemailer |
 | Data Sources | Google Sheets, Excel workbooks, Open-Meteo API |
-| Deployment | Render.com (web service + static site) |
+| Deployment | Hostinger KVM2 VPS, Nginx, PM2 |
 
 ## Philippine AQI Standard (NAAQGV)
 
