@@ -198,8 +198,59 @@ async function fetchAllSheetsAsTable(sheetUrl) {
     }
   }
 
+  // Fallback: try common generic tab names if no year-named tabs found
   if (!tabsFound) {
-    throw new Error("No year-named sheet tabs could be fetched");
+    const fallbackTabs = ["Sheet1", "Data", "Raw", "Main"];
+    for (const tabName of fallbackTabs) {
+      const csvText = await fetchSheetTabCSV(id, tabName);
+      if (!csvText) continue;
+
+      const fp = `${csvText.length}|${csvText.slice(0, 200)}|${csvText.slice(-200)}`;
+      if (seenTabFingerprints.has(fp)) continue;
+      seenTabFingerprints.add(fp);
+      tabsFound++;
+
+      const lines = csvText.split("\n");
+      if (lines.length < 2) continue;
+
+      const headerRow = parseCSVLine(lines[0]).map((h, idx) => {
+        const v = (h == null ? "" : String(h)).trim();
+        return v || `Column ${idx + 1}`;
+      });
+
+      if (!columns) {
+        columns = headerRow.filter((h) =>
+          RAW_COL_PATTERNS.some((p) => p.test(h)),
+        );
+        if (!columns.length) columns = headerRow;
+      }
+
+      const colIndices = columns.map((c) => headerRow.indexOf(c));
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const cells = parseCSVLine(line);
+        if (!cells.some((c) => c != null && String(c).trim() !== "")) continue;
+
+        const obj = {};
+        for (let ci = 0; ci < columns.length; ci++) {
+          const idx = colIndices[ci];
+          obj[columns[ci]] = idx >= 0 ? (cells[idx] ?? null) : null;
+        }
+        Object.defineProperty(obj, "__formulaCols", {
+          value: [],
+          enumerable: false,
+          writable: true,
+        });
+        allRows.push(obj);
+      }
+      break; // Use the first valid fallback tab
+    }
+  }
+
+  if (!tabsFound) {
+    throw new Error("No sheet tabs could be fetched (tried year-named and common tab names)");
   }
 
   return { columns: columns || [], rows: allRows };

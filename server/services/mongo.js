@@ -231,7 +231,14 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
       vizPts = viz.meta?.points || viz.series.length;
       pm10Pts = pm10.meta?.points || pm10.series.length;
     } catch (wbErr) {
-      console.warn(`[ingest] workbook ingestion failed: ${wbErr.message}`);
+      // Only log workbook errors once or in verbose mode (avoid spamming logs)
+      if (/not found/i.test(wbErr.message)) {
+        if (VERBOSE_INGEST_LOGS) {
+          console.log(`[ingest] workbook skipped (file not found)`);
+        }
+      } else {
+        console.warn(`[ingest] workbook ingestion failed: ${wbErr.message}`);
+      }
     }
 
     // Ingest Google Sheets station data into air_data collection
