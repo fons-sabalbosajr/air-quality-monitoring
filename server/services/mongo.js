@@ -240,6 +240,10 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
       const SHEET_STATIONS = [
         { province: "meycauayan", pollutant: "pm10" },
         { province: "meycauayan", pollutant: "pm25" },
+        { province: "zambales", pollutant: "pm10" },
+        { province: "zambales", pollutant: "pm25" },
+        { province: "clark", pollutant: "pm10" },
+        { province: "san-fernando", pollutant: "pm10" },
       ];
       for (const { province, pollutant } of SHEET_STATIONS) {
         try {
@@ -249,7 +253,13 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
             sheetIngested.push(`${province}_${pollutant}:${data.series.length}`);
           }
         } catch (sheetErr) {
-          console.warn(`[ingest] ${province}/${pollutant} failed: ${sheetErr.message}`);
+          if (sheetErr.code === "NOT_CONFIGURED") {
+            if (VERBOSE_INGEST_LOGS) {
+              console.log(`[ingest] ${province}/${pollutant} skipped (URL not configured)`);
+            }
+          } else {
+            console.warn(`[ingest] ${province}/${pollutant} failed: ${sheetErr.message}`);
+          }
         }
       }
     }

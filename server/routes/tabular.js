@@ -1,6 +1,7 @@
 /**
  * Tabular data routes (Google Sheets) + MongoDB backup fallback + export logging.
  */
+const crypto = require("crypto");
 const { Router } = require("express");
 const { TABULAR_SHEETS } = require("../config/sheets");
 const { getTabularTable, enrichWithAqi, getRawTabularTable } = require("../services/googleSheets");
@@ -14,6 +15,31 @@ const {
 } = require("../services/tabularBackup");
 
 const router = Router();
+
+/**
+ * Generate a weak ETag from response payload for conditional caching.
+ */
+function generateETag(body) {
+  const hash = crypto.createHash("md5").update(JSON.stringify(body)).digest("hex").slice(0, 16);
+  return `W/"${hash}"`;
+}
+
+/**
+ * Set cache headers and handle ETag conditional responses.
+ * Returns true if a 304 Not Modified was sent (caller should return early).
+ */
+function setCacheHeaders(req, res, body) {
+  const etag = generateETag(body);
+  // Private cache: don't store in shared proxies; revalidate after 60s
+  res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+  res.setHeader("ETag", etag);
+  res.setHeader("Vary", "Accept");
+  if (req.headers["if-none-match"] === etag) {
+    res.status(304).end();
+    return true;
+  }
+  return false;
+}
 
 // Tabular Results — serves MongoDB backup first (fast), refreshes from Sheets in background
 router.get("/api/tabular/:province/:pollutant", async (req, res) => {
@@ -43,7 +69,7 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
       );
       // Kick off a background refresh from Google Sheets (non-blocking)
       backupOne(province, pollutant).catch(() => {});
-      return res.json({
+      const body = {
         province: backup.province,
         pollutant: backup.pollutant,
         columns: enriched.columns,
@@ -52,7 +78,9 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         fetchedAt: backup.fetchedAt,
         source: backup.source,
         backupMeta: backup.backupMeta,
-      });
+      };
+      if (setCacheHeaders(req, res, body)) return;
+      return res.json(body);
     }
 
     // 2) No backup yet — fall back to Google Sheets (first-time load)
@@ -70,7 +98,7 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
       );
       // Persist raw data to MongoDB for next time (non-blocking)
       backupOne(province, pollutant).catch(() => {});
-      return res.json({
+      const body = {
         province,
         pollutant,
         columns: enriched.columns,
@@ -78,7 +106,9 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         totalRows: enriched.rows.length,
         fetchedAt: raw.fetchedAt,
         source: raw.source,
-      });
+      };
+      if (setCacheHeaders(req, res, body)) return;
+      return res.json(body);
     } catch (sheetErr) {
       throw sheetErr;
     }

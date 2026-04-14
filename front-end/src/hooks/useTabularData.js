@@ -18,6 +18,7 @@ import { getApiBase } from "../util/apiBase";
 
 const TABULAR_REFRESH_MS = 300_000;
 const TABULAR_CACHE = new Map();
+const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
 function getCacheKey(province, pollutant) {
   return `${province || ""}:${pollutant || ""}`;
@@ -46,8 +47,30 @@ async function requestTabularData(province, pollutant, force = false) {
   const pending = (async () => {
     const base = getApiBase();
     const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const headers = { Accept: "application/json" };
+
+    // Send ETag for conditional request (saves bandwidth when data unchanged)
+    const etagKey = getCacheKey(province, pollutant);
+    const existingEtag = ETAG_STORE.get(etagKey);
+    if (existingEtag) {
+      headers["If-None-Match"] = existingEtag;
+    }
+
+    const res = await fetch(url, { headers });
+
+    // 304 Not Modified — data unchanged, reuse cached data
+    if (res.status === 304) {
+      const cachedEntry = TABULAR_CACHE.get(cacheKey);
+      if (cachedEntry?.data) return cachedEntry.data;
+    }
+
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // Store ETag from response
+    const responseEtag = res.headers.get("ETag");
+    if (responseEtag) {
+      ETAG_STORE.set(etagKey, responseEtag);
+    }
 
     const json = await res.json();
     return {

@@ -11,7 +11,35 @@ const { parseDateValue, formatDateAmPm, detectDateFormat } = require("../utils/d
 const { coerceNumber, meanLast } = require("../utils/mathUtils");
 const { phPm10Status24hFromAvg, phPm25Status24hFromAvg } = require("./aqiCalculator");
 
+// ── Secure LRU cache with stale-while-revalidate ──
+const MAX_CACHE_ENTRIES = 50;
+const STALE_WHILE_REVALIDATE_MS = SHEET_CACHE_TTL_MS * 4; // serve stale up to 4x TTL
 const _sheetCache = new Map();
+const _revalidating = new Set(); // track in-flight background refreshes
+
+function cacheSet(key, payload) {
+  // Evict oldest entries when cache exceeds max size
+  if (_sheetCache.size >= MAX_CACHE_ENTRIES && !_sheetCache.has(key)) {
+    const oldestKey = _sheetCache.keys().next().value;
+    _sheetCache.delete(oldestKey);
+  }
+  _sheetCache.set(key, { ts: Date.now(), payload });
+}
+
+function cacheGet(key) {
+  const entry = _sheetCache.get(key);
+  if (!entry) return { hit: false, fresh: false, stale: false, payload: null };
+  const age = Date.now() - entry.ts;
+  if (age < SHEET_CACHE_TTL_MS) {
+    return { hit: true, fresh: true, stale: false, payload: entry.payload };
+  }
+  if (age < STALE_WHILE_REVALIDATE_MS) {
+    return { hit: true, fresh: false, stale: true, payload: entry.payload };
+  }
+  _sheetCache.delete(key);
+  return { hit: false, fresh: false, stale: false, payload: null };
+}
+
 const VERBOSE_SHEETS_LOGS = process.env.VERBOSE_SHEETS_LOGS === "true";
 
 function extractSpreadsheetId(url) {
@@ -483,10 +511,31 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
     throw err;
   }
   const cacheKey = `raw-tabular:${provinceKey}:${pollutantKey}`;
-  const cached = _sheetCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < SHEET_CACHE_TTL_MS) {
+  const cached = cacheGet(cacheKey);
+
+  // Fresh cache → return immediately
+  if (cached.fresh) {
     return { ...cached.payload, source: "cache" };
   }
+
+  // Stale cache → return stale data immediately, revalidate in background
+  if (cached.stale) {
+    if (!_revalidating.has(cacheKey)) {
+      _revalidating.add(cacheKey);
+      fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat)
+        .finally(() => _revalidating.delete(cacheKey));
+    }
+    return { ...cached.payload, source: "stale-cache" };
+  }
+
+  // No cache → fetch synchronously
+  return fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat);
+}
+
+/**
+ * Internal: fetch from Google Sheets, prepare rows, and cache the result.
+ */
+async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat) {
   try {
     const table = await fetchAllSheetsAsTable(sheetUrl);
     const prepared = prepareRawRows(table, { dateFormat });
@@ -501,14 +550,16 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
       fetchedAt: Date.now(),
       source: "sheet",
     };
-    _sheetCache.set(cacheKey, { ts: Date.now(), payload });
+    cacheSet(cacheKey, payload);
     return payload;
   } catch (fetchErr) {
     console.error(
       `[raw-tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
     );
-    if (cached) {
-      return { ...cached.payload, source: "stale-cache" };
+    // Fall back to any stale data
+    const stale = cacheGet(cacheKey);
+    if (stale.hit) {
+      return { ...stale.payload, source: "stale-cache" };
     }
     throw fetchErr;
   }
@@ -524,11 +575,31 @@ async function getTabularTable(provinceKey, pollutantKey) {
     throw err;
   }
   const cacheKey = `tabular:${provinceKey}:${pollutantKey}`;
-  const cached = _sheetCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < SHEET_CACHE_TTL_MS) {
+  const cached = cacheGet(cacheKey);
+
+  // Fresh cache → return immediately
+  if (cached.fresh) {
     return { ...cached.payload, source: "cache" };
   }
 
+  // Stale cache → return stale data immediately, revalidate in background
+  if (cached.stale) {
+    if (!_revalidating.has(cacheKey)) {
+      _revalidating.add(cacheKey);
+      fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat)
+        .finally(() => _revalidating.delete(cacheKey));
+    }
+    return { ...cached.payload, source: "stale-cache" };
+  }
+
+  // No cache → fetch synchronously
+  return fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat);
+}
+
+/**
+ * Internal: fetch from Google Sheets, enhance with AQI, and cache.
+ */
+async function fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat) {
   try {
     let table = await fetchAllSheetsAsTable(sheetUrl);
     table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1, dateFormat });
@@ -541,18 +612,18 @@ async function getTabularTable(provinceKey, pollutantKey) {
       fetchedAt: Date.now(),
       source: "sheet",
     };
-    _sheetCache.set(cacheKey, { ts: Date.now(), payload });
+    cacheSet(cacheKey, payload);
     return payload;
   } catch (fetchErr) {
     console.error(
       `[tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
     );
-    if (cached) {
+    const stale = cacheGet(cacheKey);
+    if (stale.hit) {
       console.warn(
-        `[tabular] Serving stale cache for ${provinceKey}/${pollutantKey} ` +
-          `(age ${Math.round((Date.now() - cached.ts) / 1000)}s)`,
+        `[tabular] Serving stale cache for ${provinceKey}/${pollutantKey}`,
       );
-      return { ...cached.payload, source: "stale-cache" };
+      return { ...stale.payload, source: "stale-cache" };
     }
     throw fetchErr;
   }
