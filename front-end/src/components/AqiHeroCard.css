@@ -27,6 +27,33 @@
   opacity: 0.45;
   transition: opacity 0.6s ease;
 }
+
+/* ── AQI colour gradient overlay ── */
+.hero-aqi-gradient-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  transition: background 0.8s ease;
+  border-radius: inherit;
+}
+.hero-aqi-gradient-anim {
+  animation: aqi-gradient-shimmer 6s ease-in-out infinite alternate;
+}
+@keyframes aqi-gradient-shimmer {
+  0% {
+    opacity: 0.7;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.1);
+  }
+  100% {
+    opacity: 0.75;
+    filter: brightness(0.95);
+  }
+}
 /* Tinted overlay – blends photo with AQI sky colour for corporate look */
 .hero-photo-layer::after {
   content: "";
@@ -847,11 +874,15 @@
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
   margin-top: 2px;
 }
-.aqi-hero-gauge-wrap--sm { /* Slightly smaller gauge for dual layout */ display: contents; }
+.aqi-hero-gauge-wrap--sm { position: relative; display: flex; align-items: center; justify-content: center; }
 .aqi-hero-gauge--sm {
   width: 110px !important;
   height: 110px !important;
   border-width: 3px !important;
+}
+.aqi-hero-gauge-wrap--sm > .aqi-hero-pulse-ring {
+  inset: -6px;
+  border-width: 2px;
 }
 
 /* Dual gauges: side-by-side on mobile screens */
@@ -927,8 +958,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #34d399;
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+  background: var(--aqi-accent, #34d399);
+  box-shadow: 0 0 6px var(--aqi-accent, rgba(52, 211, 153, 0.6));
   animation: live-pulse 1.8s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -937,11 +968,9 @@
   100% {
     opacity: 1;
     transform: scale(1);
-    box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
   }
   50% {
     opacity: 0.5;
     transform: scale(0.75);
-    box-shadow: 0 0 12px rgba(52, 211, 153, 0.9);
   }
 }

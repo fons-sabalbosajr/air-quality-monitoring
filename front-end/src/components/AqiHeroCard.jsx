@@ -375,6 +375,17 @@ export default function AqiHeroCard({
   const heroText = dark || stationPhoto ? "#ffffff" : band.heroText;
   const heroTextSub = dark || stationPhoto ? "rgba(255,255,255,0.7)" : band.heroTextSub;
 
+  // Build AQI-based gradient overlay colors
+  const aqiGradientBg = useMemo(() => {
+    if (showFullStaleOverlay) return "none";
+    const c1 = band.color;
+    const c2 = hasDual && band2 ? band2.color : c1;
+    if (c1 === c2) {
+      return `linear-gradient(135deg, ${hexToRgba(c1, 0.45)} 0%, ${hexToRgba(c1, 0.15)} 40%, ${hexToRgba(c1, 0.25)} 70%, ${hexToRgba(c1, 0.5)} 100%)`;
+    }
+    return `linear-gradient(135deg, ${hexToRgba(c1, 0.45)} 0%, ${hexToRgba(c1, 0.15)} 35%, ${hexToRgba(c2, 0.15)} 65%, ${hexToRgba(c2, 0.45)} 100%)`;
+  }, [band, band2, hasDual, showFullStaleOverlay]);
+
   return (
     <div
       className={`aqi-hero-card${stationPhoto ? " aqi-hero-card--photo" : ""}`}
@@ -390,6 +401,12 @@ export default function AqiHeroCard({
         ...(showFullStaleOverlay ? { userSelect: "none" } : {}),
       }}
     >
+      {/* ── AQI colour gradient overlay ── */}
+      <div
+        className="hero-aqi-gradient-layer hero-aqi-gradient-anim"
+        style={{ background: aqiGradientBg }}
+      />
+
       {/* ── Station photo background ── */}
       {stationPhoto && (
         <div
@@ -405,6 +422,11 @@ export default function AqiHeroCard({
         >
           <span
             className={`aqi-live-dot${showFullStaleOverlay ? " aqi-live-dot--stale" : hasPartialFreshData || isFallback ? " aqi-live-dot--warn" : ""}`}
+            style={
+              !showFullStaleOverlay && !hasPartialFreshData && !isFallback
+                ? { background: band.color, boxShadow: `0 0 6px ${hexToRgba(band.color, 0.6)}` }
+                : undefined
+            }
           />
           {showFullStaleOverlay ? "Outdated" : hasPartialFreshData ? "Partial Update" : isFallback ? "Alternate" : "Live"}
         </span>
@@ -493,13 +515,12 @@ export default function AqiHeroCard({
                     : undefined
                 }
               >
-                <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm">
+                <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm" style={{
+                  "--gauge-color": band.color,
+                  "--gauge-glow": hexToRgba(band.color, 0.5),
+                }}>
                   <div
                     className="aqi-hero-gauge aqi-hero-gauge--sm"
-                    style={{
-                      "--gauge-color": band.color,
-                      "--gauge-glow": hexToRgba(band.color, 0.5),
-                    }}
                   >
                     <span
                       className="aqi-hero-face aqi-face-bounce"
@@ -510,10 +531,8 @@ export default function AqiHeroCard({
                     <span className="aqi-hero-value" style={{ fontSize: 28 }}>
                       {roundedVal ?? "—"}
                     </span>
-                    <span className="aqi-hero-unit" style={{ fontSize: 8 }}>
-                      µg/Ncm
-                    </span>
                   </div>
+                  <div className="aqi-hero-pulse-ring" />
                 </div>
                 <div className="aqi-hero-dual-label">{pollutantLabel}</div>
                 <Tag color={band.color} className="aqi-hero-status-tag">
@@ -568,13 +587,12 @@ export default function AqiHeroCard({
                   <Skeleton.Avatar active size={90} shape="circle" />
                 ) : (
                   <>
-                    <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm">
+                    <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm" style={{
+                      "--gauge-color": band2.color,
+                      "--gauge-glow": hexToRgba(band2.color, 0.5),
+                    }}>
                       <div
                         className="aqi-hero-gauge aqi-hero-gauge--sm"
-                        style={{
-                          "--gauge-color": band2.color,
-                          "--gauge-glow": hexToRgba(band2.color, 0.5),
-                        }}
                       >
                         <span
                           className="aqi-hero-face aqi-face-bounce"
@@ -588,10 +606,8 @@ export default function AqiHeroCard({
                         >
                           {roundedVal2 ?? "—"}
                         </span>
-                        <span className="aqi-hero-unit" style={{ fontSize: 8 }}>
-                          µg/Ncm
-                        </span>
                       </div>
+                      <div className="aqi-hero-pulse-ring" />
                     </div>
                     <div className="aqi-hero-dual-label">{pollutantLabel2}</div>
                     <Tag color={band2.color} className="aqi-hero-status-tag">
@@ -634,15 +650,17 @@ export default function AqiHeroCard({
               {/* Glowing circular gauge */}
               <div
                 className="aqi-hero-gauge-wrap"
-                style={isStale ? { position: "relative" } : undefined}
+                style={{
+                  "--gauge-color": isStale ? "#9ca3af" : band.color,
+                  "--gauge-glow": isStale
+                    ? "rgba(156,163,175,0.3)"
+                    : hexToRgba(band.color, 0.5),
+                  ...(isStale ? { position: "relative" } : {}),
+                }}
               >
                 <div
                   className="aqi-hero-gauge"
                   style={{
-                    "--gauge-color": isStale ? "#9ca3af" : band.color,
-                    "--gauge-glow": isStale
-                      ? "rgba(156,163,175,0.3)"
-                      : hexToRgba(band.color, 0.5),
                     ...(isStale
                       ? { filter: "grayscale(0.8)", opacity: 0.5 }
                       : {}),
@@ -654,12 +672,9 @@ export default function AqiHeroCard({
                   <span className="aqi-hero-value">
                     {isStale ? "—" : (roundedVal ?? "—")}
                   </span>
-                  <span className="aqi-hero-unit">
-                    {isStale ? "" : "µg/Ncm"}
-                  </span>
                 </div>
                 {/* Pulsing ring */}
-                {!isStale && sevIdx >= 1 && (
+                {!isStale && (
                   <div className="aqi-hero-pulse-ring" />
                 )}
                 {isStale && (
