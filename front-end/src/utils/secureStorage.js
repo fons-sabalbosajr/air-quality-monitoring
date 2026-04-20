@@ -14,7 +14,7 @@ import CryptoJS from 'crypto-js';
 
 const STORAGE_SECRET = import.meta.env.VITE_SECURE_STORAGE_KEY || 'aqm-insecure-fallback-key';
 
-if (!import.meta.env.VITE_SECURE_STORAGE_KEY) {
+if (!import.meta.env.VITE_SECURE_STORAGE_KEY && import.meta.env.PROD) {
   console.warn('[secureStorage] VITE_SECURE_STORAGE_KEY is not set. Storage will be obscured, but not hardened for production.');
 }
 

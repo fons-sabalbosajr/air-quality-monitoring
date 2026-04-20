@@ -137,7 +137,10 @@ async function graphClientCredentialsToken() {
     },
   });
   if (!resp.ok || !resp.data?.access_token) {
-    throw new Error(`Failed to acquire Graph token (${resp.status || "n/a"})`);
+    const detail = resp.data?.error_description || resp.data?.error || "";
+    throw new Error(
+      `Failed to acquire Graph token (${resp.status || "n/a"})${detail ? ": " + detail : ""}. Check GRAPH_TENANT_ID, GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET in .env — the client secret may have expired.`,
+    );
   }
   return resp.data.access_token;
 }
@@ -145,11 +148,13 @@ async function graphClientCredentialsToken() {
 function splitSharePointUrl(spUrl) {
   const url = new URL(spUrl);
   const host = url.hostname;
-  const parts = url.pathname.split("/").filter(Boolean);
-  const idx = parts.indexOf("personal");
-  if (idx === -1) return null;
-  const sitePath = "/" + parts.slice(0, idx + 2).join("/");
-  const filePath = "/" + parts.slice(idx + 2).join("/");
+  let parts = url.pathname.split("/").filter(Boolean);
+  // Strip sharing-link prefix (e.g. ":x:", "g") before "personal"
+  const personalIdx = parts.indexOf("personal");
+  if (personalIdx === -1) return null;
+  parts = parts.slice(personalIdx);
+  const sitePath = "/" + parts.slice(0, 2).join("/");
+  const filePath = parts.length > 2 ? "/" + parts.slice(2).join("/") : null;
   return { host, sitePath, filePath };
 }
 
@@ -161,6 +166,9 @@ async function downloadFromSharePointViaGraph(spUrl) {
   const envHost = process.env.SHAREPOINT_HOST || host;
   const envSitePath = process.env.SHAREPOINT_SITE_PATH || sitePath;
   const envFilePath = process.env.SHAREPOINT_FILE_PATH || filePath;
+  if (!envFilePath) {
+    throw new Error("Cannot determine file path from sharing URL. Set SHAREPOINT_FILE_PATH in .env");
+  }
 
   const siteResp = await fetchWithRetry(
     `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(envHost)}:${encodeURI(envSitePath)}`,
@@ -303,24 +311,53 @@ async function loadWorkbook(p) {
       }
     }
 
-    // 3) Graph for SharePoint
+    // 3) Graph for SharePoint — try both share-link and site/drive approaches
     if (isSP && hasGraph) {
       let buf;
-      if (/\/:[a-z]:\/g\//i.test(url.pathname)) {
-        buf = await downloadFromShareLinkViaGraph(url.href);
-      } else {
-        buf = await downloadFromSharePointViaGraph(url.href);
+      const isShareLink = /\/:[a-z]:\/g\//i.test(url.pathname);
+
+      // Try primary method first, then fallback to the other
+      const methods = isShareLink
+        ? [
+            { name: "share-link", fn: () => downloadFromShareLinkViaGraph(url.href) },
+            { name: "site-drive", fn: () => downloadFromSharePointViaGraph(url.href) },
+          ]
+        : [
+            { name: "site-drive", fn: () => downloadFromSharePointViaGraph(url.href) },
+            { name: "share-link", fn: () => downloadFromShareLinkViaGraph(url.href) },
+          ];
+
+      let lastGraphErr;
+      for (const m of methods) {
+        try {
+          buf = await m.fn();
+          break;
+        } catch (e) {
+          console.warn(`[ingest] Graph ${m.name} failed: ${e.message}`);
+          lastGraphErr = e;
+          buf = null;
+        }
       }
-      _wbCache.set(p, { ts: Date.now(), buf });
-      if (DISK_CACHE_ENABLED) {
-        try { fs.writeFileSync(diskPath, buf); } catch {}
+
+      if (buf) {
+        _wbCache.set(p, { ts: Date.now(), buf });
+        if (DISK_CACHE_ENABLED) {
+          try { fs.writeFileSync(diskPath, buf); } catch {}
+        }
+        return await XLSX.read(buf, {
+          type: "buffer",
+          cellDates: true,
+          cellNF: false,
+          cellText: false,
+        });
       }
-      return await XLSX.read(buf, {
-        type: "buffer",
-        cellDates: true,
-        cellNF: false,
-        cellText: false,
-      });
+
+      // Both methods failed — provide actionable guidance
+      const is401 = /401/.test(lastGraphErr?.message || "");
+      const hint = is401
+        ? "The Graph API returned 401. This usually means: (1) GRAPH_CLIENT_SECRET has expired — generate a new secret in Azure AD > App registrations > Certificates & secrets, or (2) Admin consent for Files.Read.All / Sites.Read.All was revoked — re-grant it in API permissions."
+        : `Graph error: ${lastGraphErr?.message || "unknown"}`;
+      throw new Error(`SharePoint Graph download failed. ${hint}`);
     }
 
     const reason = isSP

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Skeleton } from "antd";
 import {
   TbDroplet,
@@ -287,9 +287,9 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
               const showDaySep =
                 i > 0 && isDifferentDay(hours[i - 1].time, h.time);
               return (
-                <>
+                <React.Fragment key={h.time}>
                   {showDaySep && (
-                    <div key={`sep-${h.time}`} className="hourly-day-separator">
+                    <div className="hourly-day-separator">
                       <div className="hourly-day-separator-line" />
                       <span className="hourly-day-separator-label">
                         {formatDayLabel(h.time)}
@@ -298,7 +298,6 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
                     </div>
                   )}
                   <div
-                    key={h.time}
                     className={`hourly-tile${isNow ? " hourly-tile--now" : ""}`}
                   >
                     {/* Time label */}
@@ -347,7 +346,7 @@ export default function HourlyWeatherCard({ latitude, longitude }) {
                       />
                     </div>
                   </div>
-                </>
+                </React.Fragment>
               );
             })}
           </div>

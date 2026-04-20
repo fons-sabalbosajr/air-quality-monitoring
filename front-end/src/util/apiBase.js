@@ -5,11 +5,12 @@ export function getApiBase() {
 
   // 2) Prefer local dev server if running under Vite dev
   //    This avoids hitting production during LAN development.
+  //    Force HTTP because the Express API server doesn't use TLS,
+  //    even though the Vite dev server is HTTPS (via basicSsl plugin).
   if (typeof window !== 'undefined' && import.meta && import.meta.env && import.meta.env.DEV) {
-    const { protocol, hostname } = window.location;
-    // Default dev server port for the API
+    const { hostname } = window.location;
     const apiPort = 3001;
-    return `${protocol}//${hostname}:${apiPort}`;
+    return `http://${hostname}:${apiPort}`;
   }
 
   // 3) Meta tag allows post-build adjustment in static hosting

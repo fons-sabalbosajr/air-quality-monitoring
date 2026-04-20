@@ -1,31 +1,91 @@
 /**
  * AQI routes — latest AQI value & previous N-day AQI.
+ * Data sources: MongoDB (ingested from Google Sheets) → Google Sheets direct → Excel workbook fallback.
  */
+const crypto = require("crypto");
 const { Router } = require("express");
 const XLSX = require("../xlsxCompat");
 const { coerceDate } = require("../utils/dateUtils");
-const { inferAqiCategory } = require("../services/aqiCalculator");
+const { inferAqiCategory, phPm10Status24hFromAvg, phPm25Status24hFromAvg } = require("../services/aqiCalculator");
 const { resolveWorkbookPath, loadWorkbook, pickKeysFromRows, readVizData } = require("../services/workbook");
-const { fetchLatestFromMongo, fetchSeriesFromMongo } = require("../services/mongo");
+const { fetchLatestFromMongo, fetchSeriesFromMongo, fetchRecentFromMongo } = require("../services/mongo");
+const { readGoogleSheetAsSeries } = require("../services/googleSheets");
 
 const router = Router();
 
-// Latest AQI category (from viz_data sheet)
+// ── Cache helpers ──
+function setAqiCacheHeaders(res, body) {
+  const hash = crypto.createHash("md5").update(JSON.stringify(body)).digest("hex").slice(0, 16);
+  const etag = `W/"${hash}"`;
+  res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+  res.setHeader("ETag", etag);
+  res.setHeader("Vary", "Accept");
+  return etag;
+}
+
+function handleConditional(req, res, body) {
+  const etag = setAqiCacheHeaders(res, body);
+  if (req.headers["if-none-match"] === etag) {
+    res.status(304).end();
+    return true;
+  }
+  return false;
+}
+
+// Latest AQI category — MongoDB (Google Sheets ingestion) → Google Sheets direct → Excel fallback
 router.get("/api/aqi/latest", async (req, res) => {
   try {
-    const stored = await fetchLatestFromMongo("viz_data");
-    if (stored?.doc) {
-      const value = stored.doc.value;
-      res.json({
-        parameter: "PM10",
-        value,
-        category: inferAqiCategory(value),
-        time: stored.doc.epochMs,
-        path: stored.meta?.path || resolveWorkbookPath(),
-        source: "mongo",
-      });
-      return;
+    // 1) Try MongoDB first (ingested data from Google Sheets)
+    // Query all station sheets in parallel, pick the one with the most recent data point
+    const sheetKeys = ["clark_pm10", "meycauayan_pm10", "meycauayan_pm25", "zambales_pm10", "zambales_pm25", "san-fernando_pm10"];
+    const results = await Promise.all(sheetKeys.map((key) => fetchLatestFromMongo(key).then((r) => ({ key, ...r }))));
+    let bestDoc = null;
+    let bestSheet = null;
+    for (const { key, doc } of results) {
+      if (doc && (!bestDoc || doc.epochMs > bestDoc.epochMs)) {
+        bestDoc = doc;
+        bestSheet = key;
+      }
     }
+    if (bestDoc) {
+      const concentration = bestDoc.value;
+      // Determine pollutant from sheet key and compute AQI from concentration
+      const isPm25 = bestSheet.includes("pm25");
+      const statusFn = isPm25 ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
+      const { aqi, status } = statusFn(concentration);
+      const body = {
+        parameter: isPm25 ? "PM2.5" : "PM10",
+        concentration,
+        value: aqi,
+        category: status || inferAqiCategory(aqi),
+        time: bestDoc.epochMs,
+        sheet: bestSheet,
+        source: "mongo",
+      };
+      if (handleConditional(req, res, body)) return;
+      return res.json(body);
+    }
+
+    // 2) Try Google Sheets direct (clark_pm10 as primary station)
+    try {
+      const gsData = await readGoogleSheetAsSeries("clark", "pm10");
+      if (gsData?.series?.length) {
+        const latest = gsData.series[gsData.series.length - 1];
+        const { aqi, status } = phPm10Status24hFromAvg(latest.y);
+        const body = {
+          parameter: "PM10",
+          concentration: latest.y,
+          value: aqi,
+          category: status || inferAqiCategory(aqi),
+          time: latest.t,
+          source: "google-sheets",
+        };
+        if (handleConditional(req, res, body)) return;
+        return res.json(body);
+      }
+    } catch {}
+
+    // 3) Excel workbook fallback (legacy)
 
     const wbPath = resolveWorkbookPath();
     const wb = await loadWorkbook(wbPath);
@@ -115,14 +175,16 @@ router.get("/api/aqi/latest", async (req, res) => {
     if (!last) return res.status(404).json({ error: "No valid AQI row" });
 
     const category = last.category || inferAqiCategory(last.value);
-    res.json({
+    const body = {
       parameter: "PM10",
       value: last.value,
       category,
       time: last.t,
       path: wbPath,
       source: "excel",
-    });
+    };
+    if (handleConditional(req, res, body)) return;
+    res.json(body);
   } catch (e) {
     res.status(500).json({ error: e.message || "Failed to read latest AQI" });
   }
@@ -135,15 +197,42 @@ router.get("/api/aqi/last-days", async (req, res) => {
     if (!isFinite(days) || days <= 0) days = 3;
     days = Math.min(Math.max(Math.floor(days), 1), 14);
     let seriesPayload = null;
-    const stored = await fetchSeriesFromMongo("viz_data");
-    if (stored?.series?.length) {
-      seriesPayload = stored.series;
-    } else {
-      const { series } = await readVizData();
-      seriesPayload = series;
+    let source = "mongo";
+
+    // 1) Try clark_pm10 from MongoDB first (primary station), then fallback
+    const primaryKeys = ["clark_pm10"];
+    let activePollutant = "pm10";
+    for (const key of primaryKeys) {
+      const stored = await fetchRecentFromMongo(key, days + 2);
+      if (stored?.series?.length) {
+        seriesPayload = stored.series;
+        activePollutant = key.includes("pm25") ? "pm25" : "pm10";
+        break;
+      }
     }
+
+    // 2) Google Sheets direct fallback
+    if (!seriesPayload) {
+      try {
+        const gsData = await readGoogleSheetAsSeries("clark", "pm10");
+        if (gsData?.series?.length) {
+          seriesPayload = gsData.series;
+          source = "google-sheets";
+        }
+      } catch {}
+    }
+
+    // 3) Excel workbook fallback (legacy)
+    if (!seriesPayload) {
+      try {
+        const { series } = await readVizData();
+        seriesPayload = series;
+        source = "excel";
+      } catch {}
+    }
+
     if (!Array.isArray(seriesPayload) || seriesPayload.length === 0) {
-      return res.status(404).json({ error: "No viz_data series" });
+      return res.status(404).json({ error: "No AQI series data found" });
     }
     const todayKey = new Date().toISOString().slice(0, 10);
     const lastByDate = new Map();
@@ -160,14 +249,18 @@ router.get("/api/aqi/last-days", async (req, res) => {
       .slice(0, days)
       .sort();
     const items = dates.map((date) => {
-      const val = lastByDate.get(date);
-      return { date, value: val, category: inferAqiCategory(Number(val)) };
+      const concentration = lastByDate.get(date);
+      const statusFn = activePollutant === "pm25" ? phPm25Status24hFromAvg : phPm10Status24hFromAvg;
+      const { aqi, status } = statusFn(Number(concentration));
+      return { date, concentration, value: aqi, category: status || inferAqiCategory(aqi) };
     });
-    res.json({
+    const body = {
       days: items.length,
       items,
-      source: stored?.series ? "mongo" : "excel",
-    });
+      source,
+    };
+    if (handleConditional(req, res, body)) return;
+    res.json(body);
   } catch (e) {
     res
       .status(500)

@@ -75,7 +75,11 @@ async function backupOne(province, pollutant) {
 
   try {
     // Fetch RAW data (no AQI computation) — app computes AQI at serve time
-    const payload = await getRawTabularTable(province, pollutant);
+    // Apply 30s timeout to prevent backup from hanging on slow Google Sheets
+    const fetchTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Google Sheets fetch timed out (30s)")), 30000)
+    );
+    const payload = await Promise.race([getRawTabularTable(province, pollutant), fetchTimeout]);
     const rows = payload.rows || [];
     const columns = payload.columns || [];
     const newHash = hashRows(rows);

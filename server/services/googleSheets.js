@@ -91,7 +91,7 @@ async function fetchSheetTabCSV(spreadsheetId, tabName) {
     `https://docs.google.com/spreadsheets/d/${spreadsheetId}` +
     `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
 
-  const TIMEOUT_MS = 30000;
+  const TIMEOUT_MS = 15000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -140,15 +140,32 @@ async function fetchAllSheetsAsTable(sheetUrl) {
 
   let columns = null;
   let allRows = [];
-  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i];
+  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i, /rolling\s*average/i, /\baqi\b/i, /\bstatus\b/i];
   let tabsFound = 0;
 
   // Track tab fingerprints to deduplicate — Google Sheets returns the
   // first tab's data when a requested tab name doesn't exist.
   const seenTabFingerprints = new Set();
 
-  for (const year of yearsToTry) {
-    const csvText = await fetchSheetTabCSV(id, year);
+  // Fetch year tabs in reverse order (newest first) to prioritize recent data.
+  // Use limited parallelism (2 concurrent) to avoid Google rate-limiting.
+  const reversedYears = [...yearsToTry].reverse();
+  const csvResults = [];
+  const CONCURRENCY = 2;
+  for (let i = 0; i < reversedYears.length; i += CONCURRENCY) {
+    const batch = reversedYears.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (year) => {
+        const csvText = await fetchSheetTabCSV(id, year);
+        return { year, csvText };
+      })
+    );
+    csvResults.push(...batchResults);
+  }
+  // Sort back to chronological order (oldest first) for proper row merging
+  csvResults.sort((a, b) => Number(a.year) - Number(b.year));
+
+  for (const { year, csvText } of csvResults) {
     if (!csvText) continue;
 
     // Fingerprint: first 200 chars + last 200 chars + length
@@ -503,14 +520,57 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
 
       numericSeen.push(n);
 
+      // Try to extract AQI/Status from Google Sheet's own values.
+      // The sheet may have separate "AQI" and "Status" columns, OR a combined
+      // column like "AQI (µg/Ncm) & Category" with values like "53 - Fair".
+      let sheetAqi = null;
+      let sheetStatus = null;
+
+      // 1) Check combined AQI+Category column (e.g. "202 - Acutely Unhealthy")
+      if (aqiCatKey && r[aqiCatKey]) {
+        const raw = String(r[aqiCatKey]).trim();
+        // Skip placeholder values like "Loading..."
+        if (!/^loading/i.test(raw)) {
+          const m = raw.match(/^(\d+(?:\.\d+)?)\s*[-–—]\s*(.+)$/);
+          if (m) {
+            sheetAqi = Number(m[1]);
+            sheetStatus = m[2].trim();
+          } else {
+            const num = coerceNumber(raw);
+            if (num != null && isFinite(num)) sheetAqi = num;
+          }
+        }
+      }
+
+      // 2) Check separate AQI / Status columns (override combined if present)
+      const separateAqi = coerceNumber(r["AQI"] ?? r["aqi"]);
+      const separateStatus = r["Status"] ?? r["status"];
+      if (separateAqi != null && isFinite(separateAqi) && separateAqi > 0) {
+        sheetAqi = separateAqi;
+      }
+      if (typeof separateStatus === "string" && separateStatus.trim() !== "" && !/^loading/i.test(separateStatus)) {
+        sheetStatus = separateStatus.trim();
+      }
+
+      const hasSheetAqi = sheetAqi != null && isFinite(sheetAqi) && sheetAqi > 0;
+      const hasSheetStatus = typeof sheetStatus === "string" && sheetStatus.length > 0;
+
+      // Still compute rolling average for display
       const avg24h = numericSeen.length
         ? meanLast(numericSeen, requiredLogs)
         : 0;
       r[rollingKey] = avg24h;
 
-      const { aqi, status } = statusFn(avg24h);
-      r["AQI"] = aqi;
-      r["Status"] = status;
+      if (hasSheetAqi && hasSheetStatus) {
+        // Use Google Sheet's pre-computed values
+        r["AQI"] = sheetAqi;
+        r["Status"] = sheetStatus;
+      } else {
+        // Compute from rolling average when sheet values are missing/loading
+        const { aqi, status } = statusFn(avg24h);
+        r["AQI"] = aqi;
+        r["Status"] = status;
+      }
 
       if (aqiCatKey) delete r[aqiCatKey];
     }

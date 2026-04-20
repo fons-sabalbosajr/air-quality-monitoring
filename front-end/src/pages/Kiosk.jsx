@@ -1048,7 +1048,7 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
       width="95vw"
       style={{ top: 20, maxWidth: 1200 }}
       centered={false}
-      destroyOnClose
+      destroyOnHidden
       className="kiosk-tabular-modal"
     >
       <div className="kiosk-modal-header">
@@ -1232,7 +1232,7 @@ function KioskMapModal({ open, onClose, dark }) {
       width="95vw"
       style={{ top: 20, maxWidth: 1100 }}
       centered={false}
-      destroyOnClose
+      destroyOnHidden
       className="kiosk-map-modal"
     >
       <div className="kiosk-modal-header" style={{ marginBottom: 12 }}>

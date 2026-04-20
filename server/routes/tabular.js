@@ -41,6 +41,42 @@ function setCacheHeaders(req, res, body) {
   return false;
 }
 
+// Debounce background backup refreshes — at most once per key every 5 min
+const _lastBackupRefresh = new Map();
+const BACKUP_REFRESH_DEBOUNCE_MS = 300_000; // 5 min
+
+function maybeRefreshBackup(province, pollutant) {
+  const key = `${province}:${pollutant}`;
+  const now = Date.now();
+  const last = _lastBackupRefresh.get(key) || 0;
+  if (now - last < BACKUP_REFRESH_DEBOUNCE_MS) return; // skip, too soon
+  _lastBackupRefresh.set(key, now);
+  backupOne(province, pollutant).catch(() => {});
+}
+
+// In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
+const _enrichedCache = new Map();
+const ENRICHED_CACHE_TTL_MS = 300_000; // 5 min
+
+function getCachedEnriched(key) {
+  const entry = _enrichedCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > ENRICHED_CACHE_TTL_MS) {
+    _enrichedCache.delete(key);
+    return null;
+  }
+  return entry.json; // pre-serialized JSON string
+}
+
+function setCachedEnriched(key, body) {
+  // Evict oldest if cache grows too large
+  if (_enrichedCache.size >= 20) {
+    const oldest = _enrichedCache.keys().next().value;
+    _enrichedCache.delete(oldest);
+  }
+  _enrichedCache.set(key, { json: JSON.stringify(body), ts: Date.now() });
+}
+
 // Tabular Results — serves MongoDB backup first (fast), refreshes from Sheets in background
 router.get("/api/tabular/:province/:pollutant", async (req, res) => {
   try {
@@ -51,6 +87,15 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
     }
     if (!TABULAR_SHEETS[province] || !TABULAR_SHEETS[province][pollutant]) {
       return res.status(404).json({ error: "Unknown province or pollutant" });
+    }
+
+    // 0) Check in-memory enriched cache first (instant)
+    const cacheKey = `${province}:${pollutant}`;
+    const cachedJson = getCachedEnriched(cacheKey);
+    if (cachedJson) {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      return res.end(cachedJson);
     }
 
     // 1) Try MongoDB backup first (raw data, sub-second response)
@@ -67,8 +112,8 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         pollutant,
         { logsPerHour: 1 },
       );
-      // Kick off a background refresh from Google Sheets (non-blocking)
-      backupOne(province, pollutant).catch(() => {});
+      // Kick off a debounced background refresh from Google Sheets
+      maybeRefreshBackup(province, pollutant);
       const body = {
         province: backup.province,
         pollutant: backup.pollutant,
@@ -79,13 +124,19 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         source: backup.source,
         backupMeta: backup.backupMeta,
       };
+      setCachedEnriched(cacheKey, body);
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
     }
 
     // 2) No backup yet — fall back to Google Sheets (first-time load)
+    //    Apply a 20s timeout so the frontend doesn't hang indefinitely.
     try {
-      const raw = await getRawTabularTable(province, pollutant);
+      const sheetPromise = getRawTabularTable(province, pollutant);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Google Sheets fetch timed out (20s)")), 20000)
+      );
+      const raw = await Promise.race([sheetPromise, timeoutPromise]);
       const enriched = enrichWithAqi(
         {
           columns: raw.columns,
@@ -97,7 +148,7 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         { logsPerHour: 1 },
       );
       // Persist raw data to MongoDB for next time (non-blocking)
-      backupOne(province, pollutant).catch(() => {});
+      maybeRefreshBackup(province, pollutant);
       const body = {
         province,
         pollutant,
@@ -107,6 +158,7 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         fetchedAt: raw.fetchedAt,
         source: raw.source,
       };
+      setCachedEnriched(cacheKey, body);
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
     } catch (sheetErr) {
@@ -193,4 +245,41 @@ router.get("/api/export-logs", async (req, res) => {
   }
 });
 
+/**
+ * Pre-warm the enriched cache for all datasets from MongoDB backup.
+ * Call after MongoDB is connected and backups are available.
+ */
+async function warmEnrichedCache() {
+  const keys = [];
+  for (const [prov, polls] of Object.entries(TABULAR_SHEETS)) {
+    for (const poll of Object.keys(polls)) {
+      keys.push({ province: prov, pollutant: poll });
+    }
+  }
+  let ok = 0;
+  for (const { province, pollutant } of keys) {
+    const cacheKey = `${province}:${pollutant}`;
+    try {
+      const backup = await getBackupData(province, pollutant);
+      if (!backup || !backup.rows?.length) continue;
+      const enriched = enrichWithAqi(
+        { columns: backup.columns, rows: backup.rows, dateKey: backup.dateKey, concKey: backup.concKey },
+        pollutant,
+        { logsPerHour: 1 }
+      );
+      const body = {
+        province: backup.province, pollutant: backup.pollutant,
+        columns: enriched.columns, rows: enriched.rows, totalRows: enriched.rows.length,
+        fetchedAt: backup.fetchedAt, source: backup.source, backupMeta: backup.backupMeta,
+      };
+      setCachedEnriched(cacheKey, body);
+      ok++;
+    } catch (e) {
+      console.warn(`[enriched-cache] warm failed for ${cacheKey}: ${e.message}`);
+    }
+  }
+  console.log(`[enriched-cache] warmed ${ok}/${keys.length} datasets`);
+}
+
 module.exports = router;
+module.exports.warmEnrichedCache = warmEnrichedCache;

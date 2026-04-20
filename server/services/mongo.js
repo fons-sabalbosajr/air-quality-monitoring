@@ -183,6 +183,31 @@ async function fetchSeriesFromMongo(sheetKey) {
   }
 }
 
+/**
+ * Fetch recent data points from MongoDB (limited query for fast responses).
+ * @param {string} sheetKey - The sheet key to query
+ * @param {number} daysBack - How many days of data to fetch (default 30)
+ */
+async function fetchRecentFromMongo(sheetKey, daysBack = 30) {
+  if (!MONGO_URI) return null;
+  try {
+    const seriesCol = await getSeriesCollection();
+    const cutoff = Date.now() - daysBack * 24 * 60 * 60 * 1000;
+    const docs = await seriesCol
+      .find({ sheet: sheetKey, epochMs: { $gte: cutoff } })
+      .sort({ epochMs: 1 })
+      .toArray();
+    if (!docs.length) return null;
+    return {
+      series: docs.map((d) => ({ t: d.epochMs, y: d.value })),
+      meta: { sheet: sheetKey, points: docs.length },
+    };
+  } catch (err) {
+    console.warn(`[mongo] fetchRecent failed (${sheetKey}): ${err.message}`);
+    return null;
+  }
+}
+
 async function fetchLatestFromMongo(sheetKey) {
   if (!MONGO_URI) return null;
   try {
@@ -221,23 +246,28 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
   _ingestRunning = true;
   const started = Date.now();
   try {
-    // Workbook-based ingestion (viz_data + PM10) — may fail if SharePoint auth is stale
+    // Workbook-based ingestion (viz_data + PM10) — only if EXCEL_FILE_PATH is set
     let vizPts = 0, pm10Pts = 0;
-    try {
-      const viz = await readVizData();
-      const pm10 = await readSheetSeries("PM10");
-      await persistSeriesToMongo("viz_data", viz);
-      await persistSeriesToMongo("PM10", pm10);
-      vizPts = viz.meta?.points || viz.series.length;
-      pm10Pts = pm10.meta?.points || pm10.series.length;
-    } catch (wbErr) {
-      // Only log workbook errors once or in verbose mode (avoid spamming logs)
-      if (/not found/i.test(wbErr.message)) {
-        if (VERBOSE_INGEST_LOGS) {
-          console.log(`[ingest] workbook skipped (file not found)`);
+    if (process.env.EXCEL_FILE_PATH) {
+      try {
+        const viz = await readVizData();
+        const pm10 = await readSheetSeries("PM10");
+        await persistSeriesToMongo("viz_data", viz);
+        await persistSeriesToMongo("PM10", pm10);
+        vizPts = viz.meta?.points || viz.series.length;
+        pm10Pts = pm10.meta?.points || pm10.series.length;
+      } catch (wbErr) {
+        if (/not found/i.test(wbErr.message)) {
+          if (VERBOSE_INGEST_LOGS) {
+            console.log(`[ingest] workbook skipped (file not found)`);
+          }
+        } else if (/401|403|expired|consent/i.test(wbErr.message)) {
+          if (VERBOSE_INGEST_LOGS) {
+            console.log(`[ingest] workbook skipped (auth issue — using Google Sheets instead)`);
+          }
+        } else {
+          console.warn(`[ingest] workbook ingestion failed: ${wbErr.message}`);
         }
-      } else {
-        console.warn(`[ingest] workbook ingestion failed: ${wbErr.message}`);
       }
     }
 
@@ -254,10 +284,12 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
       ];
       for (const { province, pollutant } of SHEET_STATIONS) {
         try {
+          if (VERBOSE_INGEST_LOGS) console.log(`[ingest] fetching ${province}/${pollutant} from Google Sheets...`);
           const data = await readGoogleSheetAsSeries(province, pollutant);
           if (data.series.length > 0) {
             await persistSeriesToMongo(data.meta.sheet, data);
             sheetIngested.push(`${province}_${pollutant}:${data.series.length}`);
+            if (VERBOSE_INGEST_LOGS) console.log(`[ingest] ${province}/${pollutant}: ${data.series.length} pts ingested`);
           }
         } catch (sheetErr) {
           if (sheetErr.code === "NOT_CONFIGURED") {
@@ -316,6 +348,7 @@ module.exports = {
   persistStationMeta,
   persistSeriesToMongo,
   fetchSeriesFromMongo,
+  fetchRecentFromMongo,
   fetchLatestFromMongo,
   runIngestion,
   scheduleIngestion,

@@ -11,7 +11,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-const { PORT, CACHE_TTL_MS, MONGO_URI } = require("./config/env");
+const { PORT, MONGO_URI } = require("./config/env");
 
 // Services
 const { ensureMongo, persistStationMeta, scheduleIngestion } = require("./services/mongo");
@@ -147,23 +147,39 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server ready on port ${PORT}`);
   }
 
-  // Pre-warm workbook cache
-  try {
-    const wbPath = resolveWorkbookPath();
-    setTimeout(() => {
-      loadWorkbook(wbPath).catch(() => {});
-    }, 10);
-    // Background cache refresh
-    let warming = false;
-    const intervalMs = Math.max(60000, Number(CACHE_TTL_MS) || 60000);
-    setInterval(async () => {
-      if (warming) return;
-      warming = true;
+  // Pre-warm caches on startup
+  if (MONGO_URI) {
+    setTimeout(async () => {
+      // 1) Pre-warm enriched tabular cache from MongoDB backup (fast, no Google Sheets needed)
       try {
-        await loadWorkbook(wbPath);
-        await Promise.allSettled([readVizData(), readSheetSeries("PM10")]);
+        const { warmEnrichedCache } = require("./routes/tabular");
+        await warmEnrichedCache();
+      } catch (e) {
+        console.warn(`[enriched-cache] warm-up error: ${e.message}`);
+      }
+
+      // 2) Pre-warm Google Sheets raw cache (slower, may timeout for large sheets)
+      try {
+        const { getRawTabularTable } = require("./services/googleSheets");
+        const { TABULAR_SHEETS } = require("./config/sheets");
+        let warmed = 0;
+        let failed = 0;
+        for (const [province, pollutants] of Object.entries(TABULAR_SHEETS)) {
+          for (const pollutant of Object.keys(pollutants)) {
+            try {
+              const timeout = new Promise((_, rej) =>
+                setTimeout(() => rej(new Error("warm-up timeout")), 20000)
+              );
+              await Promise.race([getRawTabularTable(province, pollutant), timeout]);
+              warmed++;
+            } catch (e) {
+              failed++;
+              console.warn(`[cache] Warm-up failed for ${province}/${pollutant}: ${e.message}`);
+            }
+          }
+        }
+        console.log(`[cache] Google Sheets cache warmed: ${warmed} ok, ${failed} failed`);
       } catch {}
-      warming = false;
-    }, intervalMs);
-  } catch {}
+    }, 5000);
+  }
 });

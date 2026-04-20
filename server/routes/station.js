@@ -15,11 +15,43 @@ const { getStationCollection } = require("../services/mongo");
 
 const router = Router();
 
-// Station current weather (Open-Meteo + OWM fallback)
+// ── Server-side in-memory cache for weather data ──
+const _weatherCache = new Map();
+const WEATHER_CACHE_TTL = 120_000; // 2 minutes
+
+function getCached(key) {
+  const entry = _weatherCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > WEATHER_CACHE_TTL) {
+    _weatherCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data) {
+  // LRU: limit to 20 entries
+  if (_weatherCache.size >= 20 && !_weatherCache.has(key)) {
+    const oldest = _weatherCache.keys().next().value;
+    _weatherCache.delete(oldest);
+  }
+  _weatherCache.set(key, { ts: Date.now(), data });
+}
+
+// Station current weather (Open-Meteo + OWM fallback) — cached server-side
 router.get("/api/station/current", async (req, res) => {
   try {
     const lat = STATION_LAT;
     const lon = STATION_LON;
+
+    // Check server-side cache first
+    const cacheKey = `current:${lat}:${lon}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      res.setHeader("Cache-Control", "private, max-age=120, stale-while-revalidate=300");
+      res.setHeader("X-Cache", "HIT");
+      return res.json(cached);
+    }
     if (!lat || !lon) {
       return res
         .status(400)
@@ -82,7 +114,10 @@ router.get("/api/station/current", async (req, res) => {
         .status(502)
         .json({ error: omResp.error || `All upstream sources failed` });
     }
-    res.json({
+    // Cache weather for 2 minutes (weather doesn't change rapidly)
+    res.setHeader("Cache-Control", "private, max-age=120, stale-while-revalidate=300");
+    res.setHeader("X-Cache", "MISS");
+    const body = {
       latitude: Number(lat),
       longitude: Number(lon),
       temperature_2m: temperature,
@@ -98,7 +133,9 @@ router.get("/api/station/current", async (req, res) => {
             ? true
             : false),
       },
-    });
+    };
+    setCache(cacheKey, body);
+    res.json(body);
   } catch (e) {
     res
       .status(500)
@@ -106,7 +143,7 @@ router.get("/api/station/current", async (req, res) => {
   }
 });
 
-// Station 3-day forecast
+// Station 3-day forecast — cached server-side 5 minutes
 router.get("/api/station/forecast", async (req, res) => {
   try {
     const lat = STATION_LAT;
@@ -114,6 +151,15 @@ router.get("/api/station/forecast", async (req, res) => {
     let days = Number(req.query.days || 3);
     if (!isFinite(days) || days <= 0) days = 3;
     days = Math.min(Math.max(Math.floor(days), 1), 7);
+
+    const forecastCacheKey = `forecast:${lat}:${lon}:${days}`;
+    const cachedForecast = getCached(forecastCacheKey);
+    if (cachedForecast) {
+      res.setHeader("Cache-Control", "private, max-age=300, stale-while-revalidate=600");
+      res.setHeader("X-Cache", "HIT");
+      return res.json(cachedForecast);
+    }
+
     if (!lat || !lon) {
       return res
         .status(400)
@@ -173,7 +219,10 @@ router.get("/api/station/forecast", async (req, res) => {
       });
     }
 
-    res.json({
+    // Cache forecast for 5 minutes
+    res.setHeader("Cache-Control", "private, max-age=300, stale-while-revalidate=600");
+    res.setHeader("X-Cache", "MISS");
+    const forecastBody = {
       latitude: Number(lat),
       longitude: Number(lon),
       days,
@@ -183,7 +232,9 @@ router.get("/api/station/forecast", async (req, res) => {
         humidity: j?.hourly_units?.relative_humidity_2m || "%",
         pressure: j?.hourly_units?.pressure_msl || "hPa",
       },
-    });
+    };
+    setCache(forecastCacheKey, forecastBody);
+    res.json(forecastBody);
   } catch (e) {
     res
       .status(500)
@@ -204,6 +255,8 @@ router.get("/api/station/meta", async (req, res) => {
       }
     }
     if (record) {
+      // Station meta is very stable — cache for 10 minutes
+      res.setHeader("Cache-Control", "private, max-age=600, stale-while-revalidate=1800");
       return res.json({
         name: record.name || null,
         address: record.address || null,
@@ -215,6 +268,7 @@ router.get("/api/station/meta", async (req, res) => {
     }
     const lat = STATION_LAT ? Number(STATION_LAT) : null;
     const lon = STATION_LON ? Number(STATION_LON) : null;
+    res.setHeader("Cache-Control", "private, max-age=600, stale-while-revalidate=1800");
     res.json({
       name: STATION_NAME,
       address: STATION_ADDRESS,
