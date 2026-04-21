@@ -127,9 +127,60 @@ async function fetchSheetTabCSV(spreadsheetId, tabName) {
  * CSV export returns the DISPLAYED values computed by Google Sheets,
  * avoiding stale formula cache issues present in XLSX export.
  */
-async function fetchAllSheetsAsTable(sheetUrl) {
+async function fetchAllSheetsAsTable(sheetUrl, tabName = null) {
   const id = extractSpreadsheetId(sheetUrl);
   if (!id) throw new Error("Cannot extract spreadsheet ID from URL");
+
+  let columns = null;
+  let allRows = [];
+  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i, /rolling\s*average/i, /\baqi\b/i, /\bstatus\b/i];
+  let tabsFound = 0;
+  const seenTabFingerprints = new Set();
+
+  // Helper: parse a CSV text into columns + rows and push into allRows
+  function parseCsvIntoRows(csvText) {
+    const lines = csvText.split("\n");
+    if (lines.length < 2) return;
+    const headerRow = parseCSVLine(lines[0]).map((h, idx) => {
+      const v = (h == null ? "" : String(h)).trim();
+      return v || `Column ${idx + 1}`;
+    });
+    if (!columns) {
+      columns = headerRow.filter((h) => RAW_COL_PATTERNS.some((p) => p.test(h)));
+      if (!columns.length) columns = headerRow;
+    }
+    const colIndices = columns.map((c) => headerRow.indexOf(c));
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const cells = parseCSVLine(line);
+      if (!cells.some((c) => c != null && String(c).trim() !== "")) continue;
+      const obj = {};
+      for (let ci = 0; ci < columns.length; ci++) {
+        const idx = colIndices[ci];
+        obj[columns[ci]] = idx >= 0 ? (cells[idx] ?? null) : null;
+      }
+      Object.defineProperty(obj, "__formulaCols", { value: [], enumerable: false, writable: true });
+      allRows.push(obj);
+    }
+  }
+
+  // If a specific tab name is configured, try it directly first
+  if (tabName) {
+    const csvText = await fetchSheetTabCSV(id, tabName);
+    if (csvText) {
+      const fp = `${csvText.length}|${csvText.slice(0, 200)}|${csvText.slice(-200)}`;
+      if (!seenTabFingerprints.has(fp)) {
+        seenTabFingerprints.add(fp);
+        tabsFound++;
+        parseCsvIntoRows(csvText);
+      }
+    }
+    // If configured tab found data, return immediately — no need to try year tabs
+    if (tabsFound) {
+      return { columns: columns || [], rows: allRows };
+    }
+  }
 
   // Try year-named tabs: up to 2 years in the past through current year
   const currentYear = new Date().getFullYear();
@@ -137,15 +188,6 @@ async function fetchAllSheetsAsTable(sheetUrl) {
   for (let y = currentYear - 2; y <= currentYear; y++) {
     yearsToTry.push(String(y));
   }
-
-  let columns = null;
-  let allRows = [];
-  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i, /rolling\s*average/i, /\baqi\b/i, /\bstatus\b/i];
-  let tabsFound = 0;
-
-  // Track tab fingerprints to deduplicate — Google Sheets returns the
-  // first tab's data when a requested tab name doesn't exist.
-  const seenTabFingerprints = new Set();
 
   // Fetch year tabs in reverse order (newest first) to prioritize recent data.
   // Use limited parallelism (2 concurrent) to avoid Google rate-limiting.
@@ -165,103 +207,26 @@ async function fetchAllSheetsAsTable(sheetUrl) {
   // Sort back to chronological order (oldest first) for proper row merging
   csvResults.sort((a, b) => Number(a.year) - Number(b.year));
 
-  for (const { year, csvText } of csvResults) {
+  for (const { csvText } of csvResults) {
     if (!csvText) continue;
-
-    // Fingerprint: first 200 chars + last 200 chars + length
     const fp = `${csvText.length}|${csvText.slice(0, 200)}|${csvText.slice(-200)}`;
-    if (seenTabFingerprints.has(fp)) {
-      // Duplicate tab content (non-existent tab returned first tab) — skip
-      continue;
-    }
+    if (seenTabFingerprints.has(fp)) continue; // Duplicate tab (non-existent tab returned first tab)
     seenTabFingerprints.add(fp);
     tabsFound++;
-
-    const lines = csvText.split("\n");
-    if (lines.length < 2) continue;
-
-    const headerRow = parseCSVLine(lines[0]).map((h, idx) => {
-      const v = (h == null ? "" : String(h)).trim();
-      return v || `Column ${idx + 1}`;
-    });
-
-    if (!columns) {
-      columns = headerRow.filter((h) =>
-        RAW_COL_PATTERNS.some((p) => p.test(h)),
-      );
-      if (!columns.length) columns = headerRow;
-    }
-
-    const colIndices = columns.map((c) => headerRow.indexOf(c));
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const cells = parseCSVLine(line);
-      if (!cells.some((c) => c != null && String(c).trim() !== "")) continue;
-
-      const obj = {};
-      for (let ci = 0; ci < columns.length; ci++) {
-        const idx = colIndices[ci];
-        obj[columns[ci]] = idx >= 0 ? (cells[idx] ?? null) : null;
-      }
-      // CSV values are always computed — no formula tracking needed
-      Object.defineProperty(obj, "__formulaCols", {
-        value: [],
-        enumerable: false,
-        writable: true,
-      });
-      allRows.push(obj);
-    }
+    parseCsvIntoRows(csvText);
   }
 
   // Fallback: try common generic tab names if no year-named tabs found
   if (!tabsFound) {
     const fallbackTabs = ["Sheet1", "Data", "Raw", "Main"];
-    for (const tabName of fallbackTabs) {
-      const csvText = await fetchSheetTabCSV(id, tabName);
+    for (const fallbackTab of fallbackTabs) {
+      const csvText = await fetchSheetTabCSV(id, fallbackTab);
       if (!csvText) continue;
-
       const fp = `${csvText.length}|${csvText.slice(0, 200)}|${csvText.slice(-200)}`;
       if (seenTabFingerprints.has(fp)) continue;
       seenTabFingerprints.add(fp);
       tabsFound++;
-
-      const lines = csvText.split("\n");
-      if (lines.length < 2) continue;
-
-      const headerRow = parseCSVLine(lines[0]).map((h, idx) => {
-        const v = (h == null ? "" : String(h)).trim();
-        return v || `Column ${idx + 1}`;
-      });
-
-      if (!columns) {
-        columns = headerRow.filter((h) =>
-          RAW_COL_PATTERNS.some((p) => p.test(h)),
-        );
-        if (!columns.length) columns = headerRow;
-      }
-
-      const colIndices = columns.map((c) => headerRow.indexOf(c));
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const cells = parseCSVLine(line);
-        if (!cells.some((c) => c != null && String(c).trim() !== "")) continue;
-
-        const obj = {};
-        for (let ci = 0; ci < columns.length; ci++) {
-          const idx = colIndices[ci];
-          obj[columns[ci]] = idx >= 0 ? (cells[idx] ?? null) : null;
-        }
-        Object.defineProperty(obj, "__formulaCols", {
-          value: [],
-          enumerable: false,
-          writable: true,
-        });
-        allRows.push(obj);
-      }
+      parseCsvIntoRows(csvText);
       break; // Use the first valid fallback tab
     }
   }
@@ -473,7 +438,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
   const concKey =
     prepared.concKey || columns.find((c) => /concentration/i.test(c));
 
-  if (!rows.length) return { columns, rows: [] };
+  if (!rows.length) return { columns, rows: [], dateKey: dateKey || null, concKey: concKey || null };
 
   const rollingKey =
     columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
@@ -482,6 +447,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
 
   const numericSeen = [];
   const enrichedRows = [];
+  let latestAqiVerified = false; // true when the newest row’s AQI came from the sheet
 
   for (let pos = 0; pos < rows.length; pos++) {
     const r = { ...rows[pos] };
@@ -562,14 +528,16 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
       r[rollingKey] = avg24h;
 
       if (hasSheetAqi && hasSheetStatus) {
-        // Use Google Sheet's pre-computed values
+        // Use Google Sheet’s pre-computed values (exact match with what the sheet shows)
         r["AQI"] = sheetAqi;
         r["Status"] = sheetStatus;
+        latestAqiVerified = true;
       } else {
         // Compute from rolling average when sheet values are missing/loading
         const { aqi, status } = statusFn(avg24h);
         r["AQI"] = aqi;
         r["Status"] = status;
+        latestAqiVerified = false;
       }
 
       if (aqiCatKey) delete r[aqiCatKey];
@@ -592,7 +560,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     ensureCol("Status");
   }
 
-  return { columns: filteredColumns, rows: enrichedRows };
+  return { columns: filteredColumns, rows: enrichedRows, dateKey: dateKey || null, concKey: concKey || null, latestAqiVerified };
 }
 
 /**
@@ -601,7 +569,8 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
 function enhanceTabularRows(table, pollutantKey, opts = {}) {
   try {
     const prepared = prepareRawRows(table, { dateFormat: opts.dateFormat });
-    return { ...table, ...enrichWithAqi(prepared, pollutantKey, opts) };
+    const enriched = enrichWithAqi(prepared, pollutantKey, opts);
+    return { ...table, columns: enriched.columns, rows: enriched.rows, latestAqiVerified: enriched.latestAqiVerified };
   } catch (err) {
     console.error(`[enhanceTabularRows] Unexpected error: ${err.message}`);
     return table || { columns: [], rows: [] };
@@ -616,6 +585,7 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
   const entry = resolveSheetEntry(TABULAR_SHEETS?.[provinceKey]?.[pollutantKey]);
   const sheetUrl = entry.url;
   const dateFormat = entry.dateFormat;
+  const tabName = entry.tabName || null;
   if (!sheetUrl) {
     const err = new Error("Sheet URL not configured");
     err.code = "NOT_CONFIGURED";
@@ -633,22 +603,22 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
   if (cached.stale) {
     if (!_revalidating.has(cacheKey)) {
       _revalidating.add(cacheKey);
-      fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat)
+      fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName)
         .finally(() => _revalidating.delete(cacheKey));
     }
     return { ...cached.payload, source: "stale-cache" };
   }
 
   // No cache → fetch synchronously
-  return fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat);
+  return fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName);
 }
 
 /**
  * Internal: fetch from Google Sheets, prepare rows, and cache the result.
  */
-async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat) {
+async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName) {
   try {
-    const table = await fetchAllSheetsAsTable(sheetUrl);
+    const table = await fetchAllSheetsAsTable(sheetUrl, tabName);
     const prepared = prepareRawRows(table, { dateFormat });
     const payload = {
       province: provinceKey,
@@ -680,6 +650,7 @@ async function getTabularTable(provinceKey, pollutantKey) {
   const entry = resolveSheetEntry(TABULAR_SHEETS?.[provinceKey]?.[pollutantKey]);
   const sheetUrl = entry.url;
   const dateFormat = entry.dateFormat;
+  const tabName = entry.tabName || null;
   if (!sheetUrl) {
     const err = new Error("Sheet URL not configured");
     err.code = "NOT_CONFIGURED";
@@ -697,22 +668,22 @@ async function getTabularTable(provinceKey, pollutantKey) {
   if (cached.stale) {
     if (!_revalidating.has(cacheKey)) {
       _revalidating.add(cacheKey);
-      fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat)
+      fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName)
         .finally(() => _revalidating.delete(cacheKey));
     }
     return { ...cached.payload, source: "stale-cache" };
   }
 
   // No cache → fetch synchronously
-  return fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat);
+  return fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName);
 }
 
 /**
  * Internal: fetch from Google Sheets, enhance with AQI, and cache.
  */
-async function fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat) {
+async function fetchAndCacheTabular(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName) {
   try {
-    let table = await fetchAllSheetsAsTable(sheetUrl);
+    let table = await fetchAllSheetsAsTable(sheetUrl, tabName);
     table = enhanceTabularRows(table, pollutantKey, { logsPerHour: 1, dateFormat });
     const payload = {
       province: provinceKey,

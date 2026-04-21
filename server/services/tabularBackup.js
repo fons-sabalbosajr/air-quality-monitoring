@@ -17,6 +17,17 @@ let _backupRunning = false;
 let _backupScheduled = false;
 let _db = null;
 
+// Track which province:pollutant pairs are actively syncing from Google Sheets
+const _syncingKeys = new Set();
+
+/**
+ * Returns true while a Google Sheets → MongoDB backup is in progress
+ * for the given province:pollutant key.
+ */
+function isSyncing(backupKey) {
+  return _syncingKeys.has(backupKey);
+}
+
 /**
  * Inject the database instance (avoids circular dep with mongo.js).
  */
@@ -72,12 +83,13 @@ async function backupOne(province, pollutant) {
   if (!col || !metaCol) return { updated: false, error: "DB not ready" };
 
   const backupKey = `${province}:${pollutant}`;
+  _syncingKeys.add(backupKey);
 
   try {
     // Fetch RAW data (no AQI computation) — app computes AQI at serve time
-    // Apply 30s timeout to prevent backup from hanging on slow Google Sheets
+    // Apply 45s timeout to prevent backup from hanging on slow Google Sheets
     const fetchTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Google Sheets fetch timed out (30s)")), 30000)
+      setTimeout(() => reject(new Error("Google Sheets fetch timed out (45s)")), 45000)
     );
     const payload = await Promise.race([getRawTabularTable(province, pollutant), fetchTimeout]);
     const rows = payload.rows || [];
@@ -144,39 +156,49 @@ async function backupOne(province, pollutant) {
     return { updated: true, rowCount: rows.length, province, pollutant };
   } catch (err) {
     return { updated: false, error: err.message, province, pollutant };
+  } finally {
+    _syncingKeys.delete(backupKey);
   }
 }
 
 /**
- * Run a full backup cycle — iterate all configured provinces/pollutants.
+ * Run a full backup cycle — fetch all configured provinces/pollutants concurrently.
  */
 async function runBackupCycle(reason = "scheduled") {
   if (!MONGO_URI || !_db) return;
   if (_backupRunning) return;
   _backupRunning = true;
-  const verboseBackupLogs = process.env.VERBOSE_INGEST_LOGS === "true";
 
-  const results = [];
   try {
+    // Collect all province:pollutant pairs that have a configured URL
+    const tasks = [];
     for (const [province, pollutants] of Object.entries(TABULAR_SHEETS)) {
-      for (const [pollutant, url] of Object.entries(pollutants)) {
-        if (!url) continue;
-        const r = await backupOne(province, pollutant);
-        results.push(r);
+      for (const [pollutant, entry] of Object.entries(pollutants)) {
+        if (!entry) continue; // skip unconfigured entries
+        tasks.push({ province, pollutant });
       }
     }
+
+    // Run all backups concurrently (previously sequential — e.g. 6 × 11s = 66s)
+    const results = await Promise.all(
+      tasks.map(({ province, pollutant }) => backupOne(province, pollutant))
+    );
+
     const updated = results.filter((r) => r.updated).length;
-    if (updated > 0 && verboseBackupLogs) {
-      console.log(
-        `[backup] ${reason}: ${updated}/${results.length} datasets updated`,
-      );
-    }
+    const failed  = results.filter((r) => r.error).length;
+    const summary = results.map((r) =>
+      r.error
+        ? `${r.province}:${r.pollutant} ERR(${r.error})`
+        : `${r.province}:${r.pollutant} ${r.updated ? `+${r.rowCount}rows` : "unchanged"}`
+    ).join(" | ");
+    console.log(`[backup] ${reason}: ${updated} updated, ${failed} failed — ${summary}`);
+
+    return results;
   } catch (err) {
     console.error(`[backup] ${reason} failed: ${err.message}`);
   } finally {
     _backupRunning = false;
   }
-  return results;
 }
 
 /**
@@ -315,4 +337,5 @@ module.exports = {
   checkForUpdates,
   scheduleBackup,
   ensureBackupIndexes,
+  isSyncing,
 };

@@ -2,19 +2,52 @@
  * useTabularData – fetches data from /api/tabular/:province/:pollutant
  * and transforms it into the format the dashboard components expect.
  *
- * Returns { rows, latest, dailyRows, loading, error, fetchedAt, retry, source, backupMeta }
- *   - rows       : raw enhanced rows from the server (newest-first)
- *   - latest     : the most recent row with valid AQI (for AQI hero card)
- *   - dailyRows  : array of { t, y, conc, status } in chronological order
- *   - loading    : boolean
- *   - error      : string | null
- *   - fetchedAt  : ISO timestamp
- *   - retry      : function to force re-fetch
- *   - source     : "sheet" | "cache" | "stale-cache" | "mongodb-backup"
- *   - backupMeta : { lastBackupAt, lastCheckedAt, rowCount } when served from backup
+ * Returns { rows, latest, cachedLatest, dailyRows, loading, error, fetchedAt, retry, source, backupMeta }
+ *   - rows         : raw enhanced rows from the server (newest-first)
+ *   - latest       : the most recent row with valid AQI (live, from server)
+ *   - cachedLatest : the most recent row stored in secureStorage (shown instantly on mount)
+ *   - dailyRows    : array of { t, y, conc, status } in chronological order
+ *   - loading      : boolean
+ *   - error        : string | null
+ *   - fetchedAt    : ISO timestamp
+ *   - retry        : function to force re-fetch
+ *   - source       : "sheet" | "cache" | "stale-cache" | "mongodb-backup"
+ *   - backupMeta   : { lastBackupAt, lastCheckedAt, rowCount } when served from backup
  */
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
+import { secureStorage } from "../utils/secureStorage";
+
+// Persist the latest AQI row in secureStorage so the AQI card can render
+// immediately on the next page load without waiting for the network.
+const AQI_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 h — evict stale cache
+const LATEST_POLL_MS = 60_000;                  // 1 min fast-poll for new data
+
+function getAqiCacheKey(province, pollutant) {
+  return `aqm_aqi_latest:${province}:${pollutant}`;
+}
+
+function readPersistedLatest(province, pollutant) {
+  if (!province || !pollutant) return null;
+  try {
+    const stored = secureStorage.getJSON(getAqiCacheKey(province, pollutant));
+    if (!stored?.row || !stored?.savedAt) return null;
+    if (Date.now() - stored.savedAt > AQI_CACHE_TTL_MS) {
+      secureStorage.removeItem(getAqiCacheKey(province, pollutant));
+      return null;
+    }
+    return stored.row;
+  } catch {
+    return null;
+  }
+}
+
+function persistLatestRow(province, pollutant, row) {
+  if (!province || !pollutant || !row) return;
+  try {
+    secureStorage.setJSON(getAqiCacheKey(province, pollutant), { row, savedAt: Date.now() });
+  } catch { /* best-effort */ }
+}
 
 const TABULAR_REFRESH_MS = 300_000;
 const TABULAR_CACHE = new Map();
@@ -119,7 +152,18 @@ export default function useTabularData(province, pollutant) {
   const [fetchedAt, setFetchedAt] = useState(initialCache?.data?.fetchedAt || null);
   const [source, setSource] = useState(initialCache?.data?.source || null);
   const [backupMeta, setBackupMeta] = useState(initialCache?.data?.backupMeta || null);
+  // sheetSyncing: server is actively fetching fresh data from Google Sheets in the background
+  const [sheetSyncing, setSheetSyncing] = useState(initialCache?.data?.raw?.sheetSyncing ?? false);
+  // latestAqiVerified: true when the newest row’s AQI value came from the sheet’s own formula
+  const [latestAqiVerified, setLatestAqiVerified] = useState(initialCache?.data?.raw?.latestAqiVerified ?? true);
   const mountedRef = useRef(true);
+
+  // Persisted latest row — loaded from secureStorage so the AQI card is
+  // visible immediately on mount without waiting for the API response.
+  const [cachedLatest, setCachedLatest] = useState(() => readPersistedLatest(province, pollutant));
+
+  // Ref to track the current latest row for fast-poll comparison
+  const latestRowRef = useRef(null);
 
   const applyPayload = useCallback((payload) => {
     if (!payload) return;
@@ -127,6 +171,8 @@ export default function useTabularData(province, pollutant) {
     setFetchedAt(payload.fetchedAt);
     setSource(payload.source);
     setBackupMeta(payload.backupMeta);
+    setSheetSyncing(payload.raw?.sheetSyncing ?? false);
+    setLatestAqiVerified(payload.raw?.latestAqiVerified ?? true);
     setError(null);
   }, []);
 
@@ -198,15 +244,17 @@ export default function useTabularData(province, pollutant) {
   }, [raw]);
 
   // Find the date column key (may vary per sheet)
+  // Prefer the authoritative dateKey/concKey the server computed during enrichment.
+  // Fall back to regex-based column detection only when the server key is absent.
   const dateCol = useMemo(() => {
+    if (raw?.dateKey) return raw.dateKey;
     if (!raw?.columns) return null;
-    const cols = raw.columns;
-    const match = cols.find((c) => /date|time/i.test(c));
-    return match || cols[0] || null;
+    return raw.columns.find((c) => /date|time/i.test(c)) || null;
   }, [raw]);
 
   // Find the concentration column key
   const concCol = useMemo(() => {
+    if (raw?.concKey) return raw.concKey;
     if (!raw?.columns) return null;
     return raw.columns.find((c) => /concentration/i.test(c)) || null;
   }, [raw]);
@@ -221,6 +269,61 @@ export default function useTabularData(province, pollutant) {
     return rows[0];
   }, [rows]);
 
+  // Persist latest row to secureStorage whenever it changes so the AQI card
+  // can render immediately on the next page load from cache.
+  useEffect(() => {
+    if (!latest || !province || !pollutant) return;
+    const newStr = JSON.stringify(latest);
+    const curStr = latestRowRef.current ? JSON.stringify(latestRowRef.current) : null;
+    if (newStr === curStr) return; // no change
+    latestRowRef.current = latest;
+    persistLatestRow(province, pollutant, latest);
+    setCachedLatest(latest);
+  }, [latest, province, pollutant]);
+
+  // Fast poll — hits the lightweight /latest endpoint every minute to detect
+  // new Google Sheets data early and update the AQI card before the full
+  // 5-minute tabular refresh fires.
+  useEffect(() => {
+    if (!province || !pollutant) return;
+    let cancelled = false;
+    let intervalId = null;
+    let startDelayId = null;
+
+    const pollLatest = async () => {
+      try {
+        const base = getApiBase();
+        const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        if (cancelled || !json?.row) return;
+        const newStr = JSON.stringify(json.row);
+        const curStr = latestRowRef.current ? JSON.stringify(latestRowRef.current) : null;
+        if (newStr !== curStr) {
+          // New AQI data detected — update card immediately, then reload full table
+          latestRowRef.current = json.row;
+          persistLatestRow(province, pollutant, json.row);
+          setCachedLatest(json.row);
+          fetchData({ force: true, background: true });
+        }
+      } catch { /* network errors are silent */ }
+    };
+
+    // Delay the first fast poll so it doesn't race with the initial full fetch
+    startDelayId = setTimeout(() => {
+      if (!cancelled) {
+        intervalId = setInterval(pollLatest, LATEST_POLL_MS);
+      }
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(startDelayId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [province, pollutant, fetchData]);
+
   // Transform to { t, y, conc, status } for chart & calendar (y = AQI)
   // Server delivers newest-first, so we reverse to chronological order.
   const dailyRows = useMemo(() => {
@@ -232,7 +335,8 @@ export default function useTabularData(province, pollutant) {
         const dateRaw = r[dateCol];
         if (!dateRaw) return null;
         const d = new Date(dateRaw);
-        if (isNaN(d.getTime())) return null;
+        // Require a plausible year to reject epoch-0 or non-date column values
+        if (isNaN(d.getTime()) || d.getFullYear() < 2015) return null;
         const aqi = r["AQI"] ?? r["aqi"] ?? null;
         if (aqi == null || !isFinite(Number(aqi))) return null;
         // Include concentration and status for calendar tiles
@@ -251,6 +355,7 @@ export default function useTabularData(province, pollutant) {
   return {
     rows,
     latest,
+    cachedLatest, // from secureStorage — available immediately on mount
     dailyRows,
     loading,
     error,
@@ -261,5 +366,7 @@ export default function useTabularData(province, pollutant) {
     raw,
     source,
     backupMeta,
+    sheetSyncing,       // true while server fetches fresh data from Google Sheets
+    latestAqiVerified,  // true when newest row AQI came from the sheet's own formula
   };
 }

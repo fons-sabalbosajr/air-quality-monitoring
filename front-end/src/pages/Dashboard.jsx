@@ -83,9 +83,11 @@ export default function DashboardPage() {
   const [requestModalOpen, setRequestModalOpen] = useState(false);
 
 
-  // Extract latest AQI values from tabular data
+  // Extract latest AQI values from tabular data.
+  // Prefer the live `latest` row; fall back to `cachedLatest` (secureStorage)
+  // so the AQI card renders immediately on load without a loading skeleton.
   const latestAqi = useMemo(() => {
-    const row = tabular.latest;
+    const row = tabular.latest || tabular.cachedLatest;
     if (!row) return { value: null, category: null, time: null };
     const aqi = row["AQI"] ?? row["aqi"];
     const status = row["Status"] ?? row["status"];
@@ -95,21 +97,26 @@ export default function DashboardPage() {
     let isoTime = null;
     if (time) {
       const d = new Date(time);
-      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+      // Sanity-check the year: reject impossibly old dates that arise when
+      // dateCol detection falls back to cols[0] (a non-date column like
+      // concentration), which produces epoch-0 (~1970) after new Date().
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2015) {
+        isoTime = d.toISOString();
+      }
     }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
       time: isoTime,
     };
-  }, [tabular.latest, tabular.dateCol]);
+  }, [tabular.latest, tabular.cachedLatest, tabular.dateCol]);
 
 
 
   // Secondary AQI (for merged stations)
   const latestAqi2 = useMemo(() => {
     if (!station.merged) return null;
-    const row = tabular2.latest;
+    const row = tabular2.latest || tabular2.cachedLatest;
     if (!row) return { value: null, category: null, time: null };
     const aqi = row["AQI"] ?? row["aqi"];
     const status = row["Status"] ?? row["status"];
@@ -118,14 +125,16 @@ export default function DashboardPage() {
     let isoTime = null;
     if (time) {
       const d = new Date(time);
-      if (!isNaN(d.getTime())) isoTime = d.toISOString();
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2015) {
+        isoTime = d.toISOString();
+      }
     }
     return {
       value: aqi != null ? Number(aqi) : null,
       category: status || null,
       time: isoTime,
     };
-  }, [station.merged, tabular2.latest, tabular2.dateCol]);
+  }, [station.merged, tabular2.latest, tabular2.cachedLatest, tabular2.dateCol]);
 
   // Detect dark mode from the DOM
   const [dark, setDark] = useState(false);
@@ -192,7 +201,9 @@ export default function DashboardPage() {
             const dateStr = dateCol ? latestRow[dateCol] : null;
             if (!dateStr) { staleSet.add(s.key); return; }
             const d = new Date(dateStr);
-            if (isNaN(d.getTime()) || (Date.now() - d.getTime()) / 86400000 > 7) {
+            // Guard against epoch-0 dates (mis-detected column) — treat as non-stale
+            if (isNaN(d.getTime()) || d.getFullYear() < 2015) return;
+            if ((Date.now() - d.getTime()) / 86400000 > 7) {
               staleSet.add(s.key);
             }
           } catch {
@@ -330,9 +341,9 @@ export default function DashboardPage() {
         aqiValue={latestAqi.value}
         aqiCategory={latestAqi.category}
         aqiTime={latestAqi.time}
-        aqiLoading={tabular.loading}
+        aqiLoading={tabular.loading && !tabular.cachedLatest}
         aqiError={tabular.error}
-        aqiRefreshing={false}
+        aqiRefreshing={tabular.loading && !!tabular.cachedLatest}
         onRetry={tabular.retry}
         retrying={false}
         stationName={station.name}
@@ -340,6 +351,8 @@ export default function DashboardPage() {
         pollutantLabel={station.merged ? station.pollutants[0].label : station.pollutantLabel}
         isFallback={false}
         fallbackSource={""}
+        sheetSyncing={tabular.sheetSyncing || tabular2.sheetSyncing}
+        aqiVerified={tabular.latestAqiVerified}
         temperature={weather.data?.temperature}
         humidity={weather.data?.humidity}
         pressure={weather.data?.pressure}
@@ -355,7 +368,7 @@ export default function DashboardPage() {
         aqiValue2={latestAqi2?.value}
         aqiCategory2={latestAqi2?.category}
         aqiTime2={latestAqi2?.time}
-        aqiLoading2={tabular2.loading}
+        aqiLoading2={tabular2.loading && !tabular2.cachedLatest}
         pollutantLabel2={secondaryPollutant?.label}
         isStale={isStale}
         isStale2={isStale2}

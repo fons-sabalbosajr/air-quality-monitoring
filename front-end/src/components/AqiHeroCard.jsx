@@ -23,6 +23,8 @@ import {
   TbExternalLink,
   TbBrandFacebook,
   TbMail,
+  TbCloudDataConnection,
+  TbInfoCircle,
 } from "react-icons/tb";
 import AqiCategoryMeter from "./AqiCategoryMeter";
 import "./AqiHeroCard.css";
@@ -345,6 +347,9 @@ export default function AqiHeroCard({
   isStale2 = false,
   /* ── Station photo background ── */
   stationPhoto = null,
+  /* ── Google Sheets sync state ── */
+  sheetSyncing = false,   // true when server is actively fetching from Google Sheets
+  aqiVerified = true,     // false when AQI was server-estimated (sheet still computing)
 }) {
   // If fallback is active, override the display value/category/time
   const displayValue = isFallback ? aqiValue : aqiValue;
@@ -360,7 +365,12 @@ export default function AqiHeroCard({
     hasDual && isFinite(Number(aqiValue2))
       ? Math.round(Number(aqiValue2))
       : null;
-  const showFullStaleOverlay = hasDual ? Boolean(isStale && isStale2) : isStale;
+  // showFullStaleOverlay: show "No data" only when aqiValue is genuinely unavailable.
+  // isStale (data >7 days old) still drives the "Outdated" badge but never hides data.
+  const noDataSingle = !aqiLoading && !aqiError && !isFinite(Number(aqiValue));
+  const showFullStaleOverlay = hasDual
+    ? noDataSingle && !aqiLoading2 && !isFinite(Number(aqiValue2))
+    : noDataSingle;
   const hasPartialFreshData = hasDual && (isStale !== isStale2);
   const badgeTime = aqiTime || aqiTime2;
 
@@ -418,17 +428,17 @@ export default function AqiHeroCard({
       {/* ── Live badge (top-left) ── */}
       {badgeTime && (
         <span
-          className={`aqi-live-badge aqi-live-badge--topleft${showFullStaleOverlay ? " aqi-live-badge--stale" : hasPartialFreshData || isFallback ? " aqi-live-badge--fallback" : ""}`}
+          className={`aqi-live-badge aqi-live-badge--topleft${showFullStaleOverlay || isStale ? " aqi-live-badge--stale" : hasPartialFreshData || isFallback ? " aqi-live-badge--fallback" : ""}`}
         >
           <span
-            className={`aqi-live-dot${showFullStaleOverlay ? " aqi-live-dot--stale" : hasPartialFreshData || isFallback ? " aqi-live-dot--warn" : ""}`}
+            className={`aqi-live-dot${showFullStaleOverlay || isStale ? " aqi-live-dot--stale" : hasPartialFreshData || isFallback ? " aqi-live-dot--warn" : ""}`}
             style={
-              !showFullStaleOverlay && !hasPartialFreshData && !isFallback
+              !showFullStaleOverlay && !isStale && !hasPartialFreshData && !isFallback
                 ? { background: band.color, boxShadow: `0 0 6px ${hexToRgba(band.color, 0.6)}` }
                 : undefined
             }
           />
-          {showFullStaleOverlay ? "Outdated" : hasPartialFreshData ? "Partial Update" : isFallback ? "Alternate" : "Live"}
+          {showFullStaleOverlay ? "No Data" : isStale ? "Outdated" : hasPartialFreshData ? "Partial Update" : isFallback ? "Alternate" : "Live"}
         </span>
       )}
 
@@ -832,6 +842,21 @@ export default function AqiHeroCard({
             <div className="aqi-hero-time">
               <TbClock size={13} />
               <span>Updated {new Date(aqiTime).toLocaleString()}</span>
+            </div>
+          )}
+
+          {/* ── Google Sheets sync / data-accuracy indicator ── */}
+          {(sheetSyncing || !aqiVerified) && !aqiLoading && !isStale && (
+            <div className={`aqi-sheet-sync-banner${sheetSyncing ? " aqi-sheet-sync-banner--syncing" : " aqi-sheet-sync-banner--computing"}`}>
+              <span className="aqi-sheet-sync-icon">
+                {sheetSyncing ? <TbCloudDataConnection size={13} /> : <TbInfoCircle size={13} />}
+              </span>
+              <span className="aqi-sheet-sync-text">
+                {sheetSyncing && aqiVerified && "Syncing latest data from Google Sheets…"}
+                {sheetSyncing && !aqiVerified && "Fetching & computing latest data from Google Sheets…"}
+                {!sheetSyncing && !aqiVerified && "Google Sheets is still computing this value — displaying estimated AQI"}
+              </span>
+              {sheetSyncing && <span className="aqi-sheet-sync-dots"><span /><span /><span /></span>}
             </div>
           )}
 

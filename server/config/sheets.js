@@ -12,7 +12,7 @@ const TABULAR_SHEETS = {
     pm25: process.env.SHEET_PM25_MEYCAUAYAN_URL || null,
   },
   zambales: {
-    pm10: process.env.SHEET_PM10_ZAMBALES_URL || null,
+    pm10: { url: process.env.SHEET_PM10_ZAMBALES_URL || null, tabName: "PM10" },
     pm25: process.env.SHEET_PM25_ZAMBALES_URL || null,
   },
   clark: {
@@ -31,9 +31,9 @@ const TABULAR_SHEETS = {
  * Supports both string URLs (legacy) and { url, dateFormat } objects.
  */
 function resolveSheetEntry(entry) {
-  if (!entry) return { url: null, dateFormat: null };
-  if (typeof entry === "string") return { url: entry, dateFormat: null };
-  return { url: entry.url || null, dateFormat: entry.dateFormat || null };
+  if (!entry) return { url: null, dateFormat: null, tabName: null };
+  if (typeof entry === "string") return { url: entry, dateFormat: null, tabName: null };
+  return { url: entry.url || null, dateFormat: entry.dateFormat || null, tabName: entry.tabName || null };
 }
 
 module.exports = { TABULAR_SHEETS, resolveSheetEntry };

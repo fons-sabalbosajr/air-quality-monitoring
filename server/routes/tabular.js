@@ -12,6 +12,7 @@ const {
   getBackupStatus,
   checkForUpdates,
   runBackupCycle,
+  isSyncing,
 } = require("../services/tabularBackup");
 
 const router = Router();
@@ -93,9 +94,13 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
     const cacheKey = `${province}:${pollutant}`;
     const cachedJson = getCachedEnriched(cacheKey);
     if (cachedJson) {
+      // Re-inject live sheetSyncing state (not stored in cache) and
+      // forward the rest of the cached response as-is.
+      const cached = JSON.parse(cachedJson);
+      const live = { ...cached, sheetSyncing: isSyncing(cacheKey) };
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-      return res.end(cachedJson);
+      return res.end(JSON.stringify(live));
     }
 
     // 1) Try MongoDB backup first (raw data, sub-second response)
@@ -123,6 +128,12 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         fetchedAt: backup.fetchedAt,
         source: backup.source,
         backupMeta: backup.backupMeta,
+        dateKey: enriched.dateKey || null,
+        concKey: enriched.concKey || null,
+        // sheetSyncing: true when a live Google Sheets fetch is in progress for this key
+        sheetSyncing: isSyncing(cacheKey),
+        // latestAqiVerified: AQI on the newest row came directly from the Google Sheet
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
       };
       setCachedEnriched(cacheKey, body);
       if (setCacheHeaders(req, res, body)) return;
@@ -130,11 +141,11 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
     }
 
     // 2) No backup yet — fall back to Google Sheets (first-time load)
-    //    Apply a 20s timeout so the frontend doesn't hang indefinitely.
+    //    Apply a 45s timeout so the frontend doesn't hang indefinitely.
     try {
       const sheetPromise = getRawTabularTable(province, pollutant);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Google Sheets fetch timed out (20s)")), 20000)
+        setTimeout(() => reject(new Error("Google Sheets fetch timed out (45s)")), 45000)
       );
       const raw = await Promise.race([sheetPromise, timeoutPromise]);
       const enriched = enrichWithAqi(
@@ -157,6 +168,11 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         totalRows: enriched.rows.length,
         fetchedAt: raw.fetchedAt,
         source: raw.source,
+        dateKey: enriched.dateKey || null,
+        concKey: enriched.concKey || null,
+        // Data is now fresh from Google Sheets — no background sync in progress
+        sheetSyncing: false,
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
       };
       setCachedEnriched(cacheKey, body);
       if (setCacheHeaders(req, res, body)) return;
@@ -168,6 +184,65 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
     const msg = e?.message || "Failed to read tabular sheet";
     const status = e?.code === "NOT_CONFIGURED" ? 400 : 500;
     res.status(status).json({ error: msg });
+  }
+});
+
+// Latest single enriched row — fast endpoint for AQI card quick poll.
+// Uses the in-memory enriched cache when warm (instant), otherwise loads
+// from MongoDB and enriches all rows so the rolling-average AQI is correct.
+router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
+  try {
+    const province = String(req.params.province || "").toLowerCase();
+    const pollutant = String(req.params.pollutant || "").toLowerCase();
+    if (!province || !pollutant) {
+      return res.status(400).json({ error: "Missing province or pollutant" });
+    }
+    if (!TABULAR_SHEETS[province] || !TABULAR_SHEETS[province][pollutant]) {
+      return res.status(404).json({ error: "Unknown province or pollutant" });
+    }
+
+    // 1) Use warm in-memory enriched cache (built by the full tabular route) — instant
+    const fullCacheKey = `${province}:${pollutant}`;
+    const cachedJson = getCachedEnriched(fullCacheKey);
+    if (cachedJson) {
+      const parsed = JSON.parse(cachedJson);
+      const row = parsed.rows && parsed.rows[0] ? parsed.rows[0] : null;
+      const body = { province, pollutant, row, fetchedAt: parsed.fetchedAt, source: parsed.source };
+      if (setCacheHeaders(req, res, body)) return;
+      return res.json(body);
+    }
+
+    // 2) Load from MongoDB backup, enrich all rows (rolling-average requires full history),
+    //    cache the enriched result so the next full tabular call is also instant.
+    const backup = await getBackupData(province, pollutant);
+    if (backup && backup.rows && backup.rows.length > 0) {
+      const enriched = enrichWithAqi(
+        { columns: backup.columns, rows: backup.rows, dateKey: backup.dateKey, concKey: backup.concKey },
+        pollutant,
+        { logsPerHour: 1 },
+      );
+      const fullBody = {
+        province: backup.province,
+        pollutant: backup.pollutant,
+        columns: enriched.columns,
+        rows: enriched.rows,
+        totalRows: enriched.rows.length,
+        fetchedAt: backup.fetchedAt,
+        source: backup.source,
+        backupMeta: backup.backupMeta,
+        dateKey: enriched.dateKey || null,
+        concKey: enriched.concKey || null,
+      };
+      setCachedEnriched(fullCacheKey, fullBody);
+      const row = enriched.rows[0] || null;
+      const body = { province, pollutant, row, fetchedAt: backup.fetchedAt, source: backup.source };
+      if (setCacheHeaders(req, res, body)) return;
+      return res.json(body);
+    }
+
+    return res.status(404).json({ error: "No data available yet" });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Failed to read latest row" });
   }
 });
 
