@@ -282,7 +282,8 @@ export default function DashboardPage() {
         "--dash-accent-light": dashAccent.light,
         "--dash-accent-border": dashAccent.border,
       }}
-    >      {/* Station Selector + Toolbar */}
+    >
+      {/* Station Selector + Toolbar */}
       <div className="dashboard-station-selector">
         <Select
           value={stationKey}

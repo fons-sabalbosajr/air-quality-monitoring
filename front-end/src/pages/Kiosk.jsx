@@ -45,6 +45,8 @@ import useTabularData, { prefetchTabularData } from "../hooks/useTabularData";
 import useStationWeather, { prefetchStationWeather } from "../hooks/useStationWeather";
 import AqiHeroCard from "../components/AqiHeroCard";
 import HourlyWeatherCard, { prefetchHourlyWeather } from "../components/HourlyWeatherCard";
+import MaintenanceOverlay from "../components/MaintenanceOverlay";
+import useMaintenance from "../hooks/useMaintenance";
 import WindMapCard from "../components/WindMapCard";
 import ConnectionErrorCard from "../components/ConnectionErrorCard";
 import embLogo from "../assets/emblogo.svg";
@@ -130,6 +132,7 @@ function getPreviousRotationState(currentState, isArtaDisplayEnabled) {
 
 /* ── Inner content (needs AqiProvider context) ─────────────────── */
 function KioskContent({ withArta = false }) {
+  const { maintenanceMode } = useMaintenance();
   const { setCategory } = useAqi() || { setCategory: () => {} };
 
   // ── Dark mode detection ──
@@ -429,6 +432,7 @@ function KioskContent({ withArta = false }) {
 
   return (
     <div className={`kiosk-page${isCommercialBreak ? " kiosk-page--commercial" : ""}`}>
+      {maintenanceMode && <MaintenanceOverlay />}
       {/* ── Top Bar ── */}
       <header className="kiosk-header">
         <div className="kiosk-brand">

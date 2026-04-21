@@ -237,6 +237,11 @@ async function runIngestion(reason = "scheduled", { readVizData, readSheetSeries
     console.warn("[ingest] skipped (MONGO_URI missing)");
     return;
   }
+  const { isMaintenanceMode } = require("../config/env");
+  if (isMaintenanceMode()) {
+    console.log(`[ingest] skipped — maintenance mode (${reason})`);
+    return;
+  }
   if (_ingestRunning) {
     if (VERBOSE_INGEST_LOGS) {
       console.log(`[ingest] overlapping run skipped (${reason})`);

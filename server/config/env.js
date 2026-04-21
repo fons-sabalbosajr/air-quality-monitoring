@@ -50,6 +50,16 @@ const STATION_ADDRESS = process.env.STATION_ADDRESS || null;
 const EMAIL_USER = process.env.EMAIL_USER || null;
 const EMAIL_PASS = process.env.EMAIL_PASS || null;
 
+// ── Maintenance mode ──
+/**
+ * Returns true when the server is in maintenance mode.
+ * Reads process.env at call-time so toggling the env var (via PM2 restart)
+ * is reflected immediately without needing a module cache bust.
+ */
+function isMaintenanceMode() {
+  return process.env.MAINTENANCE_MODE === "true";
+}
+
 module.exports = {
   PORT,
   DEFAULT_RELATIVE,
@@ -76,4 +86,5 @@ module.exports = {
   STATION_ADDRESS,
   EMAIL_USER,
   EMAIL_PASS,
+  isMaintenanceMode,
 };

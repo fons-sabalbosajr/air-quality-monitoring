@@ -14,6 +14,7 @@ const {
   runBackupCycle,
   isSyncing,
 } = require("../services/tabularBackup");
+const { isMaintenanceMode } = require("../config/env");
 
 const router = Router();
 
@@ -81,6 +82,9 @@ function setCachedEnriched(key, body) {
 // Tabular Results — serves MongoDB backup first (fast), refreshes from Sheets in background
 router.get("/api/tabular/:province/:pollutant", async (req, res) => {
   try {
+    if (isMaintenanceMode()) {
+      return res.status(503).json({ error: "maintenance", message: "System is under maintenance. Please try again later." });
+    }
     const province = String(req.params.province || "").toLowerCase();
     const pollutant = String(req.params.pollutant || "").toLowerCase();
     if (!province || !pollutant) {
@@ -192,6 +196,9 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
 // from MongoDB and enriches all rows so the rolling-average AQI is correct.
 router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
   try {
+    if (isMaintenanceMode()) {
+      return res.status(503).json({ error: "maintenance", message: "System is under maintenance. Please try again later." });
+    }
     const province = String(req.params.province || "").toLowerCase();
     const pollutant = String(req.params.pollutant || "").toLowerCase();
     if (!province || !pollutant) {

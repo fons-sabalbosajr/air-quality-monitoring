@@ -167,6 +167,11 @@ async function backupOne(province, pollutant) {
 async function runBackupCycle(reason = "scheduled") {
   if (!MONGO_URI || !_db) return;
   if (_backupRunning) return;
+  const { isMaintenanceMode } = require("../config/env");
+  if (isMaintenanceMode()) {
+    console.log(`[backup] skipped — maintenance mode (${reason})`);
+    return;
+  }
   _backupRunning = true;
 
   try {
