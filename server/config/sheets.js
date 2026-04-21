@@ -19,6 +19,7 @@ const TABULAR_SHEETS = {
     pm10: {
       url: process.env.SHEET_PM10_CLARK_URL || null,
       dateFormat: "DMY",  // Clark uses DD/MM/YYYY in Google Sheets
+      tabName: "PM10",
     },
   },
   "san-fernando": {
