@@ -133,11 +133,14 @@ async function fetchAllSheetsAsTable(sheetUrl, tabName = null) {
 
   let columns = null;
   let allRows = [];
-  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i, /rolling\s*average/i, /\baqi\b/i, /\bstatus\b/i];
+  const RAW_COL_PATTERNS = [/date|time/i, /concentration/i, /rolling\s*average/i, /\baqi\b/i, /\bstatus\b|category/i];
   let tabsFound = 0;
   const seenTabFingerprints = new Set();
 
-  // Helper: parse a CSV text into columns + rows and push into allRows
+  // Helper: parse a CSV text into columns + rows and push into allRows.
+  // When multiple tabs are merged, columns from newer tabs are merged into the
+  // master column list so that new columns (e.g. "AQI Index", "Category")
+  // introduced in a later year tab are picked up automatically.
   function parseCsvIntoRows(csvText) {
     const lines = csvText.split("\n");
     if (lines.length < 2) return;
@@ -145,9 +148,16 @@ async function fetchAllSheetsAsTable(sheetUrl, tabName = null) {
       const v = (h == null ? "" : String(h)).trim();
       return v || `Column ${idx + 1}`;
     });
+    const tabCols = headerRow.filter((h) => RAW_COL_PATTERNS.some((p) => p.test(h)));
+    const effectiveCols = tabCols.length ? tabCols : headerRow;
+
     if (!columns) {
-      columns = headerRow.filter((h) => RAW_COL_PATTERNS.some((p) => p.test(h)));
-      if (!columns.length) columns = headerRow;
+      columns = effectiveCols;
+    } else {
+      // Merge: add any new relevant columns from this tab that aren't yet in master list
+      for (const c of effectiveCols) {
+        if (!columns.includes(c)) columns.push(c);
+      }
     }
     const colIndices = columns.map((c) => headerRow.indexOf(c));
     for (let i = 1; i < lines.length; i++) {
@@ -165,7 +175,9 @@ async function fetchAllSheetsAsTable(sheetUrl, tabName = null) {
     }
   }
 
-  // If a specific tab name is configured, try it directly first
+  // If a specific tab name is configured, try it first (may contain historical data
+  // not covered by year-named tabs). We do NOT return early — year tabs are always
+  // attempted so that newly-added year tabs (e.g. "2026") are merged in automatically.
   if (tabName) {
     const csvText = await fetchSheetTabCSV(id, tabName);
     if (csvText) {
@@ -176,10 +188,8 @@ async function fetchAllSheetsAsTable(sheetUrl, tabName = null) {
         parseCsvIntoRows(csvText);
       }
     }
-    // If configured tab found data, return immediately — no need to try year tabs
-    if (tabsFound) {
-      return { columns: columns || [], rows: allRows };
-    }
+    // NOTE: Do NOT return early here. Continue to try year tabs so that
+    // per-year tabs (e.g. "2026") are merged with the named tab data.
   }
 
   // Try year-named tabs: up to 2 years in the past through current year
@@ -360,17 +370,17 @@ function prepareRawRows(table, opts = {}) {
     });
   }
 
-  // ── Pass 2d: Remove ALL rows with empty/null/zero concentration ──
+  // ── Pass 2d: Remove rows with null/empty concentration ──
   // Equipment downtime produces rows with dates but no reading.
-  // These corrupt the rolling average and should not appear in output.
+  // Zero-concentration rows (invalid measurements) are kept — they carry
+  // valid AQI Index / Category data from the sheet and are excluded from
+  // rolling-average computation in Phase 2 (enrichWithAqi).
   if (concKey) {
     validIndices = validIndices.filter((i) => {
       const concVal = rows[i][concKey];
-      const numVal = coerceNumber(concVal);
       const isEmpty =
         concVal == null ||
-        (typeof concVal === "string" && concVal.trim() === "") ||
-        numVal === 0;
+        (typeof concVal === "string" && concVal.trim() === "");
       return !isEmpty;
     });
   }
@@ -391,7 +401,8 @@ function prepareRawRows(table, opts = {}) {
         break;
       }
     }
-    if (sameCount >= 10 && coerceNumber(lastConcVal) != null) {
+    // Only strip repeated non-zero values (zeros are valid invalid readings, not placeholders)
+    if (sameCount >= 10 && coerceNumber(lastConcVal) != null && coerceNumber(lastConcVal) !== 0) {
       validIndices.splice(validIndices.length - sameCount);
     }
   }
@@ -442,8 +453,15 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
 
   const rollingKey =
     columns.find((c) => /rolling\s*average/i.test(c)) || "Rolling Average";
+  // Legacy combined column: "AQI & Category" or "AQI Index & Category"
   const aqiCatKey =
     columns.find((c) => /aqi/i.test(c) && /category/i.test(c)) || null;
+  // New separate columns (current sheet format): "AQI Index" and "Category"
+  const aqiIndexKey =
+    columns.find((c) => /\baqi\b/i.test(c) && !/category/i.test(c)) || null;
+  const catStatusKey =
+    columns.find((c) => /\bcategory\b/i.test(c) && !/aqi/i.test(c)) ||
+    columns.find((c) => /\bstatus\b/i.test(c) && !/aqi/i.test(c)) || null;
 
   const numericSeen = [];
   const enrichedRows = [];
@@ -480,6 +498,26 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
         r["AQI"] = null;
         r["Status"] = "For Validation";
         if (aqiCatKey) delete r[aqiCatKey];
+        if (catStatusKey) delete r[catStatusKey];
+        if (aqiIndexKey) delete r[aqiIndexKey];
+        enrichedRows.push(r);
+        continue;
+      }
+
+      // Zero-concentration rows: invalid measurement — include in output but
+      // exclude from rolling-average accumulator to preserve accuracy.
+      // Use sheet's AQI Index / Category values if present, else mark "Invalid".
+      if (n === 0) {
+        const invAqi = aqiIndexKey ? coerceNumber(r[aqiIndexKey]) : coerceNumber(r["AQI"] ?? r["aqi"]);
+        const invStatus = catStatusKey
+          ? (typeof r[catStatusKey] === "string" ? r[catStatusKey].trim() : null)
+          : (typeof (r["Status"] ?? r["status"]) === "string" ? String(r["Status"] ?? r["status"]).trim() : null);
+        r[rollingKey] = null;
+        r["AQI"] = invAqi != null ? invAqi : 0;
+        r["Status"] = invStatus && !/^loading/i.test(invStatus) ? invStatus : "Invalid";
+        if (aqiCatKey) delete r[aqiCatKey];
+        if (catStatusKey) delete r[catStatusKey];
+        if (aqiIndexKey) delete r[aqiIndexKey];
         enrichedRows.push(r);
         continue;
       }
@@ -487,20 +525,34 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
       numericSeen.push(n);
 
       // Try to extract AQI/Status from Google Sheet's own values.
-      // The sheet may have separate "AQI" and "Status" columns, OR a combined
-      // column like "AQI (µg/Ncm) & Category" with values like "53 - Fair".
+      // Supports three column layouts:
+      //   (a) New format  — separate "AQI Index" + "Category" columns
+      //   (b) Legacy combined — "AQI & Category" with values like "53 - Fair"
+      //   (c) Legacy separate — "AQI" + "Status" columns
       let sheetAqi = null;
       let sheetStatus = null;
 
-      // 1) Check combined AQI+Category column (e.g. "202 - Acutely Unhealthy")
-      if (aqiCatKey && r[aqiCatKey]) {
+      // (a) New separate columns: "AQI Index" and "Category"
+      if (aqiIndexKey && r[aqiIndexKey] != null) {
+        const rawAqi = String(r[aqiIndexKey]).trim();
+        if (!/^loading/i.test(rawAqi)) {
+          const num = coerceNumber(rawAqi);
+          if (num != null && isFinite(num) && num > 0) sheetAqi = num;
+        }
+      }
+      if (catStatusKey && r[catStatusKey] != null) {
+        const rawCat = String(r[catStatusKey]).trim();
+        if (rawCat && !/^loading/i.test(rawCat)) sheetStatus = rawCat;
+      }
+
+      // (b) Legacy combined AQI+Category column (e.g. "202 - Acutely Unhealthy")
+      if (!sheetAqi && aqiCatKey && r[aqiCatKey]) {
         const raw = String(r[aqiCatKey]).trim();
-        // Skip placeholder values like "Loading..."
         if (!/^loading/i.test(raw)) {
           const m = raw.match(/^(\d+(?:\.\d+)?)\s*[-–—]\s*(.+)$/);
           if (m) {
             sheetAqi = Number(m[1]);
-            sheetStatus = m[2].trim();
+            sheetStatus = sheetStatus || m[2].trim();
           } else {
             const num = coerceNumber(raw);
             if (num != null && isFinite(num)) sheetAqi = num;
@@ -508,14 +560,14 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
         }
       }
 
-      // 2) Check separate AQI / Status columns (override combined if present)
-      const separateAqi = coerceNumber(r["AQI"] ?? r["aqi"]);
-      const separateStatus = r["Status"] ?? r["status"];
-      if (separateAqi != null && isFinite(separateAqi) && separateAqi > 0) {
-        sheetAqi = separateAqi;
-      }
-      if (typeof separateStatus === "string" && separateStatus.trim() !== "" && !/^loading/i.test(separateStatus)) {
-        sheetStatus = separateStatus.trim();
+      // (c) Legacy separate "AQI" / "Status" columns (override if present)
+      if (!aqiIndexKey) {
+        const legacyAqi = coerceNumber(r["AQI"] ?? r["aqi"]);
+        const legacyStatus = r["Status"] ?? r["status"];
+        if (legacyAqi != null && isFinite(legacyAqi) && legacyAqi > 0) sheetAqi = legacyAqi;
+        if (typeof legacyStatus === "string" && legacyStatus.trim() !== "" && !/^loading/i.test(legacyStatus)) {
+          sheetStatus = legacyStatus.trim();
+        }
       }
 
       const hasSheetAqi = sheetAqi != null && isFinite(sheetAqi) && sheetAqi > 0;
@@ -541,6 +593,8 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
       }
 
       if (aqiCatKey) delete r[aqiCatKey];
+      if (catStatusKey) delete r[catStatusKey];
+      if (aqiIndexKey) delete r[aqiIndexKey];
     }
 
     // Reverse: newest first
@@ -550,7 +604,7 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
   // Reverse to newest-first
   enrichedRows.reverse();
 
-  const filteredColumns = columns.filter((c) => c !== aqiCatKey);
+  const filteredColumns = columns.filter((c) => c !== aqiCatKey && c !== catStatusKey && c !== aqiIndexKey);
   const ensureCol = (c) => {
     if (!filteredColumns.includes(c)) filteredColumns.push(c);
   };
@@ -724,7 +778,8 @@ async function readGoogleSheetAsSeries(province, pollutant) {
   for (const r of raw.rows) {
     if (!r._epochMs || r._epochMs <= 0) continue;
     const y = coerceNumber(r[concKey]);
-    if (y == null || !isFinite(y) || y <= 0) continue;
+    // Include zero/invalid readings (null concentration still excluded — no data at all)
+    if (y == null || !isFinite(y)) continue;
     series.push({ t: r._epochMs, y });
   }
   series.sort((a, b) => a.t - b.t);
@@ -740,6 +795,11 @@ async function readGoogleSheetAsSeries(province, pollutant) {
   };
 }
 
+function clearCache() {
+  _sheetCache.clear();
+  _revalidating.clear();
+}
+
 module.exports = {
   fetchAllSheetsAsTable,
   enhanceTabularRows,
@@ -748,4 +808,5 @@ module.exports = {
   getRawTabularTable,
   getTabularTable,
   readGoogleSheetAsSeries,
+  clearCache,
 };

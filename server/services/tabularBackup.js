@@ -163,12 +163,15 @@ async function backupOne(province, pollutant) {
 
 /**
  * Run a full backup cycle — fetch all configured provinces/pollutants concurrently.
+ * @param {string} reason - label for logs
+ * @param {object} [opts]
+ * @param {boolean} [opts.force] - when true, bypass maintenance mode (admin trigger)
  */
-async function runBackupCycle(reason = "scheduled") {
+async function runBackupCycle(reason = "scheduled", { force = false } = {}) {
   if (!MONGO_URI || !_db) return;
   if (_backupRunning) return;
   const { isMaintenanceMode } = require("../config/env");
-  if (isMaintenanceMode()) {
+  if (!force && isMaintenanceMode()) {
     console.log(`[backup] skipped — maintenance mode (${reason})`);
     return;
   }

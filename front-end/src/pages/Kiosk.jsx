@@ -131,7 +131,7 @@ function getPreviousRotationState(currentState, isArtaDisplayEnabled) {
 }
 
 /* ── Inner content (needs AqiProvider context) ─────────────────── */
-function KioskContent({ withArta = false }) {
+function KioskContent({ withArta = false, fixedProvince = null }) {
   const { maintenanceMode } = useMaintenance();
   const { setCategory } = useAqi() || { setCategory: () => {} };
 
@@ -150,9 +150,11 @@ function KioskContent({ withArta = false }) {
   }, []);
 
   // ── Station auto-cycling ──
-  const [rotationState, setRotationState] = useState({
-    stationIdx: 0,
-    showCommercialBreak: false,
+  const [rotationState, setRotationState] = useState(() => {
+    const idx = fixedProvince
+      ? Math.max(0, KIOSK_STATIONS.findIndex((s) => s.province === fixedProvince))
+      : 0;
+    return { stationIdx: idx, showCommercialBreak: false };
   });
   const [paused, setPaused] = useState(false);
   const timerRef = useRef(null);
@@ -210,14 +212,14 @@ function KioskContent({ withArta = false }) {
     }
   }, []);
 
-  // Auto-cycle effect
+  // Auto-cycle effect (disabled when fixedProvince is set)
   useEffect(() => {
-    if (paused || isCommercialBreak) return;
+    if (paused || isCommercialBreak || fixedProvince) return;
     timerRef.current = setInterval(() => {
       transitionSequence((currentState) => getNextRotationState(currentState, isArtaEnabled));
     }, CYCLE_INTERVAL);
     return () => clearInterval(timerRef.current);
-  }, [isArtaEnabled, isCommercialBreak, paused, transitionSequence]);
+  }, [isArtaEnabled, isCommercialBreak, fixedProvince, paused, transitionSequence]);
 
   useEffect(() => {
     if (!isCommercialBreak) {
@@ -464,15 +466,17 @@ function KioskContent({ withArta = false }) {
 
       {/* ── Station Carousel Controls ── */}
       <div className="kiosk-carousel-controls">
-        <button
-          className="kiosk-nav-btn"
-          onClick={goPrev}
-          aria-label="Previous station"
-        >
-          <TbArrowLeft size={18} />
-        </button>
+        {!fixedProvince && (
+          <button
+            className="kiosk-nav-btn"
+            onClick={goPrev}
+            aria-label="Previous station"
+          >
+            <TbArrowLeft size={18} />
+          </button>
+        )}
         <div className="kiosk-station-indicator">
-          <div className="kiosk-dots">{stationDots}</div>
+          {!fixedProvince && <div className="kiosk-dots">{stationDots}</div>}
           {isCommercialBreak ? (
             <div className="kiosk-station-label kiosk-station-label--commercial" aria-hidden="true" />
           ) : (
@@ -485,17 +489,19 @@ function KioskContent({ withArta = false }) {
             </div>
           )}
         </div>
-        <button
-          className="kiosk-nav-btn"
-          onClick={goNext}
-          aria-label="Next station"
-        >
-          <TbArrowRight size={18} />
-        </button>
+        {!fixedProvince && (
+          <button
+            className="kiosk-nav-btn"
+            onClick={goNext}
+            aria-label="Next station"
+          >
+            <TbArrowRight size={18} />
+          </button>
+        )}
       </div>
 
       {/* ── Progress bar ── */}
-      {!paused && !isCommercialBreak && (
+      {!paused && !isCommercialBreak && !fixedProvince && (
         <div className="kiosk-progress-track">
           <div
             className="kiosk-progress-bar"
@@ -509,14 +515,7 @@ function KioskContent({ withArta = false }) {
         {isCommercialBreak ? (
           <section className="kiosk-section kiosk-arta-stage-section">
             <div className="kiosk-arta-break-card kiosk-arta-break-card--stage">
-              <div className="kiosk-arta-progress-panel" aria-label="ARTA commercial progress">
-                <div className="kiosk-arta-progress-track">
-                  <div
-                    className="kiosk-arta-progress-fill"
-                    style={{ width: `${commercialProgress}%` }}
-                  />
-                </div>
-              </div>
+              {/* Video — fills the left column at full card height */}
               <div className="kiosk-arta-video-frame kiosk-arta-video-frame--stage">
                 <video
                   ref={commercialVideoRef}
@@ -533,41 +532,52 @@ function KioskContent({ withArta = false }) {
                   <source src={artaVideo} type="video/mp4" />
                 </video>
               </div>
-              <div className="kiosk-arta-bulletin-panel">
-                <h4 className="kiosk-arta-bulletin-title">Anti-Red Tape Authority</h4>
-                <div className="kiosk-arta-bulletin-row">
-                  <a
-                    className="kiosk-arta-info-chip"
-                    href="https://arta.gov.ph/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Visit ARTA website"
-                  >
-                    <TbWorld size={15} />
-                    <span>arta.gov.ph</span>
-                  </a>
-                  <a
-                    className="kiosk-arta-info-chip"
-                    href="mailto:complaints@arta.gov.ph"
-                    title="Email complaints@arta.gov.ph"
-                  >
-                    <TbMail size={15} />
-                    <span>complaints@arta.gov.ph</span>
-                  </a>
-                  <a
-                    className="kiosk-arta-info-chip"
-                    href="mailto:info@arta.gov.ph"
-                    title="Email info@arta.gov.ph"
-                  >
-                    <TbMail size={15} />
-                    <span>info@arta.gov.ph</span>
-                  </a>
+              {/* Info panel — right column: progress + contact */}
+              <div className="kiosk-arta-side-panel">
+                <div className="kiosk-arta-progress-panel" aria-label="ARTA commercial progress">
+                  <div className="kiosk-arta-progress-track">
+                    <div
+                      className="kiosk-arta-progress-fill"
+                      style={{ width: `${commercialProgress}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="kiosk-arta-social-row">
-                  <a className="kiosk-arta-social-link" href="https://facebook.com/artagovph" target="_blank" rel="noopener noreferrer" title="Facebook"><TbBrandFacebook size={17} /></a>
-                  <a className="kiosk-arta-social-link" href="https://instagram.com/artagovph" target="_blank" rel="noopener noreferrer" title="Instagram"><TbBrandInstagram size={17} /></a>
-                  <a className="kiosk-arta-social-link" href="https://x.com/artagovph" target="_blank" rel="noopener noreferrer" title="X"><TbBrandX size={17} /></a>
-                  <a className="kiosk-arta-social-link" href="https://www.youtube.com/channel/UChQr6Tl3lqcKfMd4ANNN75w" target="_blank" rel="noopener noreferrer" title="YouTube"><TbBrandYoutube size={17} /></a>
+                <div className="kiosk-arta-bulletin-panel">
+                  <h4 className="kiosk-arta-bulletin-title">Anti-Red Tape Authority</h4>
+                  <div className="kiosk-arta-bulletin-row">
+                    <a
+                      className="kiosk-arta-info-chip"
+                      href="https://arta.gov.ph/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Visit ARTA website"
+                    >
+                      <TbWorld size={15} />
+                      <span>arta.gov.ph</span>
+                    </a>
+                    <a
+                      className="kiosk-arta-info-chip"
+                      href="mailto:complaints@arta.gov.ph"
+                      title="Email complaints@arta.gov.ph"
+                    >
+                      <TbMail size={15} />
+                      <span>complaints@arta.gov.ph</span>
+                    </a>
+                    <a
+                      className="kiosk-arta-info-chip"
+                      href="mailto:info@arta.gov.ph"
+                      title="Email info@arta.gov.ph"
+                    >
+                      <TbMail size={15} />
+                      <span>info@arta.gov.ph</span>
+                    </a>
+                  </div>
+                  <div className="kiosk-arta-social-row">
+                    <a className="kiosk-arta-social-link" href="https://facebook.com/artagovph" target="_blank" rel="noopener noreferrer" title="Facebook"><TbBrandFacebook size={17} /></a>
+                    <a className="kiosk-arta-social-link" href="https://instagram.com/artagovph" target="_blank" rel="noopener noreferrer" title="Instagram"><TbBrandInstagram size={17} /></a>
+                    <a className="kiosk-arta-social-link" href="https://x.com/artagovph" target="_blank" rel="noopener noreferrer" title="X"><TbBrandX size={17} /></a>
+                    <a className="kiosk-arta-social-link" href="https://www.youtube.com/channel/UChQr6Tl3lqcKfMd4ANNN75w" target="_blank" rel="noopener noreferrer" title="YouTube"><TbBrandYoutube size={17} /></a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -694,7 +704,8 @@ function KioskContent({ withArta = false }) {
               </section>
             </div>
 
-            {/* AQMS Stations Carousel */}
+            {/* AQMS Stations Carousel — hidden on fixed-province station pages */}
+            {!fixedProvince && (
             <section className="kiosk-section">
               <div className="kiosk-stations-carousel">
                 <div className="kiosk-carousel-header">
@@ -758,6 +769,7 @@ function KioskContent({ withArta = false }) {
                 </div>
               </div>
             </section>
+            )} {/* end !fixedProvince carousel */}
 
             {/* EMB Region 3 Air Quality Updates – YouTube Videos */}
             <section className="kiosk-section">
@@ -914,14 +926,16 @@ function KioskContent({ withArta = false }) {
           <TbMap2 size={22} />
           <span>Map</span>
         </button>
-        <button
-          className="kiosk-bottom-btn kiosk-bottom-btn--playpause"
-          onClick={() => setPaused((p) => !p)}
-          aria-label={paused ? "Resume" : "Pause"}
-        >
-          {paused ? <TbPlayerPlay size={22} /> : <TbPlayerPause size={22} />}
-          <span>{paused ? "Play" : "Pause"}</span>
-        </button>
+        {!fixedProvince && (
+          <button
+            className="kiosk-bottom-btn kiosk-bottom-btn--playpause"
+            onClick={() => setPaused((p) => !p)}
+            aria-label={paused ? "Resume" : "Pause"}
+          >
+            {paused ? <TbPlayerPlay size={22} /> : <TbPlayerPause size={22} />}
+            <span>{paused ? "Play" : "Pause"}</span>
+          </button>
+        )}
       </nav>
 
       {/* ── Tabular Results Modal ── */}
@@ -1334,7 +1348,7 @@ function KioskMapModal({ open, onClose, dark }) {
 }
 
 /* ── Wrapper with providers ────────────────────────────────────── */
-export default function KioskPage({ withArta = false }) {
+export default function KioskPage({ withArta = false, fixedProvince = null }) {
   // Detect dark mode at wrapper level for ConfigProvider
   const [dark, setDark] = useState(false);
   useEffect(() => {
@@ -1351,8 +1365,13 @@ export default function KioskPage({ withArta = false }) {
 
   // Set document title
   useEffect(() => {
-    document.title = `EMBR3 Air Quality Monitoring – Kiosk (${new Date().getFullYear()})`;
-  }, []);
+    const stationName = fixedProvince
+      ? fixedProvince.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+      : null;
+    document.title = stationName
+      ? `${stationName} Air Quality – EMBR3 (${new Date().getFullYear()})`
+      : `EMBR3 Air Quality Monitoring – Kiosk (${new Date().getFullYear()})`;
+  }, [fixedProvince]);
 
   return (
     <ConfigProvider
@@ -1361,7 +1380,7 @@ export default function KioskPage({ withArta = false }) {
       }}
     >
       <AqiProvider>
-        <KioskContent withArta={withArta} />
+        <KioskContent withArta={withArta} fixedProvince={fixedProvince} />
       </AqiProvider>
     </ConfigProvider>
   );

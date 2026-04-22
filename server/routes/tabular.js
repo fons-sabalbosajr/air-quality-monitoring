@@ -14,6 +14,7 @@ const {
   runBackupCycle,
   isSyncing,
 } = require("../services/tabularBackup");
+const { clearCache: clearSheetCache } = require("../services/googleSheets");
 const { isMaintenanceMode } = require("../config/env");
 
 const router = Router();
@@ -43,9 +44,9 @@ function setCacheHeaders(req, res, body) {
   return false;
 }
 
-// Debounce background backup refreshes — at most once per key every 5 min
+// Debounce background backup refreshes — at most once per key every 2 min
 const _lastBackupRefresh = new Map();
-const BACKUP_REFRESH_DEBOUNCE_MS = 300_000; // 5 min
+const BACKUP_REFRESH_DEBOUNCE_MS = 120_000; // 2 min
 
 function maybeRefreshBackup(province, pollutant) {
   const key = `${province}:${pollutant}`;
@@ -58,7 +59,7 @@ function maybeRefreshBackup(province, pollutant) {
 
 // In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
 const _enrichedCache = new Map();
-const ENRICHED_CACHE_TTL_MS = 300_000; // 5 min
+const ENRICHED_CACHE_TTL_MS = 120_000; // 2 min (near-real-time for kiosk)
 
 function getCachedEnriched(key) {
   const entry = _enrichedCache.get(key);
@@ -213,7 +214,16 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
     const cachedJson = getCachedEnriched(fullCacheKey);
     if (cachedJson) {
       const parsed = JSON.parse(cachedJson);
-      const row = parsed.rows && parsed.rows[0] ? parsed.rows[0] : null;
+      // Return the latest valid row (skip erratic: AQI=0 or Invalid/For Validation)
+      const row = parsed.rows
+        ? (parsed.rows.find((r) => {
+            const aqi = r["AQI"] ?? r["aqi"];
+            if (aqi == null || Number(aqi) === 0) return false;
+            const status = r["Status"] ?? r["status"];
+            if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
+            return true;
+          }) || parsed.rows[0] || null)
+        : null;
       const body = { province, pollutant, row, fetchedAt: parsed.fetchedAt, source: parsed.source };
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
@@ -241,7 +251,16 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
         concKey: enriched.concKey || null,
       };
       setCachedEnriched(fullCacheKey, fullBody);
-      const row = enriched.rows[0] || null;
+      // Return latest valid row (skip erratic: AQI=0 or Invalid/For Validation)
+      const row = enriched.rows
+        ? (enriched.rows.find((r) => {
+            const aqi = r["AQI"] ?? r["aqi"];
+            if (aqi == null || Number(aqi) === 0) return false;
+            const status = r["Status"] ?? r["status"];
+            if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
+            return true;
+          }) || enriched.rows[0] || null)
+        : null;
       const body = { province, pollutant, row, fetchedAt: backup.fetchedAt, source: backup.source };
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
@@ -275,10 +294,14 @@ router.get("/api/backup/check/:province/:pollutant", async (req, res) => {
   }
 });
 
-// Force a backup cycle (admin trigger)
+// Force a backup cycle (admin trigger — bypasses maintenance mode)
 router.post("/api/backup/sync", async (_req, res) => {
   try {
-    const results = await runBackupCycle("manual");
+    // Clear in-memory sheet cache so fresh data is fetched from Google Sheets
+    clearSheetCache();
+    // Also clear enriched tabular cache so next request re-enriches from new data
+    _enrichedCache.clear();
+    const results = await runBackupCycle("manual", { force: true });
     res.json({ ok: true, results });
   } catch (e) {
     res.status(500).json({ error: e.message });

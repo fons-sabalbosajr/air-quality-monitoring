@@ -1305,6 +1305,11 @@ function ThemedLayout({
                 <Route path="/" element={<KioskPage />} />
                 <Route path="/with-arta" element={<KioskPage withArta />} />
                 <Route path="/embr3-latestaqi" element={<Navigate to="/" replace />} />
+                {/* Per-station dedicated pages */}
+                <Route path="/clark_station" element={<KioskPage fixedProvince="clark" />} />
+                <Route path="/san_fernando" element={<KioskPage fixedProvince="san-fernando" />} />
+                <Route path="/meycauayan_station" element={<KioskPage fixedProvince="meycauayan" />} />
+                <Route path="/zambales_station" element={<KioskPage fixedProvince="zambales" />} />
                 <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
                 <Route path="/admin/overview" element={<DashboardPage />} />
                 <Route path="/admin/tabular" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
@@ -1448,7 +1453,13 @@ function App() {
   }, []);
 
   // ── Kiosk route renders outside the main layout ──
-  const isKioskRoute = location.pathname === "/" || location.pathname === "/embr3-latestaqi" || location.pathname === "/with-arta";
+  const STATION_PAGE_MAP = {
+    "/clark_station": "clark",
+    "/san_fernando": "san-fernando",
+    "/meycauayan_station": "meycauayan",
+    "/zambales_station": "zambales",
+  };
+  const isKioskRoute = location.pathname === "/" || location.pathname === "/embr3-latestaqi" || location.pathname === "/with-arta" || location.pathname in STATION_PAGE_MAP;
   if (isKioskRoute) {
     return (
       <Suspense
@@ -1466,7 +1477,10 @@ function App() {
           </div>
         }
       >
-        <KioskPage withArta={location.pathname === "/with-arta"} />
+        <KioskPage
+          withArta={location.pathname === "/with-arta"}
+          fixedProvince={STATION_PAGE_MAP[location.pathname] ?? null}
+        />
       </Suspense>
     );
   }

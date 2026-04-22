@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
-import { Select, Button, Tooltip, message, Modal, Tag } from "antd";
+import { Select, Button, Tooltip, message, Modal } from "antd";
 import dayjs from "dayjs";
 import {
   TbMapPin,
-  TbRefresh, TbMail, TbAlertTriangle, TbClock,
+  TbRefresh, TbMail, TbClock,
 } from "react-icons/tb";
 import { useAqi } from "../context/AqiContext";
 import { getMergedStations, getStationPhoto } from "../config/stations";
@@ -180,78 +180,16 @@ export default function DashboardPage() {
     return diffDays > 7;
   }, [station.merged, latestAqi2]);
 
-  // ── Check all stations for stale data (>7 days old) ──
-  const [staleStations, setStaleStations] = useState(new Set());
-  useEffect(() => {
-    let cancelled = false;
-    async function checkAll() {
-      const base = getApiBase();
-      const staleSet = new Set();
-      await Promise.allSettled(
-        DASH_STATIONS.map(async (s) => {
-          try {
-            const url = `${base}/api/tabular/${encodeURIComponent(s.province)}/${encodeURIComponent(s.pollutant)}`;
-            const res = await fetch(url, { headers: { Accept: "application/json" } });
-            if (!res.ok) { staleSet.add(s.key); return; }
-            const json = await res.json();
-            const rows = json?.rows;
-            if (!rows?.length) { staleSet.add(s.key); return; }
-            const dateCol = json.columns?.find((c) => /date|time/i.test(c));
-            const latestRow = rows[0];
-            const dateStr = dateCol ? latestRow[dateCol] : null;
-            if (!dateStr) { staleSet.add(s.key); return; }
-            const d = new Date(dateStr);
-            // Guard against epoch-0 dates (mis-detected column) — treat as non-stale
-            if (isNaN(d.getTime()) || d.getFullYear() < 2015) return;
-            if ((Date.now() - d.getTime()) / 86400000 > 7) {
-              staleSet.add(s.key);
-            }
-          } catch {
-            staleSet.add(s.key);
-          }
-        })
-      );
-      if (!cancelled) setStaleStations(staleSet);
-    }
-    checkAll();
-    return () => { cancelled = true; };
-  }, [DASH_STATIONS]);
-
-  // Station selector dropdown options — sorted alphabetically, with stale indicator
-  const stationOptions = DASH_STATIONS.map((s) => {
-    const isOutdated = staleStations.has(s.key);
-    return {
-      label: (
-        <span style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-          <TbMapPin size={14} />
-          {s.name}{s.merged ? ` (${s.pollutantLabel})` : ""}
-          {isOutdated && (
-            <Tag
-              color="warning"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 9,
-                fontWeight: 700,
-                margin: 0,
-                padding: "0 6px",
-                lineHeight: "16px",
-                borderRadius: 4,
-                marginLeft: 4,
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              <TbAlertTriangle size={10} />
-              Outdated
-            </Tag>
-          )}
-        </span>
-      ),
-      value: s.key,
-    };
-  });
+  // Station selector dropdown options
+  const stationOptions = DASH_STATIONS.map((s) => ({
+    label: (
+      <span style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+        <TbMapPin size={14} />
+        {s.name}{s.merged ? ` (${s.pollutantLabel})` : ""}
+      </span>
+    ),
+    value: s.key,
+  }));
 
   // Compute accent color from current AQI for dashboard section gradients
   const dashAccent = useMemo(() => {

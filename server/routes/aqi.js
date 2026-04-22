@@ -42,7 +42,8 @@ router.get("/api/aqi/latest", async (req, res) => {
     let bestDoc = null;
     let bestSheet = null;
     for (const { key, doc } of results) {
-      if (doc && (!bestDoc || doc.epochMs > bestDoc.epochMs)) {
+      // Skip erratic readings (zero concentration is an invalid measurement)
+      if (doc && doc.value > 0 && (!bestDoc || doc.epochMs > bestDoc.epochMs)) {
         bestDoc = doc;
         bestSheet = key;
       }

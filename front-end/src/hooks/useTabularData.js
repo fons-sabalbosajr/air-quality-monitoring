@@ -49,7 +49,7 @@ function persistLatestRow(province, pollutant, row) {
   } catch { /* best-effort */ }
 }
 
-const TABULAR_REFRESH_MS = 300_000;
+const TABULAR_REFRESH_MS = 120_000;                  // 2 min background refresh
 const TABULAR_CACHE = new Map();
 const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
@@ -259,14 +259,19 @@ export default function useTabularData(province, pollutant) {
     return raw.columns.find((c) => /concentration/i.test(c)) || null;
   }, [raw]);
 
-  // Latest row – server returns NEWEST-FIRST, so rows[0] is the most recent.
-  // Always display the latest encoded value from the Google Sheet,
-  // regardless of how old it is. This ensures the most recent data
-  // entered by the end user is always shown.
+  // Latest row – server returns NEWEST-FIRST.
+  // Skip erratic rows (AQI = 0 or status = Invalid/For Validation) so the
+  // AQI hero card always shows the most recent *valid* reading.
   const latest = useMemo(() => {
     if (!rows.length) return null;
-    // Always use the absolute newest row (latest encoded data)
-    return rows[0];
+    const validRow = rows.find((r) => {
+      const aqi = r["AQI"] ?? r["aqi"];
+      if (aqi == null || Number(aqi) === 0) return false;
+      const status = r["Status"] ?? r["status"];
+      if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
+      return true;
+    });
+    return validRow || rows[0]; // fall back to absolute newest if all rows are erratic
   }, [rows]);
 
   // Persist latest row to secureStorage whenever it changes so the AQI card
@@ -339,9 +344,12 @@ export default function useTabularData(province, pollutant) {
         if (isNaN(d.getTime()) || d.getFullYear() < 2015) return null;
         const aqi = r["AQI"] ?? r["aqi"] ?? null;
         if (aqi == null || !isFinite(Number(aqi))) return null;
+        // Skip erratic data: zero AQI or Invalid/For Validation status
+        if (Number(aqi) === 0) return null;
+        const status = r["Status"] ?? r["status"] ?? null;
+        if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return null;
         // Include concentration and status for calendar tiles
         const conc = concCol ? (r[concCol] ?? null) : null;
-        const status = r["Status"] ?? r["status"] ?? null;
         return {
           t: d.toISOString(),
           y: Number(aqi),
@@ -360,7 +368,7 @@ export default function useTabularData(province, pollutant) {
     loading,
     error,
     fetchedAt,
-    retry: fetchData,
+    retry: () => fetchData({ force: true }),
     dateCol,
     concCol,
     raw,

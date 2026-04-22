@@ -852,9 +852,9 @@ export default function AqiHeroCard({
                 {sheetSyncing ? <TbCloudDataConnection size={13} /> : <TbInfoCircle size={13} />}
               </span>
               <span className="aqi-sheet-sync-text">
-                {sheetSyncing && aqiVerified && "Syncing latest data from Google Sheets…"}
-                {sheetSyncing && !aqiVerified && "Fetching & computing latest data from Google Sheets…"}
-                {!sheetSyncing && !aqiVerified && "Google Sheets is still computing this value — displaying estimated AQI"}
+                {sheetSyncing && aqiVerified && "Syncing latest data from the server data source…"}
+                {sheetSyncing && !aqiVerified && "Fetching & computing latest data from the server data source…"}
+                {!sheetSyncing && !aqiVerified && "The server data source is still computing this value — displaying estimated AQI"}
               </span>
               {sheetSyncing && <span className="aqi-sheet-sync-dots"><span /><span /><span /></span>}
             </div>
