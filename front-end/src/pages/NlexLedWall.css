@@ -1,0 +1,2044 @@
+/* ═══════════════════════════════════════════════════════════════════
+   NLEX LED Wall – 960 × 1536 px
+   Poppins · Custom SVG Gauge · Device-geolocation weather background
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+
+/* ── Global reset ──────────────────────────────────────────────── */
+.nlex-page-root,
+.nlex-page-root *,
+.nlex-page-root *::before,
+.nlex-page-root *::after {
+  font-family: 'Poppins', 'Segoe UI', Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+/* ── Page wrapper ──────────────────────────────────────────────── */
+.nlex-page-root {
+  margin: 0;
+  padding: 0;
+  background: #0a0f1e;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.nlex-wall-scaler {
+  width: 960px;
+  height: 1536px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: center center;
+}
+
+/* ── Persistent animated background clouds ──────────────── */
+.nlex-bg-clouds {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.nlex-bg-cloud {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(200, 220, 255, 0.28);
+  filter: blur(64px);
+}
+
+.nlex-bg-cloud-1 {
+  width: 780px; height: 275px;
+  top: 4%; left: -12%;
+  animation: nlex-bgcloud-drift 28s ease-in-out infinite alternate;
+}
+.nlex-bg-cloud-2 {
+  width: 580px; height: 210px;
+  top: 20%; right: -8%;
+  animation: nlex-bgcloud-drift-alt 34s ease-in-out infinite alternate;
+  animation-delay: -10s;
+}
+.nlex-bg-cloud-3 {
+  width: 680px; height: 240px;
+  top: 44%; left: 2%;
+  animation: nlex-bgcloud-drift 40s ease-in-out infinite alternate;
+  animation-delay: -18s;
+}
+.nlex-bg-cloud-4 {
+  width: 500px; height: 185px;
+  top: 66%; right: -2%;
+  animation: nlex-bgcloud-drift-alt 30s ease-in-out infinite alternate;
+  animation-delay: -6s;
+}
+.nlex-bg-cloud-5 {
+  width: 620px; height: 220px;
+  top: 84%; left: 14%;
+  animation: nlex-bgcloud-drift 36s ease-in-out infinite alternate;
+  animation-delay: -24s;
+}
+
+@keyframes nlex-bgcloud-drift {
+  0%   { transform: translateX(0)    scaleX(1);    opacity: 0.65; }
+  100% { transform: translateX(70px) scaleX(1.09); opacity: 1;    }
+}
+@keyframes nlex-bgcloud-drift-alt {
+  0%   { transform: translateX(0)     scaleX(1);    opacity: 0.55; }
+  100% { transform: translateX(-60px) scaleX(1.07); opacity: 0.90; }
+}
+
+/* ── Animated weather background ───────────────────────── */
+.nlex-weather-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  transition: background 3s ease;
+}
+
+/* ── LED wall canvas ───────────────────────────────────────────── */
+.nlex-wall {
+  position: relative;
+  z-index: 1;
+  width: 960px;
+  height: 1536px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 28px;
+}
+
+/* Subtle frosted glass overlay — day */
+.nlex-wall::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(235, 242, 252, 0.78);
+  transition: background 3s ease;
+  z-index: 0;
+}
+
+/* Night mode: dark overlay toggled via class */
+.nlex-wall.night::before {
+  background: rgba(6, 12, 30, 0.68);
+}
+
+/* LED matrix texture */
+.nlex-wall::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(80,100,180,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80,100,180,0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Inner layout ──────────────────────────────────────────────── */
+.nlex-inner {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 22px 32px 18px;
+  gap: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 16px;
+  flex-shrink: 0;
+  animation: nlex-fade-in 1.2s ease both;
+}
+
+/* Dual-logo group beside title */
+.nlex-logos-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* EMB logo – no drop-shadow */
+.nlex-logo {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* Bagong Pilipinas logo – same size as EMB */
+.nlex-logo-bp {
+  width: 68px;
+  height: 68px;
+}
+
+.nlex-title-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nlex-agency-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.nlex-agency-name {
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+.nlex-agency-region {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+/* ── Divider ───────────────────────────────────────────────────── */
+.nlex-divider {
+  height: 2px;
+  border: none;
+  margin: 0;
+  flex-shrink: 0;
+  transition: background 3s ease;
+}
+
+/* ── Section header ────────────────────────────────────────────── */
+.nlex-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 0 12px;
+  flex-shrink: 0;
+  gap: 16px;
+  animation: nlex-fade-in 1.4s ease both;
+}
+
+.nlex-section-line {
+  flex: 1;
+  height: 1px;
+}
+
+.nlex-section-title {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nlex-section-subtitle {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.nlex-section-datetime {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+/* ── 2×2 GRID ───────────────────────────────────────────────────────────────
+   2×2 GRID
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATION TILE  (day + night variants)
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-tile {
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 10px 12px;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  animation: nlex-tile-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: background 3s ease, border-color 3s ease;
+}
+
+.nlex-tile-day {
+  background: rgba(255, 255, 255, 0.80);
+  border: 1.5px solid rgba(30, 60, 120, 0.10);
+}
+
+.nlex-tile-night {
+  background: rgba(14, 24, 58, 0.78);
+  border: 1.5px solid rgba(100, 140, 220, 0.18);
+}
+
+/* Tile top sheen removed */
+
+/* Glow borders removed — tiles now use inline gradient background based on AQI band */
+
+/* ── Spotlight zoom-in emphasis animation ─────────────────── */
+.nlex-tile {
+  transition:
+    transform   0.65s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity     0.5s ease,
+    filter      0.5s ease,
+    background  1.5s ease,
+    border-color 1.5s ease;
+}
+
+.nlex-tile.nlex-tile-spotlit {
+  transform: scale(1.055);
+  z-index: 10;
+  filter: brightness(1.06);
+}
+
+.nlex-tile.nlex-tile-dimmed {
+  transform: scale(0.955);
+  opacity: 0.25;
+  filter: brightness(0.55) saturate(0.45) blur(0.8px);
+}
+
+/* ── Tile header ─────────────────────────────────────────────── */
+.nlex-tile-header {
+  width: 100%;
+  text-align: center;
+  flex-shrink: 0;  position: relative;
+  overflow: hidden;
+  padding: 10px 14px 9px;
+  border-radius: 12px;
+  margin-bottom: 3px;
+}
+
+/* Animated AQI-color gradient overlay */
+.nlex-tile-header-grad {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-size: 250% 250%;
+  animation: nlex-header-grad-shift 5s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes nlex-header-grad-shift {
+  0%   { background-position: 0% 50%;   opacity: 0.75; }
+  50%  { background-position: 100% 50%; opacity: 1;    }
+  100% { background-position: 0% 50%;   opacity: 0.75; }}
+
+.nlex-station-name {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.nlex-tile-day  .nlex-station-name  { color: #1a2340; }
+.nlex-tile-night .nlex-station-name { color: rgba(225, 238, 255, 0.95); }
+
+.nlex-station-address {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-top: 3px;
+}
+
+.nlex-tile-day  .nlex-station-address  { color: rgba(30, 50, 100, 0.52); }
+.nlex-tile-night .nlex-station-address { color: rgba(180, 210, 255, 0.72); }
+
+/* ── Gauge row ─────────────────────────────────────────────────── */
+.nlex-gauges-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  gap: 4px;
+}
+
+.nlex-gauges-row.dual { gap: 2px; }
+
+.nlex-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.nlex-pollutant-label {
+  font-size: 65px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #1e2d50;
+}
+
+.nlex-tile-night .nlex-pollutant-label { color: rgba(230, 240, 255, 0.95); }
+
+/* ── AQI numeric value row (below gauge, above badge) ────────── */
+.nlex-aqi-value-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  flex-shrink: 0;
+  margin-top: -6px;
+  margin-bottom: 2px;
+}
+
+.nlex-aqi-value-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.nlex-aqi-poll-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(80, 100, 140, 0.55);
+  margin-bottom: 1px;
+}
+
+.nlex-tile-night .nlex-aqi-poll-label { color: rgba(170, 200, 250, 0.72); }
+
+.nlex-aqi-number {
+  font-size: 72px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -3px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Poppins', sans-serif;
+  display: block;
+  text-align: center;
+}
+
+.nlex-aqi-label {
+  display: block;
+  font-size: 50px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.9;
+  text-align: center;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.nlex-aqi-value-row.dual .nlex-aqi-number {
+  font-size: 72px;
+}
+
+.nlex-aqi-loading {
+  font-size: 0.5em;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  animation: nlex-fade-in 0.8s ease infinite alternate;
+}
+
+/* ── Category badges ─────────────────────────────────────────── */
+.nlex-tile-badges {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.nlex-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-radius: 100px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border: 2.5px solid rgba(30,50,100,0.14);
+  background: rgba(255,255,255,0.5);
+  white-space: nowrap;
+  line-height: 1;
+  color: #374151;
+}
+
+.nlex-tile-night .nlex-category-badge {
+  border-color: rgba(120,160,240,0.30);
+  background: rgba(30,50,110,0.55);
+  color: rgba(225,238,255,0.95);
+}
+
+.nlex-category-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Per-tile "As of" timestamp ──────────────────────────────── */
+.nlex-tile-asof {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: center;
+  flex-shrink: 0;
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+.nlex-tile-day  .nlex-tile-asof  { color: #374151; }
+.nlex-tile-night .nlex-tile-asof { color: rgba(210, 228, 255, 0.88); }
+
+/* Dual "As of" row — one column per pollutant */
+.nlex-tile-asof-dual {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  width: 100%;
+  flex-shrink: 0;
+  margin-top: 5px;
+  gap: 6px;
+}
+
+.nlex-tile-asof-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  flex: 1;
+}
+
+.nlex-tile-day  .nlex-tile-asof-col { color: #374151; }
+.nlex-tile-night .nlex-tile-asof-col { color: rgba(210, 228, 255, 0.88); }
+
+.nlex-tile-asof-poll {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* ── Spotlight AQI description ───────────────────────────────── */
+.nlex-spotlight-desc {
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  padding: 8px 16px;
+  margin: 5px 0 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  animation: nlex-desc-fadein 0.4s ease both;
+}
+
+.nlex-tile-night .nlex-spotlight-desc {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+@keyframes nlex-desc-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── AQI Bands section card ──────────────────────────────────── */
+.nlex-bands-card {
+  flex-shrink: 0;
+  margin: 4px 0;
+  padding: 9px 16px 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.62);
+  border: 1px solid rgba(30,50,100,0.10);
+  backdrop-filter: blur(8px);
+}
+
+.nlex-bands-card.night {
+  background: rgba(14,24,56,0.65);
+  border-color: rgba(110,150,230,0.20);
+}
+
+.nlex-bands-card-title {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,50,100,0.45);
+  margin-bottom: 6px;
+}
+
+.nlex-bands-card.night .nlex-bands-card-title { color: rgba(180,205,255,0.72); }
+
+/* ── AQI Legend row ────────────────────────────────────────── */
+.nlex-legend-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.nlex-legend-card {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1.5px solid transparent;
+  white-space: nowrap;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.nlex-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nlex-legend-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.nlex-legend-card-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.nlex-legend-card-range {
+  font-size: 9px;
+  font-weight: 500;
+  opacity: 0.75;
+  letter-spacing: 0.02em;
+}
+
+/* ── Dual parameter columns ─────────────────────────────────── */
+.nlex-dual-params {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+}
+
+.nlex-param-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 4px;
+  border-radius: 12px;
+  background: transparent;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.nlex-tile-night .nlex-param-col {
+  background: transparent;
+}
+
+.nlex-param-col .nlex-pollutant-label {
+  font-size: 19px;
+}
+
+/* Dual param col — per-pollutant badge slightly smaller to fit */
+.nlex-param-col .nlex-aqi-number {
+  font-size: 62px;
+  letter-spacing: -2px;
+  line-height: 1;
+}
+
+.nlex-param-col .nlex-category-badge {
+  font-size: 13px;
+  padding: 5px 14px;
+}
+
+/* No-gauge dual param col enlarged */
+.nlex-param-col.no-gauge .nlex-aqi-number {
+  font-size: 80px;
+  letter-spacing: -3px;
+}
+
+.nlex-param-col.no-gauge .nlex-category-badge {
+  font-size: 16px;
+  padding: 7px 18px;
+}
+
+/* Dual-tile spotlight desc variants */
+.nlex-spotlight-desc-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0 4px;
+}
+
+.nlex-spotlight-desc-sm {
+  font-size: 11px;
+}
+
+.nlex-spotlight-desc-label {
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+/* ── Grid-mode typography: scoped so carousel sizing is untouched ── */
+.nlex-grid .nlex-tile-header {
+  padding: 7px 12px 6px;
+  margin-bottom: 1px;
+}
+
+.nlex-grid .nlex-station-name {
+  font-size: 21px;
+  line-height: 1.05;
+  letter-spacing: 0.035em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nlex-grid .nlex-station-address {
+  display: none;
+}
+
+.nlex-grid .nlex-gauge-wrap .nlex-pollutant-label,
+.nlex-grid .nlex-pollutant-label-nogauge {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.nlex-grid .nlex-param-col .nlex-pollutant-label {
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+.nlex-grid .nlex-aqi-label {
+  font-size: 18px;
+  letter-spacing: 0.18em;
+}
+
+.nlex-grid .nlex-aqi-number {
+  font-size: 76px;
+  font-weight: 800;
+}
+
+.nlex-grid .nlex-param-col .nlex-aqi-number {
+  font-size: 66px;
+}
+
+.nlex-grid .nlex-category-badge {
+  font-size: 18px;
+  padding: 8px 20px;
+  border-width: 0;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.nlex-grid .nlex-param-col .nlex-category-badge {
+  font-size: 15px;
+  padding: 6px 16px;
+}
+
+.nlex-grid .nlex-spotlight-desc {
+  font-size: 18px;
+  line-height: 1.35;
+  border-width: 0;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.nlex-grid .nlex-spotlight-desc-sm {
+  font-size: 15px;
+}
+
+.nlex-grid .nlex-tile-asof {
+  font-size: 16px;
+}
+
+.nlex-grid .nlex-tile-asof-col {
+  font-size: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOOTER  — brand above contact 2×2 grid
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-footer {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(30, 50, 100, 0.12);
+  padding: 10px 0 0;
+  transition: border-color 3s ease;
+}
+
+.nlex-footer.night {
+  border-color: rgba(100, 140, 220, 0.14);
+}
+
+/* Brand block — full width, stacked above contacts */
+.nlex-footer-brand {
+  margin-bottom: 8px;
+}
+
+.nlex-footer-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a2340;
+  line-height: 1.3;
+}
+
+.nlex-footer.night .nlex-footer-title { color: rgba(220, 235, 255, 0.92); }
+
+.nlex-footer-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(30, 50, 100, 0.5);
+  letter-spacing: 0.03em;
+  margin-top: 3px;
+}
+
+.nlex-footer.night .nlex-footer-subtitle { color: rgba(175, 205, 255, 0.70); }
+
+/* Contact grid — full width 2×2 */
+.nlex-footer-contacts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.nlex-footer-contact-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(30, 50, 100, 0.05);
+  border: 1px solid rgba(30, 50, 100, 0.09);
+}
+
+.nlex-footer.night .nlex-footer-contact-card {
+  background: rgba(80, 120, 220, 0.12);
+  border-color: rgba(120, 160, 240, 0.22);
+}
+
+.nlex-footer-contact-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nlex-footer-contact-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(30, 50, 100, 0.42);
+  line-height: 1;
+}
+
+.nlex-footer.night .nlex-footer-contact-label { color: rgba(175, 205, 255, 0.70); }
+
+.nlex-footer-contact-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(20, 40, 90, 0.78);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.nlex-footer.night .nlex-footer-contact-value { color: rgba(210, 228, 255, 0.92); }
+
+.nlex-footer-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: rgba(30, 80, 160, 0.65);
+  margin-top: 1px;
+}
+
+.nlex-footer.night .nlex-footer-icon-wrap { color: rgba(155, 190, 255, 0.85); }
+
+/* Bottom bar */
+.nlex-footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(30, 50, 100, 0.07);
+}
+
+.nlex-footer.night .nlex-footer-bottom {
+  border-top-color: rgba(100, 140, 220, 0.09);
+}
+
+.nlex-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nlex-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(20, 40, 90, 0.75);
+  letter-spacing: 0.02em;
+}
+
+.nlex-footer.night .nlex-footer-meta { color: rgba(200, 220, 255, 0.72); }
+
+.nlex-footer-sep {
+  opacity: 0.4;
+}
+
+.nlex-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nlex-footer-location {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(30, 80, 160, 0.65);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nlex-footer.night .nlex-footer-location { color: rgba(165, 200, 255, 0.88); }
+
+.nlex-footer-clock {
+  font-size: 19px;
+  font-weight: 700;
+  color: #1a2340;
+  letter-spacing: 0.10em;
+  font-variant-numeric: tabular-nums;
+}
+
+.nlex-footer.night .nlex-footer-clock { color: rgba(220, 235, 255, 0.85); }
+
+/* ═══════════════════════════════════════════════════════════════
+   WEATHER BACKGROUND LAYERS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Clouds */
+.nlex-clouds-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nlex-cloud-shape {
+  position: absolute;
+  border-radius: 50%;
+  animation: nlex-cloud-drift ease-in-out infinite alternate;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.nlex-cloud-shape.sunny-clear {
+  filter: blur(0.5px) drop-shadow(0 18px 36px rgba(255, 255, 255, 0.18));
+  mix-blend-mode: screen;
+}
+
+.nlex-cloud-shape.alt {
+  animation-name: nlex-cloud-drift-alt;
+}
+
+@keyframes nlex-cloud-drift {
+  0%   { transform: translate(0,  0)    scale(1);    }
+  100% { transform: translate(38px, -14px) scale(1.04); }
+}
+@keyframes nlex-cloud-drift-alt {
+  0%   { transform: translate(0,  0)    scale(1);    }
+  100% { transform: translate(-34px, 12px) scale(1.035); }
+}
+
+/* Gauge loading sweep animation */
+.nlex-gauge-loading-arc {
+  animation: nlex-gauge-sweep 1.5s linear infinite;
+}
+
+@keyframes nlex-gauge-sweep {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: var(--arc-total, -900); }
+}
+
+@keyframes nlex-emoji-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.2); }
+}
+
+@keyframes nlex-location-bounce {
+  0%,  100% { transform: translateY(0)   scale(1); }
+  40%        { transform: translateY(-6px) scale(1.18); }
+  60%        { transform: translateY(-3px) scale(1.08); }
+}
+
+/* Stars */
+.nlex-stars-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nlex-star {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(220, 235, 255, 0.85);
+  animation: nlex-star-twinkle ease-in-out infinite alternate;
+}
+
+@keyframes nlex-star-twinkle {
+  0%   { opacity: 0.3; transform: scale(0.9); }
+  100% { opacity: 1;   transform: scale(1.2); }
+}
+
+/* Sun */
+@keyframes nlex-sun-pulse {
+  0%   { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 1;   transform: scale(1.08); }
+}
+
+.nlex-sun.emphasized::before,
+.nlex-sun.emphasized::after {
+  content: "";
+  position: absolute;
+  inset: -34px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 235, 120, 0.24);
+  animation: nlex-sun-ray-breathe 7s ease-in-out infinite alternate;
+}
+
+.nlex-sun.emphasized::after {
+  inset: -66px;
+  border-color: rgba(255, 205, 80, 0.13);
+  animation-delay: -2s;
+}
+
+@keyframes nlex-sun-pulse-strong {
+  0%   { opacity: 0.86; transform: scale(1); }
+  100% { opacity: 1;    transform: scale(1.09); }
+}
+
+@keyframes nlex-sun-ray-breathe {
+  0%   { opacity: 0.34; transform: scale(0.94); }
+  100% { opacity: 0.72; transform: scale(1.08); }
+}
+
+/* Rain */
+.nlex-rain-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nlex-rain-canvas {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    168deg,
+    transparent 0px, transparent 5px,
+    rgba(120, 170, 240, 0.22) 5px, rgba(120, 170, 240, 0.22) 6px
+  );
+  background-size: 10px 55px;
+  animation: nlex-rain-fall 0.72s linear infinite;
+}
+
+.nlex-rain-canvas.heavy {
+  background-image: repeating-linear-gradient(
+    168deg,
+    transparent 0px, transparent 3px,
+    rgba(100, 155, 230, 0.32) 3px, rgba(100, 155, 230, 0.32) 4.5px
+  );
+  background-size: 6px 32px;
+  animation-duration: 0.42s;
+}
+
+@keyframes nlex-rain-fall {
+  from { background-position: 0 0; }
+  to   { background-position: -28px 110px; }
+}
+
+/* Snow */
+.nlex-snow-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nlex-snow-particle {
+  position: absolute;
+  top: -24px;
+  border-radius: 50%;
+  background: rgba(225, 240, 255, 0.75);
+  box-shadow: 0 0 4px rgba(200,220,255,0.45);
+  animation: nlex-snow-fall linear infinite;
+}
+
+@keyframes nlex-snow-fall {
+  0%   { transform: translateY(0)       translateX(0);    opacity: 0; }
+  5%   { opacity: 0.85; }
+  92%  { opacity: 0.85; }
+  100% { transform: translateY(1580px)  translateX(28px); opacity: 0; }
+}
+
+/* Fog */
+.nlex-fog-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nlex-fog-shape {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(180, 200, 225, 0.14) 0%, rgba(170, 195, 220, 0.06) 45%, transparent 68%
+  );
+  animation: nlex-fog-drift ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes nlex-fog-drift {
+  0%   { transform: translateX(0)   scaleX(1);    opacity: 0.6; }
+  100% { transform: translateX(48px) scaleX(1.12); opacity: 1; }
+}
+
+/* Lightning */
+.nlex-lightning {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: nlex-lightning-flash 6.5s steps(1) infinite;
+}
+
+@keyframes nlex-lightning-flash {
+  0%,  87%,  90.5%, 93%, 100% { background: transparent; }
+  88%, 89%, 90%                { background: rgba(200, 170, 255, 0.14); }
+  91%, 92%                     { background: rgba(200, 170, 255, 0.09); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ENTRANCE ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes nlex-fade-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nlex-tile-enter {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.nlex-grid > *:nth-child(1) { animation-delay: 0.1s; }
+.nlex-grid > *:nth-child(2) { animation-delay: 0.2s; }
+.nlex-grid > *:nth-child(3) { animation-delay: 0.3s; }
+.nlex-grid > *:nth-child(4) { animation-delay: 0.4s; }
+
+/* ═══════════════════════════════════════════════════════════════
+   CITYSCAPE / MOUNTAIN SILHOUETTE
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-cityscape-wrap {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 500px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.nlex-cityscape-mtn-far {
+  animation: nlex-mtn-parallax 60s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes nlex-mtn-parallax {
+  0%   { transform: translateX(0);     }
+  100% { transform: translateX(-22px); }
+}
+
+.nlex-cityscape-hill {
+  animation: nlex-hill-parallax 42s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes nlex-hill-parallax {
+  0%   { transform: translateX(0);  }
+  100% { transform: translateX(16px); }
+}
+
+/* Blinking red aviation warning light on antenna tips */
+.nlex-antenna-blink {
+  animation: nlex-ant-blink 2.4s steps(1) infinite;
+}
+
+@keyframes nlex-ant-blink {
+  0%,  54% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAINTENANCE OVERLAY
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-maintenance-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, rgba(3, 8, 22, 0.97) 0%, rgba(5, 14, 38, 0.97) 100%);
+  backdrop-filter: blur(14px);
+  border-radius: 28px;
+}
+
+.nlex-maintenance-box {
+  text-align: center;
+  padding: 52px 56px 44px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 24px;
+  background: rgba(8, 16, 44, 0.80);
+  box-shadow: 0 8px 60px rgba(0, 60, 200, 0.18), inset 0 0 0 1px rgba(255,255,255,0.04);
+  max-width: 600px;
+  width: 90%;
+  animation: nlex-fade-in 0.5s ease both;
+}
+
+/* ── Agency logos / branding ── */
+.nlex-maintenance-logos {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 28px;
+}
+
+.nlex-maintenance-emblogo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(96,165,250,0.30));
+}
+
+.nlex-maintenance-agency-name {
+  font-family: 'Poppins', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(200, 220, 255, 0.95);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nlex-maintenance-agency-sub {
+  font-family: 'Poppins', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(140, 170, 230, 0.70);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Animated icon ── */
+.nlex-maintenance-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.14);
+  border: 2px solid rgba(96, 165, 250, 0.30);
+  margin-bottom: 22px;
+  box-shadow: 0 0 32px rgba(59,130,246,0.20);
+}
+
+.nlex-maintenance-spin-icon {
+  font-size: 38px;
+  color: #60a5fa;
+  animation: nlex-maintenance-spin 7s linear infinite;
+}
+
+@keyframes nlex-maintenance-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Titles ── */
+.nlex-maintenance-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  color: rgba(225, 238, 255, 0.97);
+  margin-bottom: 6px;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+}
+
+.nlex-maintenance-subtitle {
+  font-family: 'Poppins', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(96, 165, 250, 0.80);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 20px;
+}
+
+.nlex-maintenance-msg {
+  font-family: 'Poppins', sans-serif;
+  font-size: 17px;
+  color: rgba(170, 195, 240, 0.82);
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+/* ── Divider ── */
+.nlex-maintenance-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(96,165,250,0.25) 50%, transparent 100%);
+  margin: 0 0 24px;
+}
+
+/* ── Contact info ── */
+.nlex-maintenance-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nlex-maintenance-contact-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: 'Poppins', sans-serif;
+  font-size: 14px;
+  color: rgba(148, 178, 230, 0.80);
+  text-align: left;
+  line-height: 1.45;
+}
+
+.nlex-mc-icon {
+  color: rgba(96, 165, 250, 0.70);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAINTENANCE DONE NOTIFICATION
+   ═══════════════════════════════════════════════════════════════ */
+.nlex-maintenance-done-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 201;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 14, 8, 0.82);
+  backdrop-filter: blur(10px);
+  border-radius: 28px;
+  animation: nlex-fade-in 0.5s ease both;
+}
+
+.nlex-maintenance-done-box {
+  text-align: center;
+  padding: 52px 56px 44px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 24px;
+  background: rgba(5, 30, 14, 0.80);
+  box-shadow: 0 8px 60px rgba(16, 185, 129, 0.15), inset 0 0 0 1px rgba(255,255,255,0.03);
+  max-width: 600px;
+  width: 90%;
+  animation: nlex-fade-in 0.5s ease both;
+}
+
+.nlex-maintenance-done-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.12);
+  border: 2px solid rgba(34, 197, 94, 0.30);
+  margin-bottom: 22px;
+}
+
+.nlex-maintenance-done-icon {
+  font-size: 38px;
+  color: #4ade80;
+}
+
+.nlex-maintenance-done-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 36px;
+  font-weight: 800;
+  color: rgba(220, 252, 231, 0.97);
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
+}
+
+.nlex-maintenance-done-subtitle {
+  font-family: 'Poppins', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(74, 222, 128, 0.75);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 20px;
+}
+
+.nlex-maintenance-done-msg {
+  font-family: 'Poppins', sans-serif;
+  font-size: 17px;
+  color: rgba(167, 243, 208, 0.80);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.nlex-maintenance-done-timer {
+  font-family: 'Poppins', sans-serif;
+  font-size: 12px;
+  color: rgba(74, 222, 128, 0.45);
+  letter-spacing: 0.06em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK-MODE EXPLICIT TEXT COLOR FIXES
+   Ensures all text is legible when the wall is in night/dark state.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Header text */
+.nlex-wall.night .nlex-agency-label  { color: rgba(200, 220, 255, 0.80); }
+.nlex-wall.night .nlex-agency-name   { color: rgba(230, 242, 255, 0.98); }
+.nlex-wall.night .nlex-agency-region { color: rgba(185, 212, 255, 0.88); }
+
+/* Section header */
+.nlex-wall.night .nlex-section-title    { color: rgba(228, 240, 255, 0.98); }
+.nlex-wall.night .nlex-section-subtitle { color: rgba(180, 210, 255, 0.80); }
+.nlex-wall.night .nlex-section-datetime { color: rgba(195, 218, 255, 0.88); }
+
+/* Legend card text in dark mode */
+.nlex-bands-card.night .nlex-legend-card-name  { color: rgba(228, 240, 255, 0.95); }
+.nlex-bands-card.night .nlex-legend-card-range { color: rgba(195, 218, 255, 0.80); }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE
+   The JS adaptive-scale hook already handles scaling the 960×1536
+   canvas to fit any viewport via transform: scale().
+   The key fix here is ensuring the page-root does NOT center the
+   canvas vertically (which would push its top above the viewport
+   on small screens). align-items: flex-start on .nlex-page-root
+   (above) anchors the canvas to the top. overflow: hidden clips
+   any empty layout space below the scaled canvas.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   GAUGE-HIDDEN MODE
+   When showGaugeChart=false the gauge SVG is removed and the AQI
+   value, status badge, and description all scale up for readability.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* AQI value block centred and enlarged */
+.nlex-aqi-value-row.no-gauge {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  animation: nlex-fade-in 0.5s ease both;
+}
+
+.nlex-aqi-value-block.no-gauge {
+  align-items: center;
+  gap: 2px;
+}
+
+.nlex-aqi-number.no-gauge {
+  font-size: 200px;
+  letter-spacing: -8px;
+  line-height: 1;
+}
+
+.nlex-aqi-label.no-gauge {
+  font-size: 26px;
+  letter-spacing: 0.22em;
+  opacity: 0.72;
+}
+
+/* Pollutant label shown above the big number (no-gauge only) */
+.nlex-pollutant-label-nogauge {
+  font-size: 20px;
+  letter-spacing: 0.16em;
+  margin-bottom: 6px;
+}
+
+/* Category badge enlarged */
+.nlex-tile-badges.no-gauge {
+  margin-top: 16px;
+  animation: nlex-fade-in 0.5s 0.1s ease both;
+}
+
+.nlex-category-badge.no-gauge {
+  font-size: 24px;
+  padding: 12px 32px;
+  border-width: 3px;
+  letter-spacing: 0.08em;
+  gap: 10px;
+}
+
+.nlex-category-badge.no-gauge .nlex-category-dot {
+  width: 16px;
+  height: 16px;
+}
+
+/* AQI description enlarged */
+.nlex-spotlight-desc.no-gauge {
+  font-size: 22px;
+  font-weight: 700;
+  padding: 12px 22px;
+  margin: 14px 0 6px;
+  border-radius: 14px;
+  line-height: 1.45;
+  border-width: 1.5px;
+}
+
+/* "As of" timestamp enlarged */
+.nlex-tile-asof.no-gauge {
+  font-size: 22px;
+  margin-top: 12px;
+  animation: nlex-fade-in 0.5s 0.15s ease both;
+}
+
+.nlex-tile-asof-col.no-gauge {
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+/* Dual param col vertically centred when gauge is hidden */
+.nlex-param-col.no-gauge {
+  justify-content: center;
+}
+
+/* ── Carousel mode: even larger text (single card fills full height) ── */
+.nlex-carousel-stage .nlex-aqi-number.no-gauge {
+  font-size: 260px;
+  letter-spacing: -12px;
+}
+
+.nlex-carousel-stage .nlex-aqi-label.no-gauge {
+  font-size: 34px;
+  letter-spacing: 0.26em;
+}
+
+.nlex-carousel-stage .nlex-pollutant-label-nogauge {
+  font-size: 40px;
+  letter-spacing: 0.18em;
+  margin-bottom: 10px;
+}
+
+.nlex-carousel-stage .nlex-param-col.no-gauge {
+  justify-content: center;
+  gap: 16px;
+}
+
+.nlex-carousel-stage .nlex-param-col.no-gauge .nlex-pollutant-label {
+  font-size: 42px;
+  line-height: 1.08;
+}
+
+.nlex-carousel-stage .nlex-category-badge.no-gauge {
+  font-size: 46px;
+  padding: 18px 54px;
+  border-width: 0;
+  gap: 16px;
+  line-height: 1.08;
+  justify-content: center;
+  text-align: center;
+}
+
+.nlex-carousel-stage .nlex-category-badge.no-gauge .nlex-category-dot {
+  width: 26px;
+  height: 26px;
+}
+
+.nlex-carousel-stage .nlex-param-col .nlex-category-badge.no-gauge {
+  font-size: 36px;
+  padding: 14px 26px;
+  gap: 0;
+  white-space: normal;
+}
+
+.nlex-carousel-stage .nlex-param-col .nlex-category-badge.no-gauge .nlex-category-dot {
+  width: 22px;
+  height: 22px;
+}
+
+.nlex-carousel-stage .nlex-spotlight-desc.no-gauge {
+  font-size: 28px;
+  padding: 16px 28px;
+  margin: 20px 0 10px;
+  border-radius: 18px;
+  border-width: 2px;
+}
+
+.nlex-carousel-stage .nlex-spotlight-desc-multi {
+  justify-content: center;
+}
+
+.nlex-carousel-stage .nlex-tile-asof.no-gauge {
+  font-size: 26px;
+  margin-top: 10px;
+}
+
+.nlex-carousel-stage .nlex-carousel-inline-asof {
+  margin-top: 10px;
+  margin-bottom: 0;
+  opacity: 0.8;
+}
+
+.nlex-carousel-stage .nlex-tile-asof-col.nlex-carousel-inline-asof {
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+/* Carousel non-gauge-hidden: also enlarge status/desc since there is more room */
+.nlex-carousel-stage .nlex-category-badge {
+  font-size: 22px;
+  padding: 11px 28px;
+}
+
+.nlex-carousel-stage .nlex-spotlight-desc {
+  font-size: 20px;
+  padding: 10px 20px;
+  margin: 8px 0 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CAROUSEL MODE
+   One station card fills the grid area; fade-in animation on each
+   transition. Pagination dots at the bottom of the carousel area.
+   ═══════════════════════════════════════════════════════════════ */
+
+.nlex-carousel-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+.nlex-carousel-stage {
+  flex: 1;
+  min-height: 0;
+  animation: nlex-carousel-fadein 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.nlex-carousel-stage > .nlex-tile {
+  width: 100%;
+  height: 100%;
+}
+
+.nlex-carousel-stage > .nlex-carousel-tile-dual {
+  justify-content: flex-start;
+}
+
+.nlex-carousel-stage > .nlex-carousel-tile-dual > .nlex-dual-params {
+  flex: 0 0 auto;
+  min-height: 0;
+  align-items: center;
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.nlex-carousel-stage > .nlex-carousel-tile-dual > .nlex-spotlight-desc,
+.nlex-carousel-stage > .nlex-carousel-tile-dual > .nlex-spotlight-desc-multi {
+  flex-shrink: 0;
+  margin-top: 18px;
+  margin-bottom: 14px;
+}
+
+.nlex-carousel-stage > .nlex-carousel-tile-dual > .nlex-carousel-aqi-scale {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+@keyframes nlex-carousel-fadein {
+  from { opacity: 0; transform: translateY(18px) scale(0.975); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* Pagination dots */
+.nlex-carousel-dots {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 4px 0 2px;
+}
+
+.nlex-carousel-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(120, 150, 220, 0.35);
+  border: 1.5px solid rgba(120, 150, 220, 0.45);
+  transition: background 0.35s ease, transform 0.35s ease, border-color 0.35s ease;
+  flex-shrink: 0;
+}
+
+.nlex-carousel-dot.active {
+  background: rgba(96, 165, 250, 0.90);
+  border-color: rgba(96, 165, 250, 0.80);
+  transform: scale(1.35);
+}
+
+/* Night-mode dot colours */
+.nlex-wall.night .nlex-carousel-dot {
+  background: rgba(80, 120, 200, 0.40);
+  border-color: rgba(100, 150, 230, 0.50);
+}
+
+.nlex-wall.night .nlex-carousel-dot.active {
+  background: rgba(130, 185, 255, 0.90);
+  border-color: rgba(130, 185, 255, 0.80);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CAROUSEL TILE REDESIGN  (gauge visible)
+   Applied when cardDisplayMode=carousel and showGaugeChart=true.
+   Half-circle gauge, emoji, colored AQI bubble, larger header.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Header — left-aligned, larger padding */
+.nlex-carousel-header {
+  padding: 18px 24px 14px;
+  text-align: left;
+}
+
+/* Station name row with map-pin icon */
+.nlex-carousel-station-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.12;
+  white-space: nowrap;
+}
+
+.nlex-carousel-station-name span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.nlex-tile-day  .nlex-carousel-station-name { color: #1a2340; }
+.nlex-tile-night .nlex-carousel-station-name { color: rgba(225, 238, 255, 0.95); }
+
+.nlex-carousel-location-icon {
+  font-size: 30px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  animation: nlex-location-bounce 1.8s ease-in-out infinite;
+}
+
+/* Address indented to align with text after icon */
+.nlex-carousel-station-address {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-top: 4px;
+  padding-left: 46px;
+}
+
+.nlex-tile-day  .nlex-carousel-station-address { color: rgba(30, 50, 100, 0.52); }
+.nlex-tile-night .nlex-carousel-station-address { color: rgba(180, 210, 255, 0.72); }
+
+/* Override dual-params to fill remaining tile height */
+.nlex-dual-params.nlex-carousel-dual-params {
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+  align-items: stretch;
+}
+
+/* Each pollutant column (PM10 / PM2.5) */
+.nlex-carousel-param-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 4px;
+}
+
+/* PM10 / PM2.5 label — large & bold */
+.nlex-carousel-pollutant-label {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #1e2d50;
+}
+
+.nlex-tile-night .nlex-carousel-pollutant-label { color: rgba(230, 240, 255, 0.95); }
+
+/* Emoji inside SVG gauge (SvgGauge showEmoji) */
+.nlex-gauge-emoji {
+  pointer-events: none;
+}
+
+/* AQI label above the value bubble */
+.nlex-carousel-aqi-label {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  opacity: 0.72;
+  text-align: center;
+}
+
+.nlex-tile-day  .nlex-carousel-aqi-label { color: #1e2d50; }
+.nlex-tile-night .nlex-carousel-aqi-label { color: rgba(180, 210, 255, 0.85); }
+
+/* AQI value — plain colored number, no background */
+.nlex-carousel-aqi-bubble {
+  font-size: 110px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -4px;
+  font-family: 'Poppins', sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  animation: nlex-fade-in 0.45s ease both;
+  transition: color 0.4s ease;
+}
+
+/* ── Carousel dual-column overrides (Clark, San Fernando) ── */
+.nlex-carousel-param-col--dual .nlex-carousel-pollutant-label {
+  font-size: 60px;
+}
+.nlex-carousel-param-col--dual .nlex-carousel-aqi-bubble {
+  font-size: 130px;
+  padding: 16px 40px;
+}
+.nlex-carousel-param-col--dual .nlex-carousel-aqi-label {
+  font-size: 26px;
+}
+.nlex-carousel-param-col--dual .nlex-carousel-status-badge {
+  font-size: 34px;
+  padding: 10px 28px;
+  border-radius: 18px;
+  gap: 0;
+}
+.nlex-carousel-param-col--dual .nlex-carousel-status-badge .nlex-category-dot {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Carousel solo-column overrides (Meycauayan, Zambales) ── */
+.nlex-carousel-param-col--solo .nlex-carousel-pollutant-label {
+  font-size: 76px;
+}
+.nlex-carousel-param-col--solo .nlex-carousel-aqi-bubble {
+  font-size: 160px;
+}
+.nlex-carousel-param-col--solo .nlex-carousel-aqi-label {
+  font-size: 30px;
+}
+.nlex-carousel-param-col--solo .nlex-carousel-status-badge {
+  font-size: 42px;
+  padding: 12px 34px;
+  border-radius: 20px;
+  gap: 0;
+}
+.nlex-carousel-param-col--solo .nlex-carousel-status-badge .nlex-category-dot {
+  width: 22px;
+  height: 22px;
+}
+
+.nlex-tile-carousel .nlex-category-badge .nlex-category-dot {
+  display: none;
+}
+
+/* ── Per-pollutant as-of date ── */
+.nlex-carousel-param-asof {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  opacity: 0.62;
+  margin-top: 3px;
+}
+.nlex-tile-day  .nlex-carousel-param-asof { color: #374151; }
+.nlex-tile-night .nlex-carousel-param-asof { color: rgba(180, 210, 255, 0.8); }
+.nlex-carousel-param-col--dual .nlex-carousel-param-asof { font-size: 18px; }
+.nlex-carousel-param-col--solo .nlex-carousel-param-asof { font-size: 18px; }
+
+/* ── Carousel AQI description & spotlight text ── */
+.nlex-tile-carousel .nlex-spotlight-desc {
+  font-size: 30px;
+}
+.nlex-tile-carousel .nlex-spotlight-desc-sm {
+  font-size: 24px;
+}
+
+/* ── AQI value rendered inside the gauge SVG ── */
+.nlex-gauge-aqi-inside {
+  pointer-events: none;
+}
+
+/* ── Inverted description (carousel mode) ── */
+.nlex-carousel-desc-inverted {
+  color: #fff !important;
+  font-size: 34px !important;
+  border-radius: 16px;
+  padding: 14px 24px !important;
+  border: none !important;
+  letter-spacing: 0.01em;
+}
+.nlex-tile-carousel .nlex-spotlight-desc-multi {
+  gap: 8px;
+}
+.nlex-carousel-desc-inverted.nlex-spotlight-desc-sm {
+  font-size: 26px !important;
+}
+
+/* ── AQI Scale Reference bar ── */
+.nlex-carousel-aqi-scale {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 8px 10px 6px;
+}
+.nlex-carousel-aqi-scale-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 6px;
+}
+.nlex-carousel-aqi-scale-bands {
+  display: flex;
+  flex-direction: row;
+  border-radius: 12px;
+  overflow: hidden;
+  gap: 3px;
+}
+.nlex-carousel-aqi-scale-band {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 4px;
+  gap: 2px;
+}
+.nlex-carousel-aqi-scale-short {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+.nlex-carousel-aqi-scale-range {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.82);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+

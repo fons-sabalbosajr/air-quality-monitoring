@@ -18,11 +18,13 @@ import {
   DashboardOutlined,
   TableOutlined,
   EnvironmentOutlined,
+  SettingOutlined,
   BulbOutlined,
   BulbFilled,
   GlobalOutlined,
   FacebookFilled,
   MailOutlined,
+  FileTextOutlined,
   CaretDownOutlined,
   CaretRightOutlined,
   MenuOutlined,
@@ -35,8 +37,13 @@ import "./App.css";
 const DashboardPage = lazy(() => import("./pages/Dashboard"));
 const TabularResultsPage = lazy(() => import("./pages/TabularResults"));
 const ChartsPage = lazy(() => import("./pages/Charts"));
-const MapPage = lazy(() => import("./pages/Map"));
 const KioskPage = lazy(() => import("./pages/Kiosk"));
+const NlexLedWallPage = lazy(() => import("./pages/NlexLedWall"));
+const NlexAdminPage = lazy(() => import("./pages/NlexAdmin"));
+const NlexSettingsPage = lazy(() => import("./pages/NlexSettingsPage"));
+const AdminPinGate = lazy(() => import("./pages/AdminPinGate"));
+const AdminTabularManage = lazy(() => import("./pages/AdminTabularManage"));
+const AdminLogsPage = lazy(() => import("./pages/AdminLogsPage"));
 import embLogo from "./assets/emblogo.svg";
 import PageLoadingSkeleton from "./components/PageLoadingSkeleton";
 import { AqiProvider, useAqi } from "./context/AqiContext";
@@ -1311,16 +1318,25 @@ function ThemedLayout({
                 <Route path="/meycauayan_station" element={<KioskPage fixedProvince="meycauayan" />} />
                 <Route path="/zambales_station" element={<KioskPage fixedProvince="zambales" />} />
                 <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
-                <Route path="/admin/overview" element={<DashboardPage />} />
-                <Route path="/admin/tabular" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
-                <Route path="/admin/tabular/:province" element={<TabularResultsPage />} />
-                <Route path="/admin/charts" element={<ChartsPage />} />
-                <Route path="/admin/map" element={<MapPage />} />
+                <Route path="/admin/*" element={
+                  <AdminPinGate>
+                    <Routes>
+                      <Route path="overview" element={<DashboardPage />} />
+                      <Route path="tabular" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
+                      <Route path="tabular/:province" element={<TabularResultsPage />} />
+                      <Route path="tabular-manage" element={<Navigate to="/admin/tabular-manage/meycauayan" replace />} />
+                      <Route path="tabular-manage/:province" element={<AdminTabularManage />} />
+                      <Route path="charts" element={<ChartsPage />} />
+                      <Route path="nlex-settings" element={<NlexSettingsPage />} />
+                      <Route path="logs" element={<AdminLogsPage />} />
+                    </Routes>
+                  </AdminPinGate>
+                } />
                 {/* Legacy routes redirect to /admin */}
                 <Route path="/overview" element={<Navigate to="/admin/overview" replace />} />
                 <Route path="/tabular/*" element={<Navigate to="/admin/tabular/meycauayan" replace />} />
                 <Route path="/charts" element={<Navigate to="/admin/charts" replace />} />
-                <Route path="/map" element={<Navigate to="/admin/map" replace />} />
+                <Route path="/map" element={<Navigate to="/admin/overview" replace />} />
               </Routes>
             </Suspense>
           </div>
@@ -1372,8 +1388,6 @@ function ThemedLayout({
   );
 }
 
-//
-
 import { secureStorage } from './utils/secureStorage';
 
 function App() {
@@ -1424,14 +1438,27 @@ function App() {
         label: p.label,
       })),
     },
-    { key: "/admin/map", icon: <EnvironmentOutlined />, label: "Map" },
+    {
+      key: "tabular-manage",
+      icon: <TableOutlined />,
+      label: "Data Manager",
+      children: provinces.map((p) => ({
+        key: `/admin/tabular-manage/${p.key}`,
+        label: p.label,
+      })),
+    },
+    { key: "/admin/nlex-settings", icon: <SettingOutlined />, label: "NLEX Display" },
+    { key: "/admin/logs", icon: <FileTextOutlined />, label: "Logs" },
   ];
 
   const selectableKeys = [
     '/admin/overview',
     ...provinces.map((p) => `/admin/tabular/${p.key}`),
+    ...provinces.map((p) => `/admin/tabular-manage/${p.key}`),
     '/admin/tabular',
-    '/admin/map',
+    '/admin/tabular-manage',
+    '/admin/nlex-settings',
+    '/admin/logs',
     '/admin',
     '/',
   ];
@@ -1459,6 +1486,15 @@ function App() {
     "/meycauayan_station": "meycauayan",
     "/zambales_station": "zambales",
   };
+  // ── NLEX LED Wall renders outside the main layout ──
+  if (location.pathname === "/nlex") {
+    return (
+      <Suspense fallback={<div style={{ background: "#000", minHeight: "100vh" }} />}>
+        <NlexLedWallPage />
+      </Suspense>
+    );
+  }
+
   const isKioskRoute = location.pathname === "/" || location.pathname === "/embr3-latestaqi" || location.pathname === "/with-arta" || location.pathname in STATION_PAGE_MAP;
   if (isKioskRoute) {
     return (

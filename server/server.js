@@ -36,6 +36,8 @@ const aqiRoutes = require("./routes/aqi");
 const stationRoutes = require("./routes/station");
 const workbookRoutes = require("./routes/workbookRoutes");
 const proxyRoutes = require("./routes/proxy");
+const { router: adminAuthRoutes } = require("./routes/admin-auth");
+const nlexSettingsRoutes = require("./routes/nlexSettings");
 
 // ── Express setup ──
 const app = express();
@@ -63,8 +65,8 @@ app.use(
     CORS_ORIGIN
       ? {
           origin: CORS_ORIGIN.split(",").map((o) => o.trim()),
-          methods: ["GET", "POST", "OPTIONS"],
-          allowedHeaders: ["Content-Type", "Accept"],
+          methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+          allowedHeaders: ["Content-Type", "Accept", "X-Admin-Token"],
         }
       : undefined // allow all in dev when CORS_ORIGIN is unset
   )
@@ -104,6 +106,8 @@ setInterval(() => {
 
 // ── Register all routes ──
 app.use(healthRoutes);
+app.use(adminAuthRoutes);
+app.use(nlexSettingsRoutes);
 app.use(tabularRoutes);
 app.use(emailRoutes);
 app.use(aqiRoutes);

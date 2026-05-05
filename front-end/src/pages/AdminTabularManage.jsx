@@ -1,0 +1,558 @@
+/**
+ * AdminTabularManage — CRUD + filtered CSV export + email send for tabular station data.
+ * Route: /admin/tabular-manage/:province
+ * Requires valid admin session token in sessionStorage.
+ */
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  Table, Button, Space, Modal, Form, Input, Popconfirm,
+  Typography, Select, Tag, Alert, message,
+  DatePicker, InputNumber,
+} from "antd";
+import {
+  DownloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
+  ReloadOutlined, MailOutlined, FilterOutlined,
+} from "@ant-design/icons";
+import Swal from "sweetalert2";
+import dayjs from "dayjs";
+import { getApiBase } from "../util/apiBase";
+
+const { Title, Text } = Typography;
+const { Option } = Select;
+const { RangePicker } = DatePicker;
+
+const PROVINCE_OPTIONS = [
+  { value: "clark",        label: "Clark" },
+  { value: "san-fernando", label: "San Fernando" },
+  { value: "meycauayan",   label: "Meycauayan" },
+  { value: "zambales",     label: "Zambales" },
+];
+
+const POLLUTANT_OPTIONS = [
+  { value: "pm10", label: "PM10" },
+  { value: "pm25", label: "PM2.5" },
+];
+
+const STATUS_OPTIONS = [
+  "Good", "Fair", "Unhealthy for Sensitive Groups",
+  "Very Unhealthy", "Acutely Unhealthy", "Emergency",
+  "Invalid", "For Validation",
+];
+
+const SESSION_KEY = "admin-pin-token";
+
+function getToken() {
+  return sessionStorage.getItem(SESSION_KEY) || "";
+}
+
+function adminFetch(path, opts = {}) {
+  const base = getApiBase();
+  return fetch(`${base}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Token": getToken(),
+      ...(opts.headers ?? {}),
+    },
+    ...opts,
+  });
+}
+
+/** Returns true if the row looks erratic / out-of-range */
+function isErraticRow(row, columns) {
+  const status = String(row["Status"] || "").toLowerCase();
+  if (/^(invalid|for\s*validation)$/.test(status)) return true;
+
+  const aqi = row["AQI"];
+  if (aqi != null && aqi !== "") {
+    const n = Number(aqi);
+    if (isFinite(n) && (n < 0 || n > 500)) return true;
+  }
+
+  for (const col of columns) {
+    if (col === "AQI" || col === "Status" || /date|time/i.test(col)) continue;
+    const v = Number(row[col]);
+    if (isFinite(v) && v < 0) return true;
+  }
+
+  return false;
+}
+
+/** Apply export filters to an array of rows */
+function applyFilters(rows, filters, columns) {
+  let result = [...rows];
+
+  if (filters.dateRange?.[0] && filters.dateRange?.[1]) {
+    const from = dayjs(filters.dateRange[0]).startOf("day");
+    const to   = dayjs(filters.dateRange[1]).endOf("day");
+    const dateCol = columns.find((c) => /date|time/i.test(c)) ?? null;
+    if (dateCol) {
+      result = result.filter((r) => {
+        const d = dayjs(r[dateCol]);
+        return d.isValid() && d.isAfter(from.subtract(1, "ms")) && d.isBefore(to.add(1, "ms"));
+      });
+    }
+  }
+
+  if (filters.statuses?.length) {
+    result = result.filter((r) => filters.statuses.includes(r["Status"]));
+  }
+
+  if (filters.aqiMin != null || filters.aqiMax != null) {
+    result = result.filter((r) => {
+      const n = Number(r["AQI"]);
+      if (!isFinite(n)) return true;
+      if (filters.aqiMin != null && n < filters.aqiMin) return false;
+      if (filters.aqiMax != null && n > filters.aqiMax) return false;
+      return true;
+    });
+  }
+
+  return result;
+}
+
+/** Build and trigger CSV download */
+function downloadCsv(rows, columns, filename) {
+  const safe = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const cols  = columns.filter((c) => c !== "_id");
+  const csv   = [
+    cols.map(safe).join(","),
+    ...rows.map((r) => cols.map((c) => safe(r[c] ?? "")).join(",")),
+  ].join("\r\n");
+  const blob  = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url   = URL.createObjectURL(blob);
+  const link  = document.createElement("a");
+  link.href   = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export default function AdminTabularManage() {
+  const { province } = useParams();
+  const navigate      = useNavigate();
+
+  const [pollutant, setPollutant] = useState("pm10");
+  const [rows, setRows]           = useState([]);
+  const [columns, setColumns]     = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [totalRows, setTotalRows] = useState(0);
+
+  // Controlled pagination
+  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Add/Edit modal
+  const [modalOpen, setModalOpen]   = useState(false);
+  const [editingRow, setEditingRow] = useState(null);
+  const [form]                      = Form.useForm();
+  const [saving, setSaving]         = useState(false);
+
+  // Export/Email modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFilters, setExportFilters] = useState({
+    dateRange: null,
+    statuses: [],
+    aqiMin: null,
+    aqiMax: null,
+  });
+  const [emailRecipient, setEmailRecipient] = useState("");
+  const [sending, setSending] = useState(false);
+
+  // ── Fetch ─────────────────────────────────────────────────────
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setCurrentPage(1);
+    try {
+      const base = getApiBase();
+      const r    = await fetch(`${base}/api/tabular/${province}/${pollutant}?limit=5000`);
+      if (!r.ok) throw new Error(await r.text());
+      const json = await r.json();
+      const rawCols = (json.columns ?? []).filter((c) => c !== "_id");
+      setColumns(rawCols);
+      const enrichedRows = (json.rows ?? []).map((row, i) => ({
+        ...row,
+        _rowId: row._id ?? row["_id"] ?? `row-${i}`,
+      }));
+      setRows(enrichedRows);
+      setTotalRows(json.totalRows ?? enrichedRows.length);
+    } catch (e) {
+      message.error(`Failed to load data: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [province, pollutant]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ── Filtered rows preview ──────────────────────────────────────
+  const filteredRows = useMemo(
+    () => applyFilters(rows, exportFilters, columns),
+    [rows, exportFilters, columns]
+  );
+
+  // ── Add/Edit/Delete ────────────────────────────────────────────
+  function handleAdd() { setEditingRow(null); form.resetFields(); setModalOpen(true); }
+
+  function handleEdit(row) {
+    setEditingRow(row);
+    const vals = {};
+    columns.forEach((c) => { vals[c] = row[c] ?? ""; });
+    form.setFieldsValue(vals);
+    setModalOpen(true);
+  }
+
+  async function handleSave() {
+    let vals;
+    try { vals = await form.validateFields(); } catch { return; }
+    setSaving(true);
+    try {
+      if (editingRow) {
+        const r = await adminFetch(
+          `/api/tabular/${province}/${pollutant}/rows/${editingRow._rowId}`,
+          { method: "PUT", body: JSON.stringify({ row: vals }) }
+        );
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? "Update failed");
+        message.success("Row updated");
+      } else {
+        const r = await adminFetch(
+          `/api/tabular/${province}/${pollutant}/rows`,
+          { method: "POST", body: JSON.stringify({ row: vals }) }
+        );
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? "Add failed");
+        message.success("Row added");
+      }
+      setModalOpen(false);
+      fetchData();
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "Save Error", text: e.message, confirmButtonColor: "#1677ff" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(row) {
+    try {
+      const r = await adminFetch(
+        `/api/tabular/${province}/${pollutant}/rows/${row._rowId}`,
+        { method: "DELETE" }
+      );
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Delete failed");
+      message.success("Row deleted");
+      fetchData();
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "Delete Error", text: e.message, confirmButtonColor: "#1677ff" });
+    }
+  }
+
+  // ── CSV download ───────────────────────────────────────────────
+  async function handleDownloadCsv() {
+    const toExport = applyFilters(rows, exportFilters, columns);
+    const filename = `${province}-${pollutant}-${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadCsv(toExport, columns, filename);
+    try {
+      const base = getApiBase();
+      await fetch(`${base}/api/export-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          province, pollutant, filters: exportFilters,
+          totalRecords: rows.length, exportedRecords: toExport.length,
+          filename, type: "csv_download",
+        }),
+      });
+    } catch { /* non-critical */ }
+    message.success(`Exported ${toExport.length} rows`);
+    setExportModalOpen(false);
+  }
+
+  // ── Send email ─────────────────────────────────────────────────
+  async function handleSendEmail() {
+    const email = emailRecipient.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      message.error("Enter a valid email address");
+      return;
+    }
+    const toSend = applyFilters(rows, exportFilters, columns);
+    setSending(true);
+    try {
+      const base = getApiBase();
+      const r = await fetch(`${base}/api/share-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          province,
+          pollutant: pollutant.toUpperCase(),
+          columns,
+          rows: toSend,
+          totalRows: toSend.length,
+          filters: exportFilters,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Failed to send");
+      message.success(`Report sent to ${email}`);
+      setExportModalOpen(false);
+      setEmailRecipient("");
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "Email Error", text: e.message, confirmButtonColor: "#1677ff" });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // ── Table columns ──────────────────────────────────────────────
+  const tableColumns = useMemo(() => {
+    const dataCols = columns.map((col) => ({
+      title: col,
+      dataIndex: col,
+      key: col,
+      ellipsis: true,
+      width: col === "Status" ? 200 : /date|time/i.test(col) ? 180 : 120,
+      render: (val) => {
+        if (col === "Status" && val) {
+          const color = {
+            Good: "green", Fair: "gold",
+            "Unhealthy for Sensitive Groups": "orange",
+            "Very Unhealthy": "red",
+            "Acutely Unhealthy": "purple",
+            Emergency: "magenta",
+            Invalid: "default",
+            "For Validation": "default",
+          }[val] ?? "default";
+          return <Tag color={color}>{val}</Tag>;
+        }
+        if (/rolling\s*avg/i.test(col)) {
+          const n = parseFloat(val);
+          return isFinite(n) ? n.toFixed(2) : (val ?? "—");
+        }
+        return val ?? "—";
+      },
+    }));
+
+    dataCols.push({
+      title: "Actions",
+      key: "_actions",
+      fixed: "right",
+      width: 120,
+      render: (_, row) => (
+        <Space size={4}>
+          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(row)} />
+          <Popconfirm
+            title="Delete this row?"
+            description="This action cannot be undone."
+            onConfirm={() => handleDelete(row)}
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+          >
+            <Button size="small" icon={<DeleteOutlined />} danger />
+          </Popconfirm>
+        </Space>
+      ),
+    });
+
+    return dataCols;
+  }, [columns, rows]);
+
+  const hasFilters = exportFilters.dateRange || exportFilters.statuses?.length ||
+    exportFilters.aqiMin != null || exportFilters.aqiMax != null;
+
+  return (
+    <div style={{ padding: "24px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>Tabular Data Manager</Title>
+          <Text type="secondary">View, edit, and export station air quality records</Text>
+        </div>
+        <Space wrap>
+          <Button icon={<FilterOutlined />} onClick={() => setExportModalOpen(true)}>
+            Export / Email
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Refresh</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Add Row</Button>
+        </Space>
+      </div>
+
+      {/* Station / pollutant selectors */}
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Select value={province} style={{ width: 160 }} onChange={(v) => navigate(`/admin/tabular-manage/${v}`)}>
+          {PROVINCE_OPTIONS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+        </Select>
+        <Select value={pollutant} style={{ width: 120 }} onChange={setPollutant}>
+          {POLLUTANT_OPTIONS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+        </Select>
+        <Text type="secondary">{totalRows.toLocaleString()} total rows</Text>
+      </Space>
+
+      <Alert
+        type="warning"
+        showIcon
+        message="Changes here modify the local backup only. They will be overwritten on the next Google Sheets sync."
+        style={{ marginBottom: 16 }}
+        closable
+      />
+
+      {/* Table */}
+      <Table
+        dataSource={rows}
+        columns={tableColumns}
+        rowKey="_rowId"
+        loading={loading}
+        scroll={{ x: "max-content", y: 520 }}
+        size="small"
+        pagination={{
+          current: currentPage,
+          pageSize,
+          showSizeChanger: true,
+          pageSizeOptions: ["20", "50", "100", "200", "500"],
+          onChange: (page, size) => { setCurrentPage(page); if (size !== pageSize) { setPageSize(size); setCurrentPage(1); } },
+          onShowSizeChange: (_, size) => { setPageSize(size); setCurrentPage(1); },
+          showTotal: (t, range) => `${range[0]}–${range[1]} of ${t} rows`,
+          showQuickJumper: true,
+        }}
+        bordered
+        rowClassName={(row) => isErraticRow(row, columns) ? "erratic-row" : ""}
+      />
+
+      {/* ── Export / Email Modal ──────────────────────────────────── */}
+      <Modal
+        open={exportModalOpen}
+        onCancel={() => setExportModalOpen(false)}
+        title={<Space><FilterOutlined /> Export &amp; Send Data</Space>}
+        width={560}
+        footer={null}
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+
+          <div>
+            <Text strong>Date Range</Text>
+            <div style={{ marginTop: 6 }}>
+              <RangePicker
+                style={{ width: "100%" }}
+                onChange={(_, strs) =>
+                  setExportFilters((f) => ({ ...f, dateRange: strs[0] ? strs : null }))
+                }
+              />
+            </div>
+          </div>
+
+          <div>
+            <Text strong>AQI Range</Text>
+            <Space style={{ marginTop: 6 }}>
+              <InputNumber
+                min={0} max={500} placeholder="Min AQI" style={{ width: 120 }}
+                onChange={(v) => setExportFilters((f) => ({ ...f, aqiMin: v }))}
+              />
+              <Text type="secondary">–</Text>
+              <InputNumber
+                min={0} max={500} placeholder="Max AQI" style={{ width: 120 }}
+                onChange={(v) => setExportFilters((f) => ({ ...f, aqiMax: v }))}
+              />
+            </Space>
+          </div>
+
+          <div>
+            <Text strong>Status Filter</Text>
+            <div style={{ marginTop: 6 }}>
+              <Select
+                mode="multiple"
+                style={{ width: "100%" }}
+                placeholder="All statuses (leave empty for no filter)"
+                options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+                onChange={(v) => setExportFilters((f) => ({ ...f, statuses: v }))}
+                allowClear
+              />
+            </div>
+          </div>
+
+          <Alert
+            type="info"
+            showIcon
+            message={
+              hasFilters
+                ? <><strong>{filteredRows.length.toLocaleString()}</strong> of {rows.length.toLocaleString()} rows match current filters</>
+                : <><strong>{rows.length.toLocaleString()}</strong> rows will be exported (no filters applied)</>
+            }
+          />
+
+          <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+            <Text strong>Download CSV</Text>
+            <div style={{ marginTop: 8 }}>
+              <Button
+                block
+                icon={<DownloadOutlined />}
+                onClick={handleDownloadCsv}
+                disabled={filteredRows.length === 0}
+              >
+                Download CSV ({filteredRows.length.toLocaleString()} rows)
+              </Button>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+            <Text strong>Send to Email</Text>
+            <Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
+              Sends an HTML report (up to 100 rows shown) to the specified address. Filters above apply.
+            </Text>
+            <Space.Compact style={{ width: "100%" }}>
+              <Input
+                prefix={<MailOutlined />}
+                placeholder="recipient@example.com"
+                value={emailRecipient}
+                onChange={(e) => setEmailRecipient(e.target.value)}
+                onPressEnter={handleSendEmail}
+              />
+              <Button
+                type="primary"
+                icon={<MailOutlined />}
+                loading={sending}
+                onClick={handleSendEmail}
+                disabled={filteredRows.length === 0}
+              >
+                Send
+              </Button>
+            </Space.Compact>
+          </div>
+        </Space>
+      </Modal>
+
+      {/* ── Add / Edit Modal ──────────────────────────────────────── */}
+      <Modal
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={handleSave}
+        confirmLoading={saving}
+        title={editingRow ? "Edit Row" : "Add New Row"}
+        width={600}
+        okText={editingRow ? "Save Changes" : "Add Row"}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" style={{ maxHeight: 480, overflowY: "auto", paddingRight: 4 }}>
+          {columns.map((col) => (
+            <Form.Item key={col} name={col} label={col}>
+              <Input placeholder={`Enter ${col}`} />
+            </Form.Item>
+          ))}
+        </Form>
+      </Modal>
+
+      {/* Erratic row highlight */}
+      <style>{`
+        .erratic-row td { background: #fff1f0 !important; }
+        .erratic-row:hover td { background: #ffe4e4 !important; }
+        .dark .erratic-row td,
+        [data-theme="dark"] .erratic-row td { background: #420806 !important; }
+        .dark .erratic-row:hover td,
+        [data-theme="dark"] .erratic-row:hover td { background: #5c0e09 !important; }
+      `}</style>
+    </div>
+  );
+}

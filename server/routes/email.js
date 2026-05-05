@@ -70,4 +70,29 @@ router.post("/api/share-email", async (req, res) => {
   }
 });
 
+/** GET /api/email-share-logs  — retrieve email share log entries */
+router.get("/api/email-share-logs", async (req, res) => {
+  try {
+    const db    = await ensureMongo();
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const logs  = await db
+      .collection("email_share_logs")
+      .find({})
+      .sort({ sentAt: -1 })
+      .limit(limit)
+      .toArray();
+    // Mask email: show first 2 chars + *** + @domain
+    const masked = logs.map((l) => ({
+      ...l,
+      to: l.to
+        ? l.to.replace(/^(.{2})(.*)(@.+)$/, (_, a, b, c) => a + "*".repeat(Math.min(b.length, 4)) + c)
+        : null,
+    }));
+    res.json({ logs: masked, total: masked.length });
+  } catch (e) {
+    console.error("[email-share-logs] error:", e.message);
+    res.status(500).json({ error: "Failed to read logs" });
+  }
+});
+
 module.exports = router;

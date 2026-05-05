@@ -388,3 +388,122 @@ async function warmEnrichedCache() {
 
 module.exports = router;
 module.exports.warmEnrichedCache = warmEnrichedCache;
+
+/* ═══════════════════════════════════════════════════════════════
+   ADMIN CRUD + CSV EXPORT  (require X-Admin-Token)
+   ═══════════════════════════════════════════════════════════════ */
+const { ObjectId } = require("mongodb");
+const { requireAdminToken } = require("./admin-auth");
+
+function getBackupCollection(db, province, pollutant) {
+  return db.collection("air_data_backup");
+}
+
+function backupDocId(province, pollutant) {
+  return `${province}:${pollutant}`;
+}
+
+/**
+ * GET /api/tabular/:province/:pollutant/export
+ * Download all rows as CSV (no auth required — data is already public via the main endpoint).
+ */
+router.get("/api/tabular/:province/:pollutant/export", async (req, res) => {
+  const { province, pollutant } = req.params;
+  try {
+    const backup = await getBackupData(province, pollutant);
+    if (!backup || !backup.rows?.length) {
+      return res.status(404).json({ error: "No data found" });
+    }
+    const { columns, rows } = backup;
+    const safeCol = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = columns.map(safeCol).join(",");
+    const lines  = rows.map((r) => columns.map((c) => safeCol(r[c] ?? "")).join(","));
+    const csv    = [header, ...lines].join("\r\n");
+
+    const filename = `${province}-${pollutant}-${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/tabular/:province/:pollutant/rows
+ * Add a new row to the backup dataset.
+ */
+router.post("/api/tabular/:province/:pollutant/rows", requireAdminToken, async (req, res) => {
+  const { province, pollutant } = req.params;
+  const { row } = req.body;
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    return res.status(400).json({ error: "row object required" });
+  }
+  try {
+    const db  = await ensureMongo();
+    const col = db.collection("air_data_backup");
+    const doc = await col.findOne({ _id: backupDocId(province, pollutant) });
+    if (!doc) return res.status(404).json({ error: "Dataset not found" });
+
+    const newRow = { ...row, _id: new ObjectId().toHexString() };
+    await col.updateOne(
+      { _id: backupDocId(province, pollutant) },
+      { $push: { rows: newRow } }
+    );
+    // Invalidate enriched cache
+    _enrichedCache.delete(`${province}:${pollutant}`);
+    res.json({ ok: true, row: newRow });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * PUT /api/tabular/:province/:pollutant/rows/:id
+ * Update a row in the backup dataset by its _id field.
+ */
+router.put("/api/tabular/:province/:pollutant/rows/:id", requireAdminToken, async (req, res) => {
+  const { province, pollutant, id } = req.params;
+  const { row } = req.body;
+  if (!row || typeof row !== "object") {
+    return res.status(400).json({ error: "row object required" });
+  }
+  try {
+    const db  = await ensureMongo();
+    const col = db.collection("air_data_backup");
+    const result = await col.updateOne(
+      { _id: backupDocId(province, pollutant), "rows._id": id },
+      { $set: { "rows.$": { ...row, _id: id } } }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Row not found" });
+    }
+    _enrichedCache.delete(`${province}:${pollutant}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * DELETE /api/tabular/:province/:pollutant/rows/:id
+ * Remove a row from the backup dataset by its _id field.
+ */
+router.delete("/api/tabular/:province/:pollutant/rows/:id", requireAdminToken, async (req, res) => {
+  const { province, pollutant, id } = req.params;
+  try {
+    const db  = await ensureMongo();
+    const col = db.collection("air_data_backup");
+    const result = await col.updateOne(
+      { _id: backupDocId(province, pollutant) },
+      { $pull: { rows: { _id: id } } }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Dataset not found" });
+    }
+    _enrichedCache.delete(`${province}:${pollutant}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
