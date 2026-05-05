@@ -245,7 +245,7 @@ export default function AdminLogsPage() {
   ];
 
   return (
-    <div style={{ padding: "24px" }}>
+    <div style={{ padding: "clamp(12px, 3vw, 24px)" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
           <Title level={4} style={{ margin: 0 }}>

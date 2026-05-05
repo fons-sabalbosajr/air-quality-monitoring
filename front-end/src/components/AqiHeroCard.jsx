@@ -350,6 +350,11 @@ export default function AqiHeroCard({
   /* ── Google Sheets sync state ── */
   sheetSyncing = false,   // true when server is actively fetching from Google Sheets
   aqiVerified = true,     // false when AQI was server-estimated (sheet still computing)
+  /* ── Kiosk visibility overrides ── */
+  hideAqiValue = false,   // hide the primary AQI numeric value in the gauge & meter
+  hideAqiValue2 = false,  // hide the secondary AQI numeric value in the gauge & meter
+  hideDateTime = false,   // hide the primary "Updated …" timestamp
+  hideDateTime2 = false,  // hide the secondary "Updated …" timestamp
 }) {
   // If fallback is active, override the display value/category/time
   const displayValue = isFallback ? aqiValue : aqiValue;
@@ -526,28 +531,45 @@ export default function AqiHeroCard({
                 }
               >
                 <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm" style={{
-                  "--gauge-color": band.color,
-                  "--gauge-glow": hexToRgba(band.color, 0.5),
+                  "--gauge-color": hideAqiValue ? "#9ca3af" : band.color,
+                  "--gauge-glow": hideAqiValue ? "rgba(156,163,175,0.24)" : hexToRgba(band.color, 0.5),
                 }}>
                   <div
-                    className="aqi-hero-gauge aqi-hero-gauge--sm"
+                    className={`aqi-hero-gauge aqi-hero-gauge--sm${hideAqiValue ? " aqi-hero-gauge--analyzing" : ""}`}
                   >
-                    <span
-                      className="aqi-hero-face aqi-face-bounce"
-                      style={{ fontSize: 22 }}
-                    >
-                      {band.face}
-                    </span>
-                    <span className="aqi-hero-value" style={{ fontSize: 28 }}>
-                      {roundedVal ?? "—"}
-                    </span>
+                    {!hideAqiValue && (
+                      <span
+                        className="aqi-hero-face aqi-face-bounce"
+                        style={{ fontSize: 22 }}
+                      >
+                        {band.face}
+                      </span>
+                    )}
+                    {hideAqiValue ? (
+                      <span className="aqi-hero-analyzing-text" style={{ fontSize: 9 }}>
+                        Under<br />Maintenance
+                      </span>
+                    ) : (
+                      <span className="aqi-hero-value" style={{ fontSize: 28 }}>
+                        {roundedVal ?? "—"}
+                      </span>
+                    )}
                   </div>
-                  <div className="aqi-hero-pulse-ring" />
+                  {!hideAqiValue && <div className="aqi-hero-pulse-ring" />}
                 </div>
                 <div className="aqi-hero-dual-label">{pollutantLabel}</div>
-                <Tag color={band.color} className="aqi-hero-status-tag">
-                  {band.name}
-                </Tag>
+                {!hideAqiValue && (
+                  <Tag color={band.color} className="aqi-hero-status-tag">
+                    {band.name}
+                  </Tag>
+                )}
+                {/* Per-pollutant update datetime */}
+                {aqiTime && !hideDateTime && (
+                  <div className="aqi-hero-time aqi-hero-time--dual">
+                    <TbClock size={11} />
+                    <span>{new Date(aqiTime).toLocaleString()}</span>
+                  </div>
+                )}
                 {isStale && (
                   <div
                     style={{
@@ -598,31 +620,48 @@ export default function AqiHeroCard({
                 ) : (
                   <>
                     <div className="aqi-hero-gauge-wrap aqi-hero-gauge-wrap--sm" style={{
-                      "--gauge-color": band2.color,
-                      "--gauge-glow": hexToRgba(band2.color, 0.5),
+                      "--gauge-color": hideAqiValue2 ? "#9ca3af" : band2.color,
+                      "--gauge-glow": hideAqiValue2 ? "rgba(156,163,175,0.24)" : hexToRgba(band2.color, 0.5),
                     }}>
                       <div
-                        className="aqi-hero-gauge aqi-hero-gauge--sm"
+                        className={`aqi-hero-gauge aqi-hero-gauge--sm${hideAqiValue2 ? " aqi-hero-gauge--analyzing" : ""}`}
                       >
-                        <span
-                          className="aqi-hero-face aqi-face-bounce"
-                          style={{ fontSize: 22 }}
-                        >
-                          {band2.face}
-                        </span>
-                        <span
-                          className="aqi-hero-value"
-                          style={{ fontSize: 28 }}
-                        >
-                          {roundedVal2 ?? "—"}
-                        </span>
+                        {!hideAqiValue2 && (
+                          <span
+                            className="aqi-hero-face aqi-face-bounce"
+                            style={{ fontSize: 22 }}
+                          >
+                            {band2.face}
+                          </span>
+                        )}
+                        {hideAqiValue2 ? (
+                          <span className="aqi-hero-analyzing-text" style={{ fontSize: 9 }}>
+                            Under<br />Maintenance
+                          </span>
+                        ) : (
+                          <span
+                            className="aqi-hero-value"
+                            style={{ fontSize: 28 }}
+                          >
+                            {roundedVal2 ?? "—"}
+                          </span>
+                        )}
                       </div>
-                      <div className="aqi-hero-pulse-ring" />
+                      {!hideAqiValue2 && <div className="aqi-hero-pulse-ring" />}
                     </div>
                     <div className="aqi-hero-dual-label">{pollutantLabel2}</div>
-                    <Tag color={band2.color} className="aqi-hero-status-tag">
-                      {band2.name}
-                    </Tag>
+                    {!hideAqiValue2 && (
+                      <Tag color={band2.color} className="aqi-hero-status-tag">
+                        {band2.name}
+                      </Tag>
+                    )}
+                    {/* Per-pollutant update datetime */}
+                    {aqiTime2 && !hideDateTime2 && (
+                      <div className="aqi-hero-time aqi-hero-time--dual">
+                        <TbClock size={11} />
+                        <span>{new Date(aqiTime2).toLocaleString()}</span>
+                      </div>
+                    )}
                   </>
                 )}
                 {isStale2 && (
@@ -661,30 +700,40 @@ export default function AqiHeroCard({
               <div
                 className="aqi-hero-gauge-wrap"
                 style={{
-                  "--gauge-color": isStale ? "#9ca3af" : band.color,
+                  "--gauge-color": isStale ? "#9ca3af" : hideAqiValue ? "#9ca3af" : band.color,
                   "--gauge-glow": isStale
                     ? "rgba(156,163,175,0.3)"
-                    : hexToRgba(band.color, 0.5),
+                    : hideAqiValue
+                      ? "rgba(156,163,175,0.24)"
+                      : hexToRgba(band.color, 0.5),
                   ...(isStale ? { position: "relative" } : {}),
                 }}
               >
                 <div
-                  className="aqi-hero-gauge"
+                  className={`aqi-hero-gauge${hideAqiValue ? " aqi-hero-gauge--analyzing" : ""}`}
                   style={{
                     ...(isStale
                       ? { filter: "grayscale(0.8)", opacity: 0.5 }
                       : {}),
                   }}
                 >
-                  <span className="aqi-hero-face aqi-face-bounce">
-                    {isStale ? "—" : band.face}
-                  </span>
-                  <span className="aqi-hero-value">
-                    {isStale ? "—" : (roundedVal ?? "—")}
-                  </span>
+                  {!hideAqiValue && (
+                    <span className="aqi-hero-face aqi-face-bounce">
+                      {isStale ? "—" : band.face}
+                    </span>
+                  )}
+                  {hideAqiValue ? (
+                    <span className="aqi-hero-analyzing-text">
+                      Under<br />Maintenance
+                    </span>
+                  ) : (
+                    <span className="aqi-hero-value">
+                      {isStale ? "—" : (roundedVal ?? "—")}
+                    </span>
+                  )}
                 </div>
                 {/* Pulsing ring */}
-                {!isStale && (
+                {!isStale && !hideAqiValue && (
                   <div className="aqi-hero-pulse-ring" />
                 )}
                 {isStale && (
@@ -721,12 +770,14 @@ export default function AqiHeroCard({
               </div>
 
               {/* Status label */}
-              <Tag
-                color={isStale ? "#9ca3af" : band.color}
-                className="aqi-hero-status-tag aqi-hero-status-tag--lg"
-              >
-                {isStale ? "No Data" : band.name}
-              </Tag>
+              {!hideAqiValue && (
+                <Tag
+                  color={isStale ? "#9ca3af" : band.color}
+                  className="aqi-hero-status-tag aqi-hero-status-tag--lg"
+                >
+                  {isStale ? "No Data" : band.name}
+                </Tag>
+              )}
             </>
           )}
           {aqiRefreshing && <Spin size="small" className="aqi-hero-spinner" />}
@@ -837,8 +888,8 @@ export default function AqiHeroCard({
             </div>
           )}
 
-          {/* Updated time */}
-          {aqiTime && (
+          {/* Updated time — only for single-pollutant stations; dual stations show time under each gauge */}
+          {aqiTime && !hasDual && !hideDateTime && (
             <div className="aqi-hero-time">
               <TbClock size={13} />
               <span>Updated {new Date(aqiTime).toLocaleString()}</span>
@@ -866,13 +917,13 @@ export default function AqiHeroCard({
           {!aqiLoading && !aqiError && roundedVal != null && !isStale && (
             <div className="aqi-hero-meter-wrap">
               <AqiCategoryMeter
-                value={roundedVal}
+                value={hideAqiValue ? null : roundedVal}
                 category={band.name}
                 loading={false}
                 label={pollutantLabel}
                 value2={
                   hasDual && !aqiLoading2 && roundedVal2 != null && !isStale2
-                    ? roundedVal2
+                    ? (hideAqiValue2 ? null : roundedVal2)
                     : undefined
                 }
                 label2={hasDual && !isStale2 ? pollutantLabel2 : undefined}

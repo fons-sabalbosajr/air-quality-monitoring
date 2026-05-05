@@ -38,6 +38,7 @@ const workbookRoutes = require("./routes/workbookRoutes");
 const proxyRoutes = require("./routes/proxy");
 const { router: adminAuthRoutes } = require("./routes/admin-auth");
 const nlexSettingsRoutes = require("./routes/nlexSettings");
+const kioskSettingsRoutes = require("./routes/kioskSettings");
 
 // ── Express setup ──
 const app = express();
@@ -108,6 +109,7 @@ setInterval(() => {
 app.use(healthRoutes);
 app.use(adminAuthRoutes);
 app.use(nlexSettingsRoutes);
+app.use(kioskSettingsRoutes);
 app.use(tabularRoutes);
 app.use(emailRoutes);
 app.use(aqiRoutes);

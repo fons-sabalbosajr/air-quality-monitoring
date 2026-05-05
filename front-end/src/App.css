@@ -2203,3 +2203,104 @@ body {
   }
 }
 
+/* =====================================================================
+   ADMIN PAGES – MOBILE RESPONSIVE
+   Covers: /admin/overview, /admin/tabular/*, /admin/tabular-manage/*,
+           /admin/nlex-settings, /admin/kiosk-settings, /admin/logs,
+           /admin/charts
+   ===================================================================== */
+
+/* ── Settings page tabs: scrollable on narrow screens ── */
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-nav-list {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 767px) {
+  /* ── Admin: Tabular Results card ── */
+  .aqm-tabular-card .ant-card-head {
+    padding: 0 12px;
+  }
+  .aqm-tabular-card .ant-card-body {
+    padding: 12px;
+  }
+  .aqm-tabular-card .ant-card-extra {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* ── Filter row: stack on mobile ── */
+  .aqm-filter-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .aqm-filter-row .ant-picker-range,
+  .aqm-filter-row .ant-select {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* ── Province sub-navigation tabs ── */
+  .aqm-province-tabs .ant-tabs-nav-list {
+    gap: 0;
+  }
+  .aqm-province-tabs .ant-tabs-tab {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  /* ── Admin Logs: table compact ── */
+  .admin-logs-table .ant-table-cell {
+    font-size: 12px;
+    padding: 6px 8px !important;
+  }
+
+  /* ── Ant Design Tabs: card type scrollable bar ── */
+  .ant-tabs-card > .ant-tabs-nav .ant-tabs-nav-list {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .ant-tabs-card > .ant-tabs-nav .ant-tabs-nav-list::-webkit-scrollbar {
+    display: none;
+  }
+  .ant-tabs-card .ant-tabs-tab {
+    white-space: nowrap;
+  }
+
+  /* ── Export/Email modal: full-width date picker ── */
+  .export-modal-filters .ant-picker-range {
+    width: 100% !important;
+  }
+  .export-modal-filters .ant-select {
+    width: 100% !important;
+  }
+  .export-modal-filters .ant-space {
+    width: 100%;
+  }
+
+  /* ── Admin tabular manage: table pagination compact ── */
+  .ant-pagination {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .ant-pagination-options {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Extra-compact admin header on very small phones */
+  .ant-card-head-title {
+    font-size: 13px;
+  }
+  .ant-tabs-tab {
+    padding: 5px 8px !important;
+    font-size: 12px !important;
+  }
+  /* Slider in animation settings: full-width */
+  .ant-slider {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}

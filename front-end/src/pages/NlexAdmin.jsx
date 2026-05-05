@@ -56,11 +56,11 @@ function AdminPanel() {
       style={{
         minHeight: "100vh",
         background: token.colorBgLayout,
-        padding: "32px 24px",
+        padding: "clamp(16px, 4vw, 32px) clamp(12px, 3vw, 24px)",
         fontFamily: "'Poppins', sans-serif",
       }}
     >
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ maxWidth: "min(640px, 100%)", margin: "0 auto" }}>
         {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <Space align="center" style={{ marginBottom: 4 }}>

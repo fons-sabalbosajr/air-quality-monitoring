@@ -961,8 +961,9 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
 }
 
 /* band sectors – each gets a colored arc segment */
-function GaugeBandArcs({ cx, cy, r, sw }) {
+function GaugeBandArcs({ cx, cy, r, sw, isNight }) {
   const startBase = -(GAUGE_ARC / 2); // −142.5° from top (i.e. 360−142.5 = 217.5° in standard)
+  const trackOpacity = isNight ? 0.42 : 0.28;
 
   return (
     <>
@@ -979,7 +980,7 @@ function GaugeBandArcs({ cx, cy, r, sw }) {
             stroke={b.color}
             strokeWidth={sw}
             strokeLinecap="butt"
-            opacity={0.28}
+            opacity={trackOpacity}
           />
         );
       })}
@@ -1005,10 +1006,10 @@ function GaugeActiveArc({ cx, cy, r, sw, pct, color }) {
 }
 
 /* Tick marks at band boundary values */
-function GaugeTicks({ cx, cy, r, sw }) {
+function GaugeTicks({ cx, cy, r, sw, isCarousel }) {
   const startBase = -(GAUGE_ARC / 2);
   const tickVals = [0, 50, 100, 150, 200, 300, 500];
-  const lblR = r + sw / 2 + 18;
+  const lblR = r + sw / 2 + (isCarousel ? 22 : 18);
 
   return (
     <>
@@ -1017,7 +1018,7 @@ function GaugeTicks({ cx, cy, r, sw }) {
         const deg = startBase + frac * GAUGE_ARC;
         const lp = polarToXY(cx, cy, lblR, deg);
         const band = getBand(v === 500 ? 499 : v);
-        const fs = r > 100 ? 12 : 9;
+        const fs = isCarousel ? (r > 150 ? 19 : 14) : (r > 100 ? 12 : 9);
         return (
           <text
             key={v}
@@ -1080,7 +1081,7 @@ function GaugeLoadingArc({ cx, cy, r, sw }) {
   );
 }
 
-function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInside = false, hideNeedle = false, swOverride }) {
+function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInside = false, hideNeedle = false, swOverride, isCarousel = false }) {
   const animAqi = useAnimatedAqi(aqi);
   const sw = swOverride ?? (size >= 260 ? 13 : 10);
   const cx = size / 2;
@@ -1091,11 +1092,11 @@ function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInsid
   const pct =
     animAqi != null ? Math.min(1, Math.max(0, Number(animAqi) / AQI_MAX)) : 0;
   const emojiFontSize = size >= 260 ? 76 : 54;
-  const aqiInsideFontSize = Math.round(r * 0.60);
+  const aqiInsideFontSize = isCarousel ? Math.round(r * 0.78) : Math.round(r * 0.60);
 
   return (
     <svg width={size} height={size} style={{ overflow: "visible" }}>
-      <GaugeBandArcs cx={cx} cy={cy} r={r} sw={sw} />
+      <GaugeBandArcs cx={cx} cy={cy} r={r} sw={sw} isNight={isNight} />
       {loading ? (
         <GaugeLoadingArc cx={cx} cy={cy} r={r} sw={sw} />
       ) : (
@@ -1108,7 +1109,7 @@ function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInsid
           color={band.color}
         />
       )}
-      <GaugeTicks cx={cx} cy={cy} r={r} sw={sw} />
+      <GaugeTicks cx={cx} cy={cy} r={r} sw={sw} isCarousel={isCarousel} />
       {showEmoji && !loading && (
         <text
           x={cx}
@@ -1311,8 +1312,8 @@ function StationTile({
     ? new Date(Math.max(...dates.map((d) => d.getTime())))
     : null;
 
-  // Dual tiles get larger gauges for readability
-  const gaugeSize = isDual ? 200 : 270;
+  // Dual tiles keep 200; solo (or dual with one pollutant hidden) gets a larger gauge
+  const gaugeSize = isDual ? 200 : 320;
 
   const tileClass = [
     "nlex-tile",
@@ -1390,6 +1391,7 @@ function StationTile({
                     isNight={isNight}
                     showAqiInside={true}
                     hideNeedle={true}
+                    isCarousel={true}
                   />
                 ) : (
                   /* Clark/San Fernando: single gauge, enlarged for the full tile */
@@ -1401,6 +1403,7 @@ function StationTile({
                     isNight={isNight}
                     showAqiInside={true}
                     hideNeedle={true}
+                    isCarousel={true}
                   />
                 )}
 
@@ -2074,10 +2077,11 @@ function NlexLedWallInner() {
               {/* ── Dynamic station grid / carousel ── */}
               {(() => {
                 // Build pollutant list per station key
+                const pollVisible = settings.pollutantsVisible ?? {};
                 function getPollutants(key) {
-                  if (key === "clark")
-                    return [
-                      {
+                  if (key === "clark") {
+                    const all = [
+                      pollVisible["clark_pm10"] !== false && {
                         key: "clark-pm10",
                         label: "PM10",
                         aqi: extractAqi(clarkPm10.latest),
@@ -2087,9 +2091,11 @@ function NlexLedWallInner() {
                         fetchedAt: clarkPm10.fetchedAt,
                       },
                     ];
-                  if (key === "san-fernando")
-                    return [
-                      {
+                    return all.filter(Boolean);
+                  }
+                  if (key === "san-fernando") {
+                    const all = [
+                      pollVisible["san-fernando_pm10"] !== false && {
                         key: "sf-pm10",
                         label: "PM10",
                         aqi: extractAqi(sfPm10.latest),
@@ -2099,9 +2105,11 @@ function NlexLedWallInner() {
                         fetchedAt: sfPm10.fetchedAt,
                       },
                     ];
-                  if (key === "meycauayan")
-                    return [
-                      {
+                    return all.filter(Boolean);
+                  }
+                  if (key === "meycauayan") {
+                    const all = [
+                      pollVisible["meycauayan_pm10"] !== false && {
                         key: "meyc-pm10",
                         label: "PM10",
                         aqi: extractAqi(meycPm10.latest),
@@ -2110,7 +2118,7 @@ function NlexLedWallInner() {
                         dateCol: meycPm10.dateCol,
                         fetchedAt: meycPm10.fetchedAt,
                       },
-                      {
+                      pollVisible["meycauayan_pm25"] !== false && {
                         key: "meyc-pm25",
                         label: "PM2.5",
                         aqi: extractAqi(meycPm25.latest),
@@ -2120,9 +2128,11 @@ function NlexLedWallInner() {
                         fetchedAt: meycPm25.fetchedAt,
                       },
                     ];
-                  if (key === "zambales")
-                    return [
-                      {
+                    return all.filter(Boolean);
+                  }
+                  if (key === "zambales") {
+                    const all = [
+                      pollVisible["zambales_pm10"] !== false && {
                         key: "zam-pm10",
                         label: "PM10",
                         aqi: extractAqi(zamPm10.latest),
@@ -2131,7 +2141,7 @@ function NlexLedWallInner() {
                         dateCol: zamPm10.dateCol,
                         fetchedAt: zamPm10.fetchedAt,
                       },
-                      {
+                      pollVisible["zambales_pm25"] !== false && {
                         key: "zam-pm25",
                         label: "PM2.5",
                         aqi: extractAqi(zamPm25.latest),
@@ -2141,6 +2151,8 @@ function NlexLedWallInner() {
                         fetchedAt: zamPm25.fetchedAt,
                       },
                     ];
+                    return all.filter(Boolean);
+                  }
                   return [];
                 }
 

@@ -769,7 +769,7 @@
 
 .nlex-grid .nlex-gauge-wrap .nlex-pollutant-label,
 .nlex-grid .nlex-pollutant-label-nogauge {
-  font-size: 22px;
+  font-size: 28px;
   line-height: 1.1;
 }
 
@@ -779,7 +779,7 @@
 }
 
 .nlex-grid .nlex-aqi-label {
-  font-size: 18px;
+  font-size: 22px;
   letter-spacing: 0.18em;
 }
 
@@ -793,8 +793,8 @@
 }
 
 .nlex-grid .nlex-category-badge {
-  font-size: 18px;
-  padding: 8px 20px;
+  font-size: 22px;
+  padding: 10px 24px;
   border-width: 0;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
 }
@@ -805,7 +805,7 @@
 }
 
 .nlex-grid .nlex-spotlight-desc {
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.35;
   border-width: 0;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
@@ -816,7 +816,7 @@
 }
 
 .nlex-grid .nlex-tile-asof {
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .nlex-grid .nlex-tile-asof-col {
@@ -1787,6 +1787,12 @@
 .nlex-wall.night .nlex-carousel-dot.active {
   background: rgba(130, 185, 255, 0.90);
   border-color: rgba(130, 185, 255, 0.80);
+}
+
+/* Carousel tiles must not get spotlight scale/brightness — they fill full height */
+.nlex-tile-carousel.nlex-tile-spotlit {
+  transform: none;
+  filter: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════

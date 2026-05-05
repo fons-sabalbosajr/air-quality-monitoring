@@ -186,3 +186,38 @@
 .request-modal-info-card:last-of-type {
   margin-bottom: 0;
 }
+
+/* ── Chart + Wind Map row ── */
+.dashboard-chart-wind-row {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 16px;
+  align-items: start;
+}
+.dashboard-chart-wind-main {
+  min-width: 0;
+}
+.dashboard-chart-wind-side {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-chart-wind-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Mobile overrides ── */
+@media (max-width: 767px) {
+  .dashboard-v2 {
+    max-width: 100%;
+  }
+  .dashboard-section {
+    padding: 14px 16px;
+    border-radius: 12px;
+  }
+  .dashboard-chart-wind-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}

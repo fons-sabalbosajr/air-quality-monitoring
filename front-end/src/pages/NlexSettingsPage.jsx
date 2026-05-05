@@ -21,6 +21,7 @@ import {
   Input,
   InputNumber,
   Slider,
+  Collapse,
 } from "antd";
 import {
   ToolOutlined,
@@ -50,6 +51,14 @@ const STATIONS = [
   { key: "san-fernando", label: "San Fernando AQM Station", address: "San Fernando, Pampanga" },
   { key: "meycauayan",   label: "Meycauayan AQM Station",   address: "Meycauayan City, Bulacan" },
   { key: "zambales",     label: "Zambales AQM Station",      address: "Olongapo City, Zambales" },
+];
+
+// Per-station pollutant parameters (key matches pollutantsVisible keys)
+const STATION_POLLUTANTS = [
+  { station: "Clark",        params: [{ key: "clark_pm10",         label: "PM10" }] },
+  { station: "San Fernando", params: [{ key: "san-fernando_pm10",  label: "PM10" }] },
+  { station: "Meycauayan",   params: [{ key: "meycauayan_pm10",    label: "PM10" }, { key: "meycauayan_pm25", label: "PM2.5" }] },
+  { station: "Zambales",     params: [{ key: "zambales_pm10",      label: "PM10" }, { key: "zambales_pm25",   label: "PM2.5" }] },
 ];
 
 const THEME_OPTIONS = [
@@ -82,7 +91,7 @@ function ToggleRow({ label, desc, checked, onChange, hidden }) {
         justifyContent: "space-between",
         padding: "10px 14px",
         borderRadius: 8,
-        border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+        border: "1px solid var(--aqm-border)",
         opacity: hidden ? 0.5 : 1,
         transition: "opacity 0.2s",
       }}
@@ -137,6 +146,16 @@ function SettingsPanel() {
     }));
   }
 
+  function togglePollutant(key) {
+    setDraft((d) => ({
+      ...d,
+      pollutantsVisible: {
+        ...d.pollutantsVisible,
+        [key]: !(d.pollutantsVisible?.[key] ?? true),
+      },
+    }));
+  }
+
   function handleSave() {
     update(draft);
     setSavedFlag(true);
@@ -172,6 +191,9 @@ function SettingsPanel() {
   const carouselHiddenCount = STATIONS.filter(
     (st) => (draft.carouselStationsVisible?.[st.key] ?? true) === false,
   ).length;
+  const pollutantsHiddenCount = STATION_POLLUTANTS.flatMap((s) => s.params).filter(
+    (p) => (draft.pollutantsVisible?.[p.key] ?? true) === false,
+  ).length;
 
   const nlexUrl = `${import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""}/nlex`;
 
@@ -183,9 +205,9 @@ function SettingsPanel() {
         <Space size={6}>
           <MonitorOutlined />
           <span>Stations</span>
-          {(hiddenCount > 0 || carouselHiddenCount > 0) && (
+          {(hiddenCount > 0 || carouselHiddenCount > 0 || pollutantsHiddenCount > 0) && (
             <Tag color="warning" style={{ marginInlineStart: 0 }}>
-              {hiddenCount + carouselHiddenCount}
+              {hiddenCount + carouselHiddenCount + pollutantsHiddenCount}
             </Tag>
           )}
         </Space>
@@ -198,40 +220,148 @@ function SettingsPanel() {
             message="Show or hide individual station cards on the display."
           />
 
-          <Text strong style={{ display: "block", marginTop: 4 }}>Grid Mode Visibility</Text>
-          {STATIONS.map((st) => {
-            const visible = draft.stationsVisible[st.key] !== false;
-            return (
-              <ToggleRow
-                key={st.key}
-                label={st.label}
-                desc={st.address}
-                checked={visible}
-                onChange={() => toggleStation(st.key)}
-                hidden={!visible}
-              />
-            );
-          })}
+          <Collapse
+            defaultActiveKey={[]}
+            bordered={false}
+            style={{ background: "transparent" }}
+            items={[
+              /* ── Grid Mode Visibility ── */
+              {
+                key: "grid",
+                label: (
+                  <Space size={6}>
+                    <Text strong>Grid Mode Visibility</Text>
+                    {hiddenCount > 0 && (
+                      <Tag color="warning">{hiddenCount} hidden</Tag>
+                    )}
+                  </Space>
+                ),
+                children: (
+                  <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                    {STATIONS.map((st) => {
+                      const visible = draft.stationsVisible[st.key] !== false;
+                      return (
+                        <ToggleRow
+                          key={st.key}
+                          label={st.label}
+                          desc={st.address}
+                          checked={visible}
+                          onChange={() => toggleStation(st.key)}
+                          hidden={!visible}
+                        />
+                      );
+                    })}
+                  </Space>
+                ),
+              },
 
-          <Divider style={{ margin: "8px 0" }} />
+              /* ── Carousel Mode Visibility ── */
+              {
+                key: "carousel",
+                label: (
+                  <Space size={6}>
+                    <Text strong>Carousel Mode Visibility</Text>
+                    {carouselHiddenCount > 0 && (
+                      <Tag color="warning">{carouselHiddenCount} hidden</Tag>
+                    )}
+                  </Space>
+                ),
+                extra: (
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Independent from Grid
+                  </Text>
+                ),
+                children: (
+                  <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Independently control which stations appear when the display is in Carousel mode.
+                    </Text>
+                    {STATIONS.map((st) => {
+                      const visible = (draft.carouselStationsVisible?.[st.key] ?? true) !== false;
+                      return (
+                        <ToggleRow
+                          key={`carousel-${st.key}`}
+                          label={st.label}
+                          desc={st.address}
+                          checked={visible}
+                          onChange={() => toggleCarouselStation(st.key)}
+                          hidden={!visible}
+                        />
+                      );
+                    })}
+                  </Space>
+                ),
+              },
 
-          <Text strong style={{ display: "block" }}>Carousel Mode Visibility</Text>
-          <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-            Independently control which stations appear when the display is in Carousel mode.
-          </Text>
-          {STATIONS.map((st) => {
-            const visible = (draft.carouselStationsVisible?.[st.key] ?? true) !== false;
-            return (
-              <ToggleRow
-                key={`carousel-${st.key}`}
-                label={st.label}
-                desc={st.address}
-                checked={visible}
-                onChange={() => toggleCarouselStation(st.key)}
-                hidden={!visible}
-              />
-            );
-          })}
+              /* ── Parameter (Pollutant) Visibility ── */
+              {
+                key: "pollutants",
+                label: (
+                  <Space size={6}>
+                    <Text strong>Parameter (Pollutant) Visibility</Text>
+                    {pollutantsHiddenCount > 0 && (
+                      <Tag color="warning">{pollutantsHiddenCount} hidden</Tag>
+                    )}
+                  </Space>
+                ),
+                children: (
+                  <Space direction="vertical" style={{ width: "100%" }} size={10}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Hide specific pollutant readings per station. Hidden parameters are removed from
+                      both Grid and Carousel modes in real-time.
+                    </Text>
+                    {STATION_POLLUTANTS.map(({ station, params }) => (
+                      <div
+                        key={station}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: 8,
+                          border: "1px solid var(--aqm-border)",
+                        }}
+                      >
+                        <Text strong style={{ display: "block", marginBottom: 8, fontSize: 13 }}>
+                          {station}
+                        </Text>
+                        <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                          {params.map((p) => {
+                            const visible = (draft.pollutantsVisible?.[p.key] ?? true) !== false;
+                            return (
+                              <div
+                                key={p.key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "6px 10px",
+                                  borderRadius: 6,
+                                  background: "var(--aqm-fill-alt)",
+                                  border: `1px solid ${visible ? "var(--aqm-border)" : "rgba(245,158,11,0.40)"}`,
+                                  opacity: visible ? 1 : 0.65,
+                                  transition: "opacity 0.2s, border-color 0.2s",
+                                }}
+                              >
+                                <Space size={6}>
+                                  <Text>{p.label}</Text>
+                                  {!visible && <Tag color="warning" style={{ fontSize: 11 }}>Hidden</Tag>}
+                                </Space>
+                                <Switch
+                                  size="small"
+                                  checked={visible}
+                                  onChange={() => togglePollutant(p.key)}
+                                  checkedChildren={<EyeOutlined />}
+                                  unCheckedChildren={<EyeInvisibleOutlined />}
+                                />
+                              </div>
+                            );
+                          })}
+                        </Space>
+                      </div>
+                    ))}
+                  </Space>
+                ),
+              },
+            ]}
+          />
         </Space>
       ),
     },
@@ -425,7 +555,7 @@ function SettingsPanel() {
               justifyContent: "space-between",
               padding: "10px 14px",
               borderRadius: 8,
-              border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+              border: "1px solid var(--aqm-border)",
             }}
           >
             <Space direction="vertical" size={0}>
@@ -518,7 +648,7 @@ function SettingsPanel() {
               justifyContent: "space-between",
               padding: "10px 14px",
               borderRadius: 8,
-              border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+              border: "1px solid var(--aqm-border)",
             }}
           >
             <Space direction="vertical" size={0}>
@@ -569,7 +699,7 @@ function SettingsPanel() {
   ];
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: "min(720px, 100%)" }}>
       <Space align="center" style={{ marginBottom: 8 }}>
         <MonitorOutlined style={{ fontSize: 18 }} />
         <Title level={4} style={{ margin: 0 }}>
@@ -597,6 +727,7 @@ function SettingsPanel() {
         type="card"
         size="middle"
         style={{ marginBottom: 16 }}
+        tabBarStyle={{ overflowX: "auto", flexWrap: "nowrap" }}
         items={tabItems}
       />
 

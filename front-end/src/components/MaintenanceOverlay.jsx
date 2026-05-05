@@ -8,7 +8,7 @@ import "./MaintenanceOverlay.css";
  * so it always escapes CSS stacking contexts (overflow, transform, etc.).
  * Shown on Kiosk when the server has MAINTENANCE_MODE=true set.
  */
-export default function MaintenanceOverlay() {
+export default function MaintenanceOverlay({ message }) {
   const content = (
     <div className="maint-overlay">
       <div className="maint-card">
@@ -29,7 +29,7 @@ export default function MaintenanceOverlay() {
         </div>
         <h1 className="maint-title">System Under Maintenance</h1>
         <p className="maint-subtitle">
-          We are currently updating our data sources. The Air Quality Monitoring Dashboard will resume shortly.
+          {message || "We are currently updating our data sources. The Air Quality Monitoring Dashboard will resume shortly."}
         </p>
         <div className="maint-status-row">
           <TbClockHour4 size={15} />

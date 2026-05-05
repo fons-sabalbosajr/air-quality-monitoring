@@ -210,18 +210,20 @@ export default function AqiCategoryMeter({
         {p1.pct != null && (
           <div
             className={`aqi-meter-pointer${hasDual ? " aqi-meter-pointer--above" : ""}`}
-            style={{ left: `${p1.pct}%` }}
+            style={{
+              left: `${p1.pct}%`,
+              "--_badge-bg": p1.activeBand?.color || "#64748b",
+            }}
           >
             <div
               className={`aqi-meter-pointer-value${hasDual ? " aqi-meter-pointer-value--top" : ""}`}
               style={{
                 background: p1.activeBand?.color || "#64748b",
                 color: "#fff",
-                "--_badge-bg": p1.activeBand?.color || "#64748b",
               }}
             >
-              {hasDual && <span className="aqi-meter-pointer-label">{label}:</span>}
-              {Math.round(p1.numericVal)}
+              {hasDual && <span className="aqi-meter-pointer-label">{label}</span>}
+              <span className="aqi-meter-pointer-number">{Math.round(p1.numericVal)}</span>
             </div>
           </div>
         )}
@@ -229,19 +231,21 @@ export default function AqiCategoryMeter({
         {/* Secondary pointer (PM2.5 – below in dual) */}
         {hasDual && p2.pct != null && (
           <div
-            className="aqi-meter-pointer aqi-meter-pointer--below"
-            style={{ left: `${p2.pct}%` }}
+            className={`aqi-meter-pointer aqi-meter-pointer--below${p1.pct == null ? " aqi-meter-pointer--below-solo" : ""}`}
+            style={{
+              left: `${p2.pct}%`,
+              "--_badge-bg": p2.activeBand?.color || "#64748b",
+            }}
           >
             <div
               className="aqi-meter-pointer-value"
               style={{
                 background: p2.activeBand?.color || "#64748b",
                 color: "#fff",
-                "--_badge-bg": p2.activeBand?.color || "#64748b",
               }}
             >
-              <span className="aqi-meter-pointer-label">{label2}:</span>
-              {Math.round(p2.numericVal)}
+              <span className="aqi-meter-pointer-label">{label2}</span>
+              <span className="aqi-meter-pointer-number">{Math.round(p2.numericVal)}</span>
             </div>
           </div>
         )}

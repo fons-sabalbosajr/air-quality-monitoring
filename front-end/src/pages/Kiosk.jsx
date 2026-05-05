@@ -40,6 +40,7 @@ import {
   TbBrandYoutube,
 } from "react-icons/tb";
 import { AqiProvider, useAqi } from "../context/AqiContext";
+import { KioskSettingsProvider, useKioskSettings } from "../context/KioskSettingsContext";
 import STATIONS, { getStationPhoto, getUniqueLocations, bgEmbPhoto } from "../config/stations";
 import useTabularData, { prefetchTabularData } from "../hooks/useTabularData";
 import useStationWeather, { prefetchStationWeather } from "../hooks/useStationWeather";
@@ -134,6 +135,7 @@ function getPreviousRotationState(currentState, isArtaDisplayEnabled) {
 function KioskContent({ withArta = false, fixedProvince = null }) {
   const { maintenanceMode } = useMaintenance();
   const { setCategory } = useAqi() || { setCategory: () => {} };
+  const { settings: kioskSettings } = useKioskSettings();
 
   // ── Dark mode detection ──
   const [dark, setDark] = useState(false);
@@ -213,13 +215,14 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
   }, []);
 
   // Auto-cycle effect (disabled when fixedProvince is set)
+  const cycleIntervalMs = (kioskSettings.cycleIntervalSec ?? 25) * 1000;
   useEffect(() => {
     if (paused || isCommercialBreak || fixedProvince) return;
     timerRef.current = setInterval(() => {
       transitionSequence((currentState) => getNextRotationState(currentState, isArtaEnabled));
-    }, CYCLE_INTERVAL);
+    }, cycleIntervalMs);
     return () => clearInterval(timerRef.current);
-  }, [isArtaEnabled, isCommercialBreak, fixedProvince, paused, transitionSequence]);
+  }, [isArtaEnabled, isCommercialBreak, fixedProvince, paused, transitionSequence, cycleIntervalMs]);
 
   useEffect(() => {
     if (!isCommercialBreak) {
@@ -392,12 +395,12 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
     const step = 50; // ms
     const iv = setInterval(() => {
       setProgress((p) => {
-        const next = p + (step / CYCLE_INTERVAL) * 100;
+        const next = p + (step / cycleIntervalMs) * 100;
         return next >= 100 ? 100 : next;
       });
     }, step);
     return () => clearInterval(iv);
-  }, [isCommercialBreak, paused, stationIdx]);
+  }, [isCommercialBreak, paused, stationIdx, cycleIntervalMs]);
 
   // ── Station dots ──
   const stationDots = KIOSK_STATIONS.map((s, i) => (
@@ -432,9 +435,31 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
     document.documentElement.classList.toggle("dark");
   }, []);
 
+  // ── Per-station kiosk visibility settings ──
+  const stationSettingsKey = station.merged
+    ? `${station.province}_${station.pollutant}`
+    : station.province;
+  const secondarySettingsKey = station.merged && secondaryPollutant
+    ? `${station.province}_${secondaryPollutant}`
+    : null;
+
+  const hideAqiValue = !(kioskSettings.aqiValueVisible?.[stationSettingsKey] ?? true);
+  const hideAqiValue2 = secondarySettingsKey
+    ? !(kioskSettings.aqiValueVisible?.[secondarySettingsKey] ?? true)
+    : false;
+  const hideDateTime = !(kioskSettings.aqiDateTimeVisible?.[stationSettingsKey] ?? true);
+  const hideDateTime2 = secondarySettingsKey
+    ? !(kioskSettings.aqiDateTimeVisible?.[secondarySettingsKey] ?? true)
+    : false;
+
+  // Show kiosk maintenance overlay if set via kiosk settings
+  const kioskInMaintenance = kioskSettings.kioskMaintenance === true;
+
   return (
     <div className={`kiosk-page${isCommercialBreak ? " kiosk-page--commercial" : ""}`}>
-      {maintenanceMode && <MaintenanceOverlay />}
+      {(maintenanceMode || kioskInMaintenance) && (
+        <MaintenanceOverlay message={kioskInMaintenance && kioskSettings.kioskMaintenanceMsg ? kioskSettings.kioskMaintenanceMsg : undefined} />
+      )}
       {/* ── Top Bar ── */}
       <header className="kiosk-header">
         <div className="kiosk-brand">
@@ -632,10 +657,16 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                 isStale={isStale}
                 isStale2={isStale2}
                 stationPhoto={getStationPhoto(station.province || station.key)}
+                hideAqiValue={hideAqiValue}
+                hideAqiValue2={hideAqiValue2}
+                hideDateTime={hideDateTime}
+                hideDateTime2={hideDateTime2}
+                hideWeather={kioskSettings.showWeather === false}
               />
             </section>
 
             {/* Hourly Weather Forecast */}
+            {kioskSettings.showHourlyForecast !== false && (
             <section className="kiosk-section">
               <HourlyWeatherCard
                 key={`hourly-${station.province || station.key}`}
@@ -643,6 +674,7 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                 longitude={station.lon}
               />
             </section>
+            )}
 
             {/* Wind Map + Station Details (side-by-side) */}
             <div className="kiosk-wind-station-row">
@@ -694,6 +726,7 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                 </div>
               </section>
 
+              {kioskSettings.showWindMap !== false && (
               <section className="kiosk-section">
                 <WindMapCard
                   key={`wind-${station.province || station.key}`}
@@ -702,10 +735,11 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                   stationName={station.name}
                 />
               </section>
+              )}
             </div>
 
             {/* AQMS Stations Carousel — hidden on fixed-province station pages */}
-            {!fixedProvince && (
+            {!fixedProvince && kioskSettings.showStationCarousel !== false && (
             <section className="kiosk-section">
               <div className="kiosk-stations-carousel">
                 <div className="kiosk-carousel-header">
@@ -772,6 +806,7 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
             )} {/* end !fixedProvince carousel */}
 
             {/* EMB Region 3 Air Quality Updates – YouTube Videos */}
+            {kioskSettings.showYoutubeVideos !== false && (
             <section className="kiosk-section">
               <div className="kiosk-newsletter-card">
                 <div className="kiosk-newsletter-header">
@@ -811,8 +846,10 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                 </p>
               </div>
             </section>
+            )} {/* end showYoutubeVideos */}
 
             {/* EMBR3 Combined Agency Card – Contact + CTA */}
+            {kioskSettings.showContactCard !== false && (
             <section className="kiosk-section">
               <div className="kiosk-agency-combined-card">
                 <div
@@ -897,6 +934,7 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
                 </div>
               </div>
             </section>
+            )} {/* end showContactCard */}
           </>
         )}
       </main>
@@ -1379,9 +1417,11 @@ export default function KioskPage({ withArta = false, fixedProvince = null }) {
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
       }}
     >
-      <AqiProvider>
-        <KioskContent withArta={withArta} fixedProvince={fixedProvince} />
-      </AqiProvider>
+      <KioskSettingsProvider>
+        <AqiProvider>
+          <KioskContent withArta={withArta} fixedProvince={fixedProvince} />
+        </AqiProvider>
+      </KioskSettingsProvider>
     </ConfigProvider>
   );
 }

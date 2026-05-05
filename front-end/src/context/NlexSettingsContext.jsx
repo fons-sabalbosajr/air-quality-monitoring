@@ -16,6 +16,14 @@ export const DEFAULT_SETTINGS = {
     meycauayan: true,
     zambales: true,
   },
+  pollutantsVisible: {
+    clark_pm10: true,
+    "san-fernando_pm10": true,
+    meycauayan_pm10: true,
+    meycauayan_pm25: true,
+    zambales_pm10: true,
+    zambales_pm25: true,
+  },
   theme: "auto",            // "auto" | "light" | "dark"
   showHeader: true,         // logos + agency title block
   showAqiLegend: true,      // AQI scale reference card
@@ -37,32 +45,55 @@ export const NlexSettingsContext = createContext({
   update: () => {},
 });
 
+/** Merge a raw stored/server object into a clean settings shape (strips internal _ts field). */
+function mergeSettings(source) {
+  const { _ts, ...rest } = source ?? {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...rest,
+    stationsVisible: {
+      ...DEFAULT_SETTINGS.stationsVisible,
+      ...(rest.stationsVisible ?? {}),
+    },
+    carouselStationsVisible: {
+      ...DEFAULT_SETTINGS.carouselStationsVisible,
+      ...(rest.carouselStationsVisible ?? {}),
+    },
+    pollutantsVisible: {
+      ...DEFAULT_SETTINGS.pollutantsVisible,
+      ...(rest.pollutantsVisible ?? {}),
+    },
+  };
+}
+
 function parseStored() {
   try {
     const stored = JSON.parse(localStorage.getItem("nlex-settings") ?? "{}");
-    return {
-      ...DEFAULT_SETTINGS,
-      ...stored,
-      stationsVisible: {
-        ...DEFAULT_SETTINGS.stationsVisible,
-        ...(stored.stationsVisible ?? {}),
-      },
-      carouselStationsVisible: {
-        ...DEFAULT_SETTINGS.carouselStationsVisible,
-        ...(stored.carouselStationsVisible ?? {}),
-      },
-    };
+    return mergeSettings(stored);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
-/** Write settings to localStorage, broadcast to all same-origin contexts, and persist to server. */
+/** Read the _ts timestamp saved alongside settings in localStorage (0 if absent). */
+function readLocalTs() {
+  try { return JSON.parse(localStorage.getItem("nlex-settings") ?? "{}")._ts ?? 0; }
+  catch { return 0; }
+}
+
+/**
+ * Write settings to localStorage, broadcast to all same-origin contexts, and persist to server.
+ * Stamps settings with _ts (millisecond timestamp) so the server poll can detect stale data
+ * and avoid overwriting newer local changes (race-condition guard).
+ * Returns the timestamp used.
+ */
 export function saveNlexSettings(newSettings) {
-  try { localStorage.setItem("nlex-settings", JSON.stringify(newSettings)); } catch {}
+  const ts = Date.now();
+  const stamped = { ...newSettings, _ts: ts };
+  try { localStorage.setItem("nlex-settings", JSON.stringify(stamped)); } catch {}
   try {
     const bc = new BroadcastChannel(BC_CHANNEL);
-    bc.postMessage({ type: "settings-updated", settings: newSettings });
+    bc.postMessage({ type: "settings-updated", settings: stamped });
     bc.close();
   } catch {}
   // Server persist: fire-and-forget so cross-device sync works (other devices poll the server)
@@ -72,33 +103,31 @@ export function saveNlexSettings(newSettings) {
       fetch(`${getApiBase()}/api/nlex-settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-        body: JSON.stringify(newSettings),
+        body: JSON.stringify(stamped),
       }).catch(() => {});
     }
   } catch {}
+  return ts;
 }
 
 export function NlexSettingsProvider({ children }) {
   const [settings, setSettings] = useState(parseStored);
   const lastServerTs = useRef(0);
+  // Tracks the _ts of the most recent settings we consider "local truth".
+  // Initialized from localStorage so a page reload keeps the last-saved timestamp.
+  const localTsRef = useRef(readLocalTs());
 
   function applyServerSettings(serverSettings) {
     if (!serverSettings || typeof serverSettings !== "object") return;
-    const merged = {
-      ...DEFAULT_SETTINGS,
-      ...serverSettings,
-      stationsVisible: {
-        ...DEFAULT_SETTINGS.stationsVisible,
-        ...(serverSettings.stationsVisible ?? {}),
-      },
-      carouselStationsVisible: {
-        ...DEFAULT_SETTINGS.carouselStationsVisible,
-        ...(serverSettings.carouselStationsVisible ?? {}),
-      },
-    };
+    const serverTs = serverSettings._ts ?? 0;
+    // Guard: skip if server data is older than our current local state.
+    // This prevents a slow-arriving server poll from reverting a change we just saved.
+    if (serverTs < localTsRef.current) return;
+    const merged = mergeSettings(serverSettings);
+    localTsRef.current = serverTs;
     setSettings(merged);
     // Keep localStorage in sync so same-device tabs also see the update
-    try { localStorage.setItem("nlex-settings", JSON.stringify(merged)); } catch {}
+    try { localStorage.setItem("nlex-settings", JSON.stringify({ ...merged, _ts: serverTs })); } catch {}
   }
 
   useEffect(() => {
@@ -111,6 +140,7 @@ export function NlexSettingsProvider({ children }) {
         const data = await res.json();
         if (data.persisted) {
           // Server has explicitly-saved settings — apply them as the source of truth
+          // (applyServerSettings will skip if server data is stale vs our localTsRef)
           applyServerSettings(data.settings);
           lastServerTs.current = Date.now();
         } else {
@@ -123,7 +153,7 @@ export function NlexSettingsProvider({ children }) {
             fetch(`${getApiBase()}/api/nlex-settings`, {
               method: "PUT",
               headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-              body: JSON.stringify(local),
+              body: JSON.stringify({ ...local, _ts: localTsRef.current }),
             }).catch(() => {});
           }
         }
@@ -138,38 +168,41 @@ export function NlexSettingsProvider({ children }) {
       bc = new BroadcastChannel(BC_CHANNEL);
       bc.onmessage = (e) => {
         if (e.data?.type === "settings-updated" && e.data.settings) {
-          const merged = {
-            ...DEFAULT_SETTINGS,
-            ...e.data.settings,
-            stationsVisible: {
-              ...DEFAULT_SETTINGS.stationsVisible,
-              ...(e.data.settings.stationsVisible ?? {}),
-            },
-            carouselStationsVisible: {
-              ...DEFAULT_SETTINGS.carouselStationsVisible,
-              ...(e.data.settings.carouselStationsVisible ?? {}),
-            },
-          };
+          const incomingTs = e.data.settings._ts ?? 0;
+          // Only apply if this message is newer than our current local state
+          if (incomingTs < localTsRef.current) return;
+          localTsRef.current = incomingTs;
+          const merged = mergeSettings(e.data.settings);
           setSettings(merged);
           // Keep localStorage in sync so visibilitychange/pageshow reads fresh data
-          try { localStorage.setItem("nlex-settings", JSON.stringify(merged)); } catch {}
+          try { localStorage.setItem("nlex-settings", JSON.stringify({ ...merged, _ts: incomingTs })); } catch {}
         }
       };
     } catch {}
     // Fallback: storage event for cross-tab in older browsers
     function onStorage(e) {
       if (e.key !== "nlex-settings") return;
+      try {
+        const stored = JSON.parse(e.newValue ?? "{}");
+        localTsRef.current = Math.max(localTsRef.current, stored._ts ?? 0);
+      } catch {}
       setSettings(parseStored());
     }
     window.addEventListener("storage", onStorage);
     // Visibilitychange fallback: re-read localStorage whenever this tab gains focus
     // (covers same-browser scenarios where BC/storage events are skipped)
     function onVisible() {
-      if (document.visibilityState === "visible") setSettings(parseStored());
+      if (document.visibilityState === "visible") {
+        localTsRef.current = Math.max(localTsRef.current, readLocalTs());
+        setSettings(parseStored());
+      }
     }
     document.addEventListener("visibilitychange", onVisible);
     // Pageshow fallback: covers iOS bfcache restore where visibilitychange may not fire
-    function onPageShow() { setSettings(parseStored()); }
+    function onPageShow() {
+      localTsRef.current = Math.max(localTsRef.current, readLocalTs());
+      setSettings(parseStored());
+    }
     window.addEventListener("pageshow", onPageShow);
     return () => {
       clearInterval(pollId);
@@ -183,7 +216,8 @@ export function NlexSettingsProvider({ children }) {
   const update = useCallback((patch) => {
     setSettings((s) => {
       const next = { ...s, ...patch };
-      saveNlexSettings(next);
+      const ts = saveNlexSettings(next);
+      localTsRef.current = ts;
       return next;
     });
   }, []);

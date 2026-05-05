@@ -364,7 +364,7 @@ export default function AdminTabularManage() {
     exportFilters.aqiMin != null || exportFilters.aqiMax != null;
 
   return (
-    <div style={{ padding: "24px" }}>
+    <div style={{ padding: "clamp(12px, 3vw, 24px)" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
         <div>
@@ -381,11 +381,11 @@ export default function AdminTabularManage() {
       </div>
 
       {/* Station / pollutant selectors */}
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Select value={province} style={{ width: 160 }} onChange={(v) => navigate(`/admin/tabular-manage/${v}`)}>
+      <Space style={{ marginBottom: 16 }} wrap size={[8, 8]}>
+        <Select value={province} style={{ minWidth: 140, flex: "1 1 140px" }} onChange={(v) => navigate(`/admin/tabular-manage/${v}`)}>
           {PROVINCE_OPTIONS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
         </Select>
-        <Select value={pollutant} style={{ width: 120 }} onChange={setPollutant}>
+        <Select value={pollutant} style={{ minWidth: 100, flex: "1 1 100px" }} onChange={setPollutant}>
           {POLLUTANT_OPTIONS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
         </Select>
         <Text type="secondary">{totalRows.toLocaleString()} total rows</Text>
@@ -483,7 +483,7 @@ export default function AdminTabularManage() {
             }
           />
 
-          <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+          <div style={{ borderTop: "1px solid var(--aqm-border)", paddingTop: 14 }}>
             <Text strong>Download CSV</Text>
             <div style={{ marginTop: 8 }}>
               <Button
@@ -497,7 +497,7 @@ export default function AdminTabularManage() {
             </div>
           </div>
 
-          <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+          <div style={{ borderTop: "1px solid var(--aqm-border)", paddingTop: 14 }}>
             <Text strong>Send to Email</Text>
             <Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
               Sends an HTML report (up to 100 rows shown) to the specified address. Filters above apply.
