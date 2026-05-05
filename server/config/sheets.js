@@ -26,8 +26,8 @@ const TABULAR_SHEETS = {
     },
   },
   "san-fernando": {
-    // 2026 tab uses MM/DD/YYYY; force MDY so legacy DMY year tabs don't confuse auto-detect
-    pm10: { url: process.env.SHEET_PM10_SAN_FERNANDO_URL || null, dateFormat: "MDY" },
+    // PM10 tab uses DD/MM/YYYY throughout (confirmed May 2026, same as Zambales)
+    pm10: { url: process.env.SHEET_PM10_SAN_FERNANDO_URL || null, dateFormat: "DMY" },
   },
 };
 

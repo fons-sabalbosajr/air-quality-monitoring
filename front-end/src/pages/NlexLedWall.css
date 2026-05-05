@@ -809,15 +809,35 @@
   display: none;
 }
 
+/* Grid mode: status badge below gauge, description at the bottom */
 .nlex-grid .nlex-spotlight-desc {
-  font-size: 24px;
-  line-height: 1.35;
+  font-size: 17px;
+  line-height: 1.2;
   border-width: 0;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  order: 4;
+  margin-top: 2px;
+}
+
+.nlex-grid .nlex-tile-badges {
+  order: 3;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.nlex-grid .nlex-tile-asof,
+.nlex-grid .nlex-tile-asof-dual {
+  order: 5;
 }
 
 .nlex-grid .nlex-spotlight-desc-sm {
-  font-size: 18px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nlex-grid .nlex-tile-asof {

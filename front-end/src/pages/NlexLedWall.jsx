@@ -1546,6 +1546,7 @@ function StationTile({
                       </div>
                     </div>
                   )}
+                  {isCarousel && (
                   <div
                     className={`nlex-category-badge${hideGauge ? " no-gauge" : ""}`}
                     style={
@@ -1564,6 +1565,7 @@ function StationTile({
                     />
                     {p.loading ? "Loading…" : band ? `${band.emoji} ${band.short}` : "No Data"}
                   </div>
+                  )}
                   {isCarousel && hideGauge && (
                     <div className="nlex-tile-asof-col no-gauge nlex-carousel-inline-asof">
                       <span>
@@ -1620,6 +1622,37 @@ function StationTile({
                 </div>
               );
             })()}
+          {!isCarousel && (() => {
+            const loaded = pollutants.filter((p) => p.aqi != null);
+            const allSameBand = loaded.length > 0 && loaded.every(
+              (p) => getBand(p.aqi).id === getBand(loaded[0].aqi).id
+            );
+            const toShow = allSameBand ? [loaded[0]] : pollutants;
+            return (
+              <div className="nlex-tile-badges">
+                {toShow.map((p) => {
+                  const band = p.aqi != null ? getBand(p.aqi) : null;
+                  return (
+                    <div
+                      key={p.key}
+                      className="nlex-category-badge"
+                      style={
+                        band
+                          ? { background: band.color, borderColor: band.color, color: "#fff" }
+                          : {}
+                      }
+                    >
+                      <span
+                        className="nlex-category-dot"
+                        style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
+                      />
+                      {p.loading ? "Loading\u2026" : band ? `${band.emoji} ${band.short}` : "No Data"}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       ) : (
         /* ── SINGLE layout ── */
