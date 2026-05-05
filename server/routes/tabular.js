@@ -332,8 +332,8 @@ router.post("/api/tabular/:province/:pollutant/force-sync", async (req, res) => 
     //    also triggers a refresh even if it was called recently
     _lastBackupRefresh.delete(cacheKey);
 
-    // 3) Force a direct Google Sheets fetch → overwrite MongoDB backup
-    const syncResult = await backupOne(province, pollutant);
+    // 3) Force a direct Google Sheets fetch → overwrite MongoDB backup (bypass hash check)
+    const syncResult = await backupOne(province, pollutant, { force: true });
     if (syncResult.error) {
       return res.status(502).json({
         ok: false,

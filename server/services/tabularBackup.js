@@ -75,9 +75,13 @@ function simpleHash(str) {
 
 /**
  * Back up a single province/pollutant dataset.
+ * @param {string} province
+ * @param {string} pollutant
+ * @param {object} [opts]
+ * @param {boolean} [opts.force] - bypass hash check and always overwrite MongoDB
  * Returns { updated, rowCount, province, pollutant }.
  */
-async function backupOne(province, pollutant) {
+async function backupOne(province, pollutant, { force = false } = {}) {
   const col = getBackupCollection();
   const metaCol = getBackupMetaCollection();
   if (!col || !metaCol) return { updated: false, error: "DB not ready" };
@@ -96,9 +100,9 @@ async function backupOne(province, pollutant) {
     const columns = payload.columns || [];
     const newHash = hashRows(rows);
 
-    // Check if data changed
+    // Check if data changed (skip when force=true to always overwrite)
     const existingMeta = await metaCol.findOne({ key: backupKey });
-    if (existingMeta && existingMeta.hash === newHash) {
+    if (!force && existingMeta && existingMeta.hash === newHash) {
       // Data hasn't changed — update lastCheckedAt only
       await metaCol.updateOne(
         { key: backupKey },
