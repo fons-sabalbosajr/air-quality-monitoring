@@ -14,6 +14,22 @@ import { getApiBase } from "../util/apiBase";
 
 const SESSION_KEY = "admin-pin-token";
 
+/* ── Dark mode detection (mirrors App.jsx: watches .dark on <html>) ── */
+function useDark() {
+  const [dark, setDark] = useState(() =>
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+  );
+  useEffect(() => {
+    const obs = new MutationObserver(() =>
+      setDark(document.documentElement.classList.contains("dark"))
+    );
+    obs.observe(document.documentElement, { attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+
 /* ── API helpers ──────────────────────────────────────────────── */
 function api(path, opts = {}) {
   const base = getApiBase();
@@ -25,10 +41,12 @@ function api(path, opts = {}) {
 
 /* ── PIN input component ──────────────────────────────────────── */
 function PinInput({ value, onChange, label, placeholder = "Enter PIN (4–16 digits)", autoFocus }) {
+  const dark = useDark();
+  const inputBorder = dark ? "#334155" : "#d1d5db";
   return (
     <div style={{ marginBottom: 18 }}>
       {label && (
-        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: dark ? "#cbd5e1" : "#374151", marginBottom: 6 }}>
           {label}
         </label>
       )}
@@ -46,15 +64,16 @@ function PinInput({ value, onChange, label, placeholder = "Enter PIN (4–16 dig
           fontSize: 22,
           letterSpacing: "0.25em",
           borderRadius: 8,
-          border: "1.5px solid #d1d5db",
+          border: `1.5px solid ${inputBorder}`,
           outline: "none",
           textAlign: "center",
           fontFamily: "monospace",
-          background: "#f9fafb",
+          background: dark ? "#0f172a" : "#f9fafb",
+          color: dark ? "#e2e8f0" : "inherit",
           transition: "border-color 0.2s",
         }}
-        onFocus={(e) => (e.target.style.borderColor = "#1677ff")}
-        onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
+        onFocus={(e) => (e.target.style.borderColor = dark ? "#69b1ff" : "#1677ff")}
+        onBlur={(e) => (e.target.style.borderColor = inputBorder)}
       />
     </div>
   );
@@ -62,26 +81,27 @@ function PinInput({ value, onChange, label, placeholder = "Enter PIN (4–16 dig
 
 /* ── Card shell ───────────────────────────────────────────────── */
 function GateCard({ title, subtitle, children }) {
+  const dark = useDark();
   return (
     <div style={{
       minHeight: "100vh",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "linear-gradient(135deg,#f0f5ff 0%,#e8f4fd 100%)",
+      background: dark ? "#0f172a" : "linear-gradient(135deg,#f0f5ff 0%,#e8f4fd 100%)",
     }}>
       <div style={{
-        background: "#fff",
+        background: dark ? "#1e293b" : "#fff",
         borderRadius: 16,
         padding: "44px 40px 36px",
         width: 420,
         maxWidth: "92vw",
-        boxShadow: "0 8px 40px rgba(0,60,180,0.10)",
+        boxShadow: dark ? "0 8px 40px rgba(0,0,0,0.5)" : "0 8px 40px rgba(0,60,180,0.10)",
       }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🔐</div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#1e3a5f" }}>{title}</h2>
-          {subtitle && <p style={{ margin: "8px 0 0", fontSize: 14, color: "#6b7280" }}>{subtitle}</p>}
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: dark ? "#e2e8f0" : "#1e3a5f" }}>{title}</h2>
+          {subtitle && <p style={{ margin: "8px 0 0", fontSize: 14, color: dark ? "#94a3b8" : "#6b7280" }}>{subtitle}</p>}
         </div>
         {children}
       </div>
@@ -115,6 +135,7 @@ function SubmitBtn({ loading, children, onClick, disabled }) {
 
 /* ── Main gate component ──────────────────────────────────────── */
 export default function AdminPinGate({ children }) {
+  const dark = useDark();
   // status: 'loading' | 'setup' | 'verify' | 'forgot-email' | 'forgot-otp' | 'forgot-newpin' | 'authenticated'
   const [status, setStatus] = useState("loading");
   const [busy, setBusy]     = useState(false);
@@ -228,8 +249,8 @@ export default function AdminPinGate({ children }) {
   /* ── Render states ───────────────────────────────────────────── */
   if (status === "loading") {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f5ff" }}>
-        <span style={{ fontSize: 15, color: "#6b7280" }}>Checking authentication…</span>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: dark ? "#0f172a" : "#f0f5ff" }}>
+        <span style={{ fontSize: 15, color: dark ? "#94a3b8" : "#6b7280" }}>Checking authentication…</span>
       </div>
     );
   }
@@ -245,8 +266,8 @@ export default function AdminPinGate({ children }) {
         <PinInput label="New PIN" value={pin} onChange={setPin} autoFocus />
         <PinInput label="Confirm PIN" value={pin2} onChange={setPin2} placeholder="Re-enter PIN" />
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-            Recovery Email <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional, for PIN reset)</span>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: dark ? "#cbd5e1" : "#374151", marginBottom: 6 }}>
+            Recovery Email <span style={{ fontWeight: 400, color: dark ? "#64748b" : "#9ca3af" }}>(optional, for PIN reset)</span>
           </label>
           <input
             type="email"
@@ -256,7 +277,9 @@ export default function AdminPinGate({ children }) {
             onKeyDown={onKeyDown(handleSetup)}
             style={{
               width: "100%", padding: "9px 12px", fontSize: 14, borderRadius: 8,
-              border: "1.5px solid #d1d5db", outline: "none", background: "#f9fafb",
+              border: `1.5px solid ${dark ? "#334155" : "#d1d5db"}`, outline: "none",
+              background: dark ? "#0f172a" : "#f9fafb",
+              color: dark ? "#e2e8f0" : "inherit",
             }}
           />
         </div>
@@ -279,7 +302,7 @@ export default function AdminPinGate({ children }) {
           onClick={() => { setStatus("forgot-email"); setPin(""); }}
           style={{
             display: "block", width: "100%", marginTop: 14,
-            background: "none", border: "none", color: "#6b7280",
+            background: "none", border: "none", color: dark ? "#94a3b8" : "#6b7280",
             fontSize: 13, cursor: "pointer", textDecoration: "underline",
           }}
         >
@@ -296,7 +319,7 @@ export default function AdminPinGate({ children }) {
         subtitle="Enter the recovery email registered with your PIN."
       >
         <div style={{ marginBottom: 18 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: dark ? "#cbd5e1" : "#374151", marginBottom: 6 }}>
             Recovery Email
           </label>
           <input
@@ -308,7 +331,9 @@ export default function AdminPinGate({ children }) {
             onKeyDown={onKeyDown(handleResetRequest)}
             style={{
               width: "100%", padding: "9px 12px", fontSize: 14, borderRadius: 8,
-              border: "1.5px solid #d1d5db", outline: "none", background: "#f9fafb",
+              border: `1.5px solid ${dark ? "#334155" : "#d1d5db"}`, outline: "none",
+              background: dark ? "#0f172a" : "#f9fafb",
+              color: dark ? "#e2e8f0" : "inherit",
             }}
           />
         </div>
@@ -317,7 +342,7 @@ export default function AdminPinGate({ children }) {
           onClick={() => setStatus("verify")}
           style={{
             display: "block", width: "100%", marginTop: 14,
-            background: "none", border: "none", color: "#6b7280",
+            background: "none", border: "none", color: dark ? "#94a3b8" : "#6b7280",
             fontSize: 13, cursor: "pointer", textDecoration: "underline",
           }}
         >
@@ -334,7 +359,7 @@ export default function AdminPinGate({ children }) {
         subtitle="Check your email for the 6-digit code."
       >
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: dark ? "#cbd5e1" : "#374151", marginBottom: 6 }}>
             6-Digit OTP
           </label>
           <input
@@ -349,8 +374,10 @@ export default function AdminPinGate({ children }) {
             style={{
               width: "100%", padding: "10px 14px", fontSize: 26, textAlign: "center",
               letterSpacing: "0.3em", borderRadius: 8,
-              border: "1.5px solid #d1d5db", outline: "none",
-              fontFamily: "monospace", background: "#f9fafb",
+              border: `1.5px solid ${dark ? "#334155" : "#d1d5db"}`, outline: "none",
+              fontFamily: "monospace",
+              background: dark ? "#0f172a" : "#f9fafb",
+              color: dark ? "#e2e8f0" : "inherit",
             }}
           />
         </div>
@@ -361,7 +388,7 @@ export default function AdminPinGate({ children }) {
           onClick={() => setStatus("verify")}
           style={{
             display: "block", width: "100%", marginTop: 14,
-            background: "none", border: "none", color: "#6b7280",
+            background: "none", border: "none", color: dark ? "#94a3b8" : "#6b7280",
             fontSize: 13, cursor: "pointer", textDecoration: "underline",
           }}
         >

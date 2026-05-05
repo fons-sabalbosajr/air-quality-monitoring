@@ -13,8 +13,8 @@ const TABULAR_SHEETS = {
     pm25: process.env.SHEET_PM25_MEYCAUAYAN_URL || null,
   },
   zambales: {
-    // 2026 tab uses MM/DD/YYYY; force MDY so legacy DMY PM10 tab doesn't confuse auto-detect
-    pm10: { url: process.env.SHEET_PM10_ZAMBALES_URL || null, tabName: "PM10", dateFormat: "MDY" },
+    // PM10 tab uses DD/MM/YYYY throughout (confirmed May 2026)
+    pm10: { url: process.env.SHEET_PM10_ZAMBALES_URL || null, tabName: "PM10", dateFormat: "DMY" },
     pm25: process.env.SHEET_PM25_ZAMBALES_URL || null,
   },
   clark: {

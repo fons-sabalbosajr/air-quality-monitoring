@@ -14,7 +14,7 @@ const {
   runBackupCycle,
   isSyncing,
 } = require("../services/tabularBackup");
-const { clearCache: clearSheetCache } = require("../services/googleSheets");
+const { clearCache: clearSheetCache, clearCacheForKey: clearSheetCacheForKey } = require("../services/googleSheets");
 const { isMaintenanceMode } = require("../config/env");
 
 const router = Router();
@@ -305,6 +305,74 @@ router.post("/api/backup/sync", async (_req, res) => {
     res.json({ ok: true, results });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Per-station force-sync: bypasses all caches and overwrites MongoDB from Google Sheets.
+// Use when data in the app doesn’t match the sheet (stale cache, failed backup, etc.).
+router.post("/api/tabular/:province/:pollutant/force-sync", async (req, res) => {
+  try {
+    const province  = String(req.params.province  || "").toLowerCase();
+    const pollutant = String(req.params.pollutant || "").toLowerCase();
+    if (!province || !pollutant) {
+      return res.status(400).json({ error: "Missing province or pollutant" });
+    }
+    if (!TABULAR_SHEETS[province] || !TABULAR_SHEETS[province][pollutant]) {
+      return res.status(404).json({ error: "Unknown province or pollutant" });
+    }
+
+    const cacheKey = `${province}:${pollutant}`;
+
+    // 1) Evict all in-memory caches for this station
+    _enrichedCache.delete(cacheKey);
+    clearSheetCacheForKey(`raw-tabular:${cacheKey}`);
+    clearSheetCacheForKey(`tabular:${cacheKey}`);
+
+    // 2) Reset the background-refresh debounce so the next regular request
+    //    also triggers a refresh even if it was called recently
+    _lastBackupRefresh.delete(cacheKey);
+
+    // 3) Force a direct Google Sheets fetch → overwrite MongoDB backup
+    const syncResult = await backupOne(province, pollutant);
+    if (syncResult.error) {
+      return res.status(502).json({
+        ok: false,
+        error: `Google Sheets sync failed: ${syncResult.error}`,
+        cacheCleared: true,
+      });
+    }
+
+    // 4) Load the fresh backup and enrich it
+    const backup = await getBackupData(province, pollutant);
+    if (!backup || !backup.rows || backup.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "No data returned from sheet" });
+    }
+    const enriched = enrichWithAqi(
+      { columns: backup.columns, rows: backup.rows, dateKey: backup.dateKey, concKey: backup.concKey },
+      pollutant,
+      { logsPerHour: 1 },
+    );
+    const body = {
+      province: backup.province,
+      pollutant: backup.pollutant,
+      columns: enriched.columns,
+      rows: enriched.rows,
+      totalRows: enriched.rows.length,
+      fetchedAt: Date.now(),
+      source: "sheet",
+      sheetSyncing: false,
+      latestAqiVerified: enriched.latestAqiVerified ?? false,
+      syncResult: {
+        updated: syncResult.updated,
+        rowCount: syncResult.rowCount,
+        reason: syncResult.reason ?? null,
+      },
+    };
+    setCachedEnriched(cacheKey, body);
+    console.log(`[force-sync] ${cacheKey}: ${syncResult.updated ? `✓ updated (${syncResult.rowCount} rows)` : `= unchanged (${syncResult.rowCount} rows)`}`);
+    res.json(body);
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Force sync failed" });
   }
 });
 

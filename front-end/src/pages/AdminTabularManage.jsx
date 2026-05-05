@@ -3,7 +3,7 @@
  * Route: /admin/tabular-manage/:province
  * Requires valid admin session token in sessionStorage.
  */
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Table, Button, Space, Modal, Form, Input, Popconfirm,
@@ -12,7 +12,7 @@ import {
 } from "antd";
 import {
   DownloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
-  ReloadOutlined, MailOutlined, FilterOutlined,
+  ReloadOutlined, MailOutlined, FilterOutlined, SyncOutlined, CloudDownloadOutlined,
 } from "@ant-design/icons";
 import Swal from "sweetalert2";
 import dayjs from "dayjs";
@@ -144,6 +144,20 @@ export default function AdminTabularManage() {
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Abort in-flight fetches when province/pollutant changes or Refresh is clicked
+  const fetchControllerRef = useRef(null);
+  // Timer ref for auto-refresh when a background Sheets sync is in progress
+  const autoRefreshTimerRef = useRef(null);
+
+  // Erratic-row filter
+  const [hideErratic, setHideErratic] = useState(false);
+
+  // Source metadata (mongodb-backup / sheet / stale-cache / cache)
+  const [dataSource, setDataSource] = useState(null);
+  const [syncedAt, setSyncedAt]     = useState(null);
+  const [sheetSyncing, setSheetSyncing] = useState(false);
+  const [forceSyncing, setForceSyncing] = useState(false);
+
   // Add/Edit modal
   const [modalOpen, setModalOpen]   = useState(false);
   const [editingRow, setEditingRow] = useState(null);
@@ -163,13 +177,27 @@ export default function AdminTabularManage() {
 
   // ── Fetch ─────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
+    // Cancel any previous in-flight request and any pending auto-refresh
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort();
+    }
+    if (autoRefreshTimerRef.current) {
+      clearTimeout(autoRefreshTimerRef.current);
+      autoRefreshTimerRef.current = null;
+    }
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
     setLoading(true);
     setCurrentPage(1);
     try {
       const base = getApiBase();
-      const r    = await fetch(`${base}/api/tabular/${province}/${pollutant}?limit=5000`);
+      const r    = await fetch(`${base}/api/tabular/${province}/${pollutant}?limit=5000`, {
+        signal: controller.signal,
+      });
       if (!r.ok) throw new Error(await r.text());
       const json = await r.json();
+      if (controller.signal.aborted) return; // superseded by a newer request
       const rawCols = (json.columns ?? []).filter((c) => c !== "_id");
       setColumns(rawCols);
       const enrichedRows = (json.rows ?? []).map((row, i) => ({
@@ -178,10 +206,21 @@ export default function AdminTabularManage() {
       }));
       setRows(enrichedRows);
       setTotalRows(json.totalRows ?? enrichedRows.length);
+      setDataSource(json.source ?? null);
+      setSyncedAt(json.fetchedAt ? new Date(json.fetchedAt) : null);
+      setSheetSyncing(json.sheetSyncing ?? false);
+      // If a background Sheets sync is in progress, auto-refresh once it's done
+      if (json.sheetSyncing && !autoRefreshTimerRef.current) {
+        autoRefreshTimerRef.current = setTimeout(() => {
+          autoRefreshTimerRef.current = null;
+          fetchData();
+        }, 10000);
+      }
     } catch (e) {
+      if (e.name === "AbortError") return; // silently ignore cancelled requests
       message.error(`Failed to load data: ${e.message}`);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [province, pollutant]);
 
@@ -191,6 +230,18 @@ export default function AdminTabularManage() {
   const filteredRows = useMemo(
     () => applyFilters(rows, exportFilters, columns),
     [rows, exportFilters, columns]
+  );
+
+  // Count erratic rows for the warning badge
+  const erraticCount = useMemo(
+    () => rows.filter((r) => isErraticRow(r, columns)).length,
+    [rows, columns]
+  );
+
+  // Rows shown in the table (optionally hiding erratic)
+  const displayRows = useMemo(
+    () => hideErratic ? rows.filter((r) => !isErraticRow(r, columns)) : rows,
+    [rows, columns, hideErratic]
   );
 
   // ── Add/Edit/Delete ────────────────────────────────────────────
@@ -247,6 +298,49 @@ export default function AdminTabularManage() {
       fetchData();
     } catch (e) {
       Swal.fire({ icon: "error", title: "Delete Error", text: e.message, confirmButtonColor: "#1677ff" });
+    }
+  }
+
+  // ── Force sync from Google Sheets (bypasses all caches + overwrites MongoDB) ──
+  async function handleForceSync() {
+    if (fetchControllerRef.current) fetchControllerRef.current.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
+    setForceSyncing(true);
+    setCurrentPage(1);
+    try {
+      const base = getApiBase();
+      const r = await fetch(`${base}/api/tabular/${province}/${pollutant}/force-sync`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error ?? `HTTP ${r.status}`);
+      }
+      const json = await r.json();
+      if (controller.signal.aborted) return;
+      const rawCols = (json.columns ?? []).filter((c) => c !== "_id");
+      setColumns(rawCols);
+      const enrichedRows = (json.rows ?? []).map((row, i) => ({
+        ...row,
+        _rowId: row._id ?? row["_id"] ?? `row-${i}`,
+      }));
+      setRows(enrichedRows);
+      setTotalRows(json.totalRows ?? enrichedRows.length);
+      setDataSource(json.source ?? "sheet");
+      setSyncedAt(json.fetchedAt ? new Date(json.fetchedAt) : new Date());
+      setSheetSyncing(false);
+      const label = json.syncResult?.updated
+        ? `Synced ${json.syncResult.rowCount?.toLocaleString() ?? ""} rows from Google Sheets`
+        : `Sheet data unchanged (${json.syncResult?.rowCount?.toLocaleString() ?? ""} rows)`;
+      message.success(label);
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      Swal.fire({ icon: "error", title: "Force Sync Failed", text: e.message, confirmButtonColor: "#1677ff" });
+    } finally {
+      if (!controller.signal.aborted) setForceSyncing(false);
     }
   }
 
@@ -309,32 +403,47 @@ export default function AdminTabularManage() {
 
   // ── Table columns ──────────────────────────────────────────────
   const tableColumns = useMemo(() => {
-    const dataCols = columns.map((col) => ({
-      title: col,
-      dataIndex: col,
-      key: col,
-      ellipsis: true,
-      width: col === "Status" ? 200 : /date|time/i.test(col) ? 180 : 120,
-      render: (val) => {
-        if (col === "Status" && val) {
-          const color = {
-            Good: "green", Fair: "gold",
-            "Unhealthy for Sensitive Groups": "orange",
-            "Very Unhealthy": "red",
-            "Acutely Unhealthy": "purple",
-            Emergency: "magenta",
-            Invalid: "default",
-            "For Validation": "default",
-          }[val] ?? "default";
-          return <Tag color={color}>{val}</Tag>;
-        }
-        if (/rolling\s*avg/i.test(col)) {
-          const n = parseFloat(val);
-          return isFinite(n) ? n.toFixed(2) : (val ?? "—");
-        }
-        return val ?? "—";
-      },
-    }));
+    const dataCols = columns.map((col) => {
+      const isDateCol = /date|time/i.test(col);
+      return {
+        title: col,
+        dataIndex: col,
+        key: col,
+        ellipsis: true,
+        width: col === "Status" ? 200 : isDateCol ? 180 : 120,
+        // Sort newest-first by default on the date column
+        ...(isDateCol ? {
+          sorter: (a, b) => dayjs(a[col]).valueOf() - dayjs(b[col]).valueOf(),
+          defaultSortOrder: "descend",
+        } : {}),
+        render: (val) => {
+          if (col === "Status" && val) {
+            const color = {
+              Good: "green", Fair: "gold",
+              "Unhealthy for Sensitive Groups": "orange",
+              "Very Unhealthy": "red",
+              "Acutely Unhealthy": "purple",
+              Emergency: "magenta",
+              Invalid: "default",
+              "For Validation": "default",
+            }[val] ?? "default";
+            return <Tag color={color}>{val}</Tag>;
+          }
+          if (col === "AQI") {
+            if (val == null) return <span style={{ color: "#9ca3af" }}>—</span>;
+            const n = Number(val);
+            if (!isFinite(n)) return val;
+            const aqiColor = n <= 50 ? "#16a34a" : n <= 100 ? "#ca8a04" : n <= 150 ? "#ea580c" : n <= 200 ? "#dc2626" : n <= 300 ? "#9333ea" : "#9b1c1c";
+            return <span style={{ color: aqiColor, fontWeight: 700 }}>{n}</span>;
+          }
+          if (/rolling\s*avg(?:erage)?|concentration/i.test(col)) {
+            const n = parseFloat(val);
+            return isFinite(n) ? n.toFixed(2) : (val ?? "—");
+          }
+          return val ?? "—";
+        },
+      };
+    });
 
     dataCols.push({
       title: "Actions",
@@ -360,6 +469,12 @@ export default function AdminTabularManage() {
     return dataCols;
   }, [columns, rows]);
 
+  // Sum of all column widths — prevents Ant Design fixed-column misalignment
+  const tableScrollX = useMemo(
+    () => tableColumns.reduce((sum, col) => sum + (typeof col.width === "number" ? col.width : 120), 0),
+    [tableColumns]
+  );
+
   const hasFilters = exportFilters.dateRange || exportFilters.statuses?.length ||
     exportFilters.aqiMin != null || exportFilters.aqiMax != null;
 
@@ -376,6 +491,14 @@ export default function AdminTabularManage() {
             Export / Email
           </Button>
           <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Refresh</Button>
+          <Button
+            icon={forceSyncing ? <SyncOutlined spin /> : <CloudDownloadOutlined />}
+            onClick={handleForceSync}
+            loading={forceSyncing}
+            title="Bypass all caches and fetch directly from Google Sheets, then overwrite MongoDB"
+          >
+            Force Sync from Sheets
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>Add Row</Button>
         </Space>
       </div>
@@ -389,23 +512,56 @@ export default function AdminTabularManage() {
           {POLLUTANT_OPTIONS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
         </Select>
         <Text type="secondary">{totalRows.toLocaleString()} total rows</Text>
+        {dataSource && (
+          <Tag
+            color={dataSource === "sheet" ? "green" : dataSource === "stale-cache" ? "orange" : dataSource === "cache" ? "blue" : "default"}
+            icon={sheetSyncing ? <SyncOutlined spin /> : null}
+          >
+            {sheetSyncing ? "Syncing from Sheets…" : dataSource === "sheet" ? "Live from Sheets" : dataSource === "cache" ? "Cached" : dataSource === "stale-cache" ? "Stale cache" : "MongoDB backup"}
+          </Tag>
+        )}
+        {syncedAt && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Last fetched: {syncedAt.toLocaleTimeString()}
+          </Text>
+        )}
       </Space>
 
       <Alert
         type="warning"
         showIcon
         message="Changes here modify the local backup only. They will be overwritten on the next Google Sheets sync."
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 8 }}
         closable
       />
 
+      {erraticCount > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={
+            <Space>
+              <span><strong>{erraticCount}</strong> erratic / invalid row{erraticCount !== 1 ? "s" : ""} detected (out-of-range AQI or negative concentration values)</span>
+              <Button
+                size="small"
+                danger={!hideErratic}
+                onClick={() => setHideErratic((v) => !v)}
+              >
+                {hideErratic ? "Show all rows" : "Hide erratic rows"}
+              </Button>
+            </Space>
+          }
+        />
+      )}
+
       {/* Table */}
       <Table
-        dataSource={rows}
+        dataSource={displayRows}
         columns={tableColumns}
         rowKey="_rowId"
         loading={loading}
-        scroll={{ x: "max-content", y: 520 }}
+        scroll={{ x: tableScrollX, y: 520 }}
         size="small"
         pagination={{
           current: currentPage,

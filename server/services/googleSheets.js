@@ -386,6 +386,10 @@ function prepareRawRows(table, opts = {}) {
   }
 
   // ── Pass 2e: Detect and remove shared-formula placeholder rows ──
+  // Google Sheets shared formulas pre-populate future rows, causing repeated
+  // concentration values to appear in CSV exports. Heuristic: strip only when
+  // the repeated non-zero run spans MORE than 3 days — real sensor readings can
+  // legitimately be stable for hours but not for 72+ hours continuously.
   if (dateKey && concKey && validIndices.length > 2) {
     const lastConcVal = rows[validIndices[validIndices.length - 1]][concKey];
     let sameCount = 0;
@@ -401,9 +405,16 @@ function prepareRawRows(table, opts = {}) {
         break;
       }
     }
-    // Only strip repeated non-zero values (zeros are valid invalid readings, not placeholders)
     if (sameCount >= 10 && coerceNumber(lastConcVal) != null && coerceNumber(lastConcVal) !== 0) {
-      validIndices.splice(validIndices.length - sameCount);
+      // Only strip if the repeated run spans > 3 days (formula placeholder),
+      // NOT short stable runs which are legitimate sensor readings.
+      const firstRepIdx = validIndices[validIndices.length - sameCount];
+      const lastRepIdx  = validIndices[validIndices.length - 1];
+      const spanMs = epochs[lastRepIdx] - epochs[firstRepIdx];
+      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+      if (spanMs > THREE_DAYS_MS) {
+        validIndices.splice(validIndices.length - sameCount);
+      }
     }
   }
 
@@ -800,6 +811,15 @@ function clearCache() {
   _revalidating.clear();
 }
 
+/**
+ * Clear cache for a single key (e.g. 'raw-tabular:zambales:pm10').
+ * Used by per-station force-sync endpoint.
+ */
+function clearCacheForKey(key) {
+  _sheetCache.delete(key);
+  _revalidating.delete(key);
+}
+
 module.exports = {
   fetchAllSheetsAsTable,
   enhanceTabularRows,
@@ -809,4 +829,5 @@ module.exports = {
   getTabularTable,
   readGoogleSheetAsSeries,
   clearCache,
+  clearCacheForKey,
 };

@@ -27,7 +27,7 @@ import {
   TbMail,
   TbCircleCheckFilled,
 } from "react-icons/tb";
-import useTabularData from "../hooks/useTabularData";
+import useLatestAqi from "../hooks/useLatestAqi";
 import embLogo from "../assets/emblogo.svg";
 import bpLogo from "../assets/bplogo.svg";
 import {
@@ -1449,7 +1449,7 @@ function StationTile({
                 className="nlex-spotlight-desc nlex-carousel-desc-inverted"
                 style={{ background: bands[0].color, borderColor: bands[0].color, color: "#fff" }}
               >
-                {bands[0].emoji} {bands[0].desc}
+                {bands[0].desc}
               </div>
             );
           }
@@ -1462,7 +1462,7 @@ function StationTile({
                   style={{ background: bands[i].color, borderColor: bands[i].color, color: "#fff" }}
                 >
                   <span className="nlex-spotlight-desc-label">{p.label}:</span>{" "}
-                  {bands[i].emoji} {bands[i].desc}
+                  {bands[i].desc}
                 </div>
               ))}
             </div>
@@ -1941,12 +1941,12 @@ function NlexLedWallInner() {
     carouselDurationMs,
   );
 
-  const clarkPm10 = useTabularData("clark", "pm10");
-  const sfPm10 = useTabularData("san-fernando", "pm10");
-  const meycPm10 = useTabularData("meycauayan", "pm10");
-  const meycPm25 = useTabularData("meycauayan", "pm25");
-  const zamPm10 = useTabularData("zambales", "pm10");
-  const zamPm25 = useTabularData("zambales", "pm25");
+  const clarkPm10 = useLatestAqi("clark", "pm10");
+  const sfPm10    = useLatestAqi("san-fernando", "pm10");
+  const meycPm10  = useLatestAqi("meycauayan", "pm10");
+  const meycPm25  = useLatestAqi("meycauayan", "pm25");
+  const zamPm10   = useLatestAqi("zambales", "pm10");
+  const zamPm25   = useLatestAqi("zambales", "pm25");
 
   const textColor = isNight ? "rgba(225,235,255,0.92)" : "#1a2340";
   const subColor = isNight ? "rgba(190,215,255,0.82)" : "rgba(30,50,100,0.55)";

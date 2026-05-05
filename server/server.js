@@ -164,27 +164,17 @@ app.listen(PORT, "0.0.0.0", () => {
         console.warn(`[enriched-cache] warm-up error: ${e.message}`);
       }
 
-      // 2) Pre-warm Google Sheets raw cache (slower, may timeout for large sheets)
+      // 2) Sync all stations: Google Sheets → MongoDB → re-warm enriched cache.
+      //    Runs in the background so startup is not blocked. Ensures all pages
+      //    (Dashboard, Kiosk, TabularResults, Charts) serve fresh data after a
+      //    server restart or config change (e.g. date format correction).
       try {
-        const { getRawTabularTable } = require("./services/googleSheets");
-        const { TABULAR_SHEETS } = require("./config/sheets");
-        let warmed = 0;
-        let failed = 0;
-        for (const [province, pollutants] of Object.entries(TABULAR_SHEETS)) {
-          for (const pollutant of Object.keys(pollutants)) {
-            try {
-              const timeout = new Promise((_, rej) =>
-                setTimeout(() => rej(new Error("warm-up timeout")), 20000)
-              );
-              await Promise.race([getRawTabularTable(province, pollutant), timeout]);
-              warmed++;
-            } catch (e) {
-              failed++;
-              console.warn(`[cache] Warm-up failed for ${province}/${pollutant}: ${e.message}`);
-            }
-          }
-        }
-        console.log(`[cache] Google Sheets cache warmed: ${warmed} ok, ${failed} failed`);
+        const { runBackupCycle } = require("./services/tabularBackup");
+        const { warmEnrichedCache: rewarm } = require("./routes/tabular");
+        runBackupCycle("startup-sync", { force: true })
+          .then(() => rewarm())
+          .then(() => console.log("[cache] startup-sync complete — all pages serve fresh data"))
+          .catch((e) => console.warn(`[cache] startup-sync error: ${e?.message}`));
       } catch {}
     }, 5000);
   }
