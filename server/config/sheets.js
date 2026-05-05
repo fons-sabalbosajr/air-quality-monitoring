@@ -13,8 +13,8 @@ const TABULAR_SHEETS = {
     pm25: process.env.SHEET_PM25_MEYCAUAYAN_URL || null,
   },
   zambales: {
-    // PM10 tab uses DD/MM/YYYY throughout (confirmed May 2026)
-    pm10: { url: process.env.SHEET_PM10_ZAMBALES_URL || null, tabName: "PM10", dateFormat: "DMY" },
+    // PM10 tab uses MM/DD/YYYY (confirmed May 2026)
+    pm10: { url: process.env.SHEET_PM10_ZAMBALES_URL || null, tabName: "PM10", dateFormat: "MDY" },
     pm25: process.env.SHEET_PM25_ZAMBALES_URL || null,
   },
   clark: {
@@ -26,8 +26,8 @@ const TABULAR_SHEETS = {
     },
   },
   "san-fernando": {
-    // PM10 tab uses DD/MM/YYYY throughout (confirmed May 2026, same as Zambales)
-    pm10: { url: process.env.SHEET_PM10_SAN_FERNANDO_URL || null, dateFormat: "DMY" },
+    // PM10 tab uses MM/DD/YYYY (confirmed May 2026)
+    pm10: { url: process.env.SHEET_PM10_SAN_FERNANDO_URL || null, dateFormat: "MDY" },
   },
 };
 
