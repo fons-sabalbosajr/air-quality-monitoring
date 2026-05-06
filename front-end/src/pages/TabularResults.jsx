@@ -255,7 +255,7 @@ function TabularTable({ provinceKey, pollutantKey }) {
           c.toLowerCase().includes("rolling average") &&
           typeof v === "number"
         )
-          return v.toFixed(2);
+          return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v);
         return v == null ? "" : String(v);
       },
     }));

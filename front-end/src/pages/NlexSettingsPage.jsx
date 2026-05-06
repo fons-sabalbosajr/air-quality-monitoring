@@ -37,54 +37,120 @@ import {
   LayoutOutlined,
   BgColorsOutlined,
   ThunderboltOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import {
   NlexSettingsProvider,
   useNlexSettings,
   DEFAULT_SETTINGS,
 } from "../context/NlexSettingsContext";
+import "./NlexSettingsPage.css";
 
 const { Title, Text } = Typography;
 
 const STATIONS = [
-  { key: "clark",        label: "Clark AQM Station",        address: "Clark Freeport Zone, Pampanga" },
-  { key: "san-fernando", label: "San Fernando AQM Station", address: "San Fernando, Pampanga" },
-  { key: "meycauayan",   label: "Meycauayan AQM Station",   address: "Meycauayan City, Bulacan" },
-  { key: "zambales",     label: "Zambales AQM Station",      address: "Olongapo City, Zambales" },
+  {
+    key: "clark",
+    label: "Clark AQM Station",
+    address: "Clark Freeport Zone, Pampanga",
+  },
+  {
+    key: "san-fernando",
+    label: "San Fernando AQM Station",
+    address: "San Fernando, Pampanga",
+  },
+  {
+    key: "meycauayan",
+    label: "Meycauayan AQM Station",
+    address: "Meycauayan City, Bulacan",
+  },
+  {
+    key: "zambales",
+    label: "Zambales AQM Station",
+    address: "Olongapo City, Zambales",
+  },
 ];
 
 // Per-station pollutant parameters (key matches pollutantsVisible keys)
 const STATION_POLLUTANTS = [
-  { station: "Clark",        params: [{ key: "clark_pm10",         label: "PM10" }] },
-  { station: "San Fernando", params: [{ key: "san-fernando_pm10",  label: "PM10" }] },
-  { station: "Meycauayan",   params: [{ key: "meycauayan_pm10",    label: "PM10" }, { key: "meycauayan_pm25", label: "PM2.5" }] },
-  { station: "Zambales",     params: [{ key: "zambales_pm10",      label: "PM10" }, { key: "zambales_pm25",   label: "PM2.5" }] },
+  { station: "Clark", params: [{ key: "clark_pm10", label: "PM10" }] },
+  {
+    station: "San Fernando",
+    params: [{ key: "san-fernando_pm10", label: "PM10" }],
+  },
+  {
+    station: "Meycauayan",
+    params: [
+      { key: "meycauayan_pm10", label: "PM10" },
+      { key: "meycauayan_pm25", label: "PM2.5" },
+    ],
+  },
+  {
+    station: "Zambales",
+    params: [
+      { key: "zambales_pm10", label: "PM10" },
+      { key: "zambales_pm25", label: "PM2.5" },
+    ],
+  },
 ];
 
 const THEME_OPTIONS = [
   { label: "Auto (weather-based)", value: "auto" },
-  { label: "Light",                value: "light" },
-  { label: "Dark",                 value: "dark" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" },
 ];
 
 const SPEED_OPTIONS = [
-  { label: "Slow (8 s)",   value: "slow" },
+  { label: "Slow (8 s)", value: "slow" },
   { label: "Normal (5 s)", value: "normal" },
-  { label: "Fast (3 s)",   value: "fast" },
+  { label: "Fast (3 s)", value: "fast" },
 ];
 
 const COMPONENT_TOGGLES = [
-  { key: "showHeader",    label: "Header",          desc: "Logos + agency title block" },
-  { key: "showDateTime",  label: "Date & Time",     desc: "Date/time line below \"Air Quality Index\"" },
-  { key: "showSubtitle",  label: "Subtitle",        desc: "\"Real-time Particulate Matter Monitor\u2026\" line" },
-  { key: "showAqiLegend", label: "AQI Legend Card", desc: "AQI scale reference band bar" },
-  { key: "showFooter",    label: "Footer",          desc: "Office address, website and live clock" },
+  { key: "showHeader", label: "Header", desc: "Logos + agency title block" },
+  {
+    key: "showDateTime",
+    label: "Date & Time",
+    desc: 'Date/time line below "Air Quality Index"',
+  },
+  {
+    key: "showSubtitle",
+    label: "Subtitle",
+    desc: '"Real-time Particulate Matter Monitor\u2026" line',
+  },
+  {
+    key: "showAqiLegend",
+    label: "AQI Legend Card",
+    desc: "AQI scale reference band bar",
+  },
+  {
+    key: "showFooter",
+    label: "Footer",
+    desc: "Office address, website and live clock",
+  },
+];
+
+const DEFAULT_AQI_DESCRIPTIONS = DEFAULT_SETTINGS.aqiDescriptions;
+
+const AQI_DESCRIPTION_BANDS = [
+  { id: "good", label: "Good", range: "0-50", color: "#16a34a" },
+  { id: "fair", label: "Fair", range: "51-100", color: "#ca8a04" },
+  {
+    id: "usg",
+    label: "Unhealthy for Sensitive Groups",
+    range: "101-150",
+    color: "#ea580c",
+  },
+  { id: "vu", label: "Very Unhealthy", range: "151-200", color: "#dc2626" },
+  { id: "au", label: "Acutely Unhealthy", range: "201-300", color: "#7c3aed" },
+  { id: "emergency", label: "Emergency", range: "301-500", color: "#9f1239" },
 ];
 
 /* ── Shared row style ─────────────────────────────────────── */
 function ToggleRow({ label, desc, checked, onChange, hidden }) {
   return (
     <div
+      className="nlex-settings-toggle-row"
       style={{
         display: "flex",
         alignItems: "center",
@@ -101,7 +167,11 @@ function ToggleRow({ label, desc, checked, onChange, hidden }) {
           <Text strong>{label}</Text>
           {hidden && <Tag color="default">Hidden</Tag>}
         </Space>
-        {desc && <Text type="secondary" style={{ fontSize: 12 }}>{desc}</Text>}
+        {desc && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {desc}
+          </Text>
+        )}
       </Space>
       <Switch
         checked={checked}
@@ -156,6 +226,21 @@ function SettingsPanel() {
     }));
   }
 
+  function updateAqiDescription(id, value) {
+    setDraft((d) => ({
+      ...d,
+      aqiDescriptions: {
+        ...DEFAULT_AQI_DESCRIPTIONS,
+        ...(d.aqiDescriptions ?? {}),
+        [id]: value,
+      },
+    }));
+  }
+
+  function resetAqiDescriptions() {
+    patchDraft({ aqiDescriptions: { ...DEFAULT_AQI_DESCRIPTIONS } });
+  }
+
   function handleSave() {
     update(draft);
     setSavedFlag(true);
@@ -191,9 +276,9 @@ function SettingsPanel() {
   const carouselHiddenCount = STATIONS.filter(
     (st) => (draft.carouselStationsVisible?.[st.key] ?? true) === false,
   ).length;
-  const pollutantsHiddenCount = STATION_POLLUTANTS.flatMap((s) => s.params).filter(
-    (p) => (draft.pollutantsVisible?.[p.key] ?? true) === false,
-  ).length;
+  const pollutantsHiddenCount = STATION_POLLUTANTS.flatMap(
+    (s) => s.params,
+  ).filter((p) => (draft.pollutantsVisible?.[p.key] ?? true) === false).length;
 
   const nlexUrl = `${import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""}/nlex`;
 
@@ -205,7 +290,9 @@ function SettingsPanel() {
         <Space size={6}>
           <MonitorOutlined />
           <span>Stations</span>
-          {(hiddenCount > 0 || carouselHiddenCount > 0 || pollutantsHiddenCount > 0) && (
+          {(hiddenCount > 0 ||
+            carouselHiddenCount > 0 ||
+            pollutantsHiddenCount > 0) && (
             <Tag color="warning" style={{ marginInlineStart: 0 }}>
               {hiddenCount + carouselHiddenCount + pollutantsHiddenCount}
             </Tag>
@@ -237,7 +324,11 @@ function SettingsPanel() {
                   </Space>
                 ),
                 children: (
-                  <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                  <Space
+                    direction="vertical"
+                    style={{ width: "100%" }}
+                    size={8}
+                  >
                     {STATIONS.map((st) => {
                       const visible = draft.stationsVisible[st.key] !== false;
                       return (
@@ -272,12 +363,19 @@ function SettingsPanel() {
                   </Text>
                 ),
                 children: (
-                  <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                  <Space
+                    direction="vertical"
+                    style={{ width: "100%" }}
+                    size={8}
+                  >
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      Independently control which stations appear when the display is in Carousel mode.
+                      Independently control which stations appear when the
+                      display is in Carousel mode.
                     </Text>
                     {STATIONS.map((st) => {
-                      const visible = (draft.carouselStationsVisible?.[st.key] ?? true) !== false;
+                      const visible =
+                        (draft.carouselStationsVisible?.[st.key] ?? true) !==
+                        false;
                       return (
                         <ToggleRow
                           key={`carousel-${st.key}`}
@@ -305,29 +403,49 @@ function SettingsPanel() {
                   </Space>
                 ),
                 children: (
-                  <Space direction="vertical" style={{ width: "100%" }} size={10}>
+                  <Space
+                    direction="vertical"
+                    style={{ width: "100%" }}
+                    size={10}
+                  >
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      Hide specific pollutant readings per station. Hidden parameters are removed from
-                      both Grid and Carousel modes in real-time.
+                      Hide specific pollutant readings per station. Hidden
+                      parameters are removed from both Grid and Carousel modes
+                      in real-time.
                     </Text>
                     {STATION_POLLUTANTS.map(({ station, params }) => (
                       <div
                         key={station}
+                        className="nlex-settings-pollutant-group"
                         style={{
                           padding: "10px 14px",
                           borderRadius: 8,
                           border: "1px solid var(--aqm-border)",
                         }}
                       >
-                        <Text strong style={{ display: "block", marginBottom: 8, fontSize: 13 }}>
+                        <Text
+                          strong
+                          style={{
+                            display: "block",
+                            marginBottom: 8,
+                            fontSize: 13,
+                          }}
+                        >
                           {station}
                         </Text>
-                        <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                        <Space
+                          direction="vertical"
+                          style={{ width: "100%" }}
+                          size={8}
+                        >
                           {params.map((p) => {
-                            const visible = (draft.pollutantsVisible?.[p.key] ?? true) !== false;
+                            const visible =
+                              (draft.pollutantsVisible?.[p.key] ?? true) !==
+                              false;
                             return (
                               <div
                                 key={p.key}
+                                className="nlex-settings-pollutant-row"
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
@@ -342,7 +460,14 @@ function SettingsPanel() {
                               >
                                 <Space size={6}>
                                   <Text>{p.label}</Text>
-                                  {!visible && <Tag color="warning" style={{ fontSize: 11 }}>Hidden</Tag>}
+                                  {!visible && (
+                                    <Tag
+                                      color="warning"
+                                      style={{ fontSize: 11 }}
+                                    >
+                                      Hidden
+                                    </Tag>
+                                  )}
                                 </Space>
                                 <Switch
                                   size="small"
@@ -374,7 +499,9 @@ function SettingsPanel() {
           <LayoutOutlined />
           <span>Layout</span>
           {(draft.cardDisplayMode ?? "grid") === "carousel" && (
-            <Tag color="blue" style={{ marginInlineStart: 0 }}>Carousel</Tag>
+            <Tag color="blue" style={{ marginInlineStart: 0 }}>
+              Carousel
+            </Tag>
           )}
         </Space>
       ),
@@ -382,9 +509,15 @@ function SettingsPanel() {
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
           {/* Card Display Mode */}
           <div>
-            <Text strong style={{ display: "block", marginBottom: 6 }}>Card Display Mode</Text>
-            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 10 }}>
-              Choose how station cards are presented on the NLEX LED wall display.
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Card Display Mode
+            </Text>
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 10 }}
+            >
+              Choose how station cards are presented on the NLEX LED wall
+              display.
             </Text>
             <Radio.Group
               value={draft.cardDisplayMode ?? "grid"}
@@ -393,10 +526,16 @@ function SettingsPanel() {
               buttonStyle="solid"
             >
               <Radio.Button value="grid">
-                <Space size={4}><AppstoreOutlined />Grid (2×2)</Space>
+                <Space size={4}>
+                  <AppstoreOutlined />
+                  Grid (2×2)
+                </Space>
               </Radio.Button>
               <Radio.Button value="carousel">
-                <Space size={4}><PlayCircleOutlined />Carousel (1 at a time)</Space>
+                <Space size={4}>
+                  <PlayCircleOutlined />
+                  Carousel (1 at a time)
+                </Space>
               </Radio.Button>
             </Radio.Group>
             <div style={{ marginTop: 10 }}>
@@ -422,11 +561,17 @@ function SettingsPanel() {
 
           {/* Gauge Chart toggle */}
           <div>
-            <Text strong style={{ display: "block", marginBottom: 6 }}>Gauge Chart</Text>
-            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 10 }}>
-              Show or hide the SVG arc gauge on each station tile. When hidden, the AQI number,
-              status badge, and description scale up to fill the extra space — recommended for
-              Carousel mode on LED walls viewed from a distance.
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Gauge Chart
+            </Text>
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 10 }}
+            >
+              Show or hide the SVG arc gauge on each station tile. When hidden,
+              the AQI number, status badge, and description scale up to fill the
+              extra space — recommended for Carousel mode on LED walls viewed
+              from a distance.
             </Text>
             <div
               style={{
@@ -453,7 +598,9 @@ function SettingsPanel() {
                 </span>
                 <Space direction="vertical" size={0}>
                   <Text strong>
-                    {draft.showGaugeChart !== false ? "Gauge visible" : "Gauge hidden — large text mode"}
+                    {draft.showGaugeChart !== false
+                      ? "Gauge visible"
+                      : "Gauge hidden — large text mode"}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     {draft.showGaugeChart !== false
@@ -464,7 +611,11 @@ function SettingsPanel() {
               </Space>
               <Switch
                 checked={draft.showGaugeChart !== false}
-                onChange={() => patchDraft({ showGaugeChart: !(draft.showGaugeChart !== false) })}
+                onChange={() =>
+                  patchDraft({
+                    showGaugeChart: !(draft.showGaugeChart !== false),
+                  })
+                }
                 checkedChildren={<EyeOutlined />}
                 unCheckedChildren={<EyeInvisibleOutlined />}
               />
@@ -475,9 +626,15 @@ function SettingsPanel() {
 
           {/* Theme */}
           <div>
-            <Text strong style={{ display: "block", marginBottom: 6 }}>Display Theme</Text>
-            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 10 }}>
-              Override the automatic day/night weather-based theme on the display.
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Display Theme
+            </Text>
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 10 }}
+            >
+              Override the automatic day/night weather-based theme on the
+              display.
             </Text>
             <Radio.Group
               options={THEME_OPTIONS}
@@ -561,19 +718,27 @@ function SettingsPanel() {
             <Space direction="vertical" size={0}>
               <Text strong>Enable Spotlight Cycle</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Cycles through each station tile with a zoom-in highlight effect.
+                Cycles through each station tile with a zoom-in highlight
+                effect.
               </Text>
             </Space>
             <Switch
               checked={draft.spotlightEnabled ?? true}
-              onChange={() => patchDraft({ spotlightEnabled: !(draft.spotlightEnabled ?? true) })}
+              onChange={() =>
+                patchDraft({
+                  spotlightEnabled: !(draft.spotlightEnabled ?? true),
+                })
+              }
               checkedChildren="On"
               unCheckedChildren="Off"
             />
           </div>
           {(draft.spotlightEnabled ?? true) && (
             <div>
-              <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+              <Text
+                type="secondary"
+                style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+              >
                 How long each station tile stays highlighted in Grid mode.
               </Text>
               <Radio.Group
@@ -593,11 +758,14 @@ function SettingsPanel() {
             <Text strong style={{ display: "block", marginBottom: 6 }}>
               Carousel Card Duration
             </Text>
-            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 10 }}>
-              How many seconds each station card stays on screen before advancing to the next one in
-              Carousel mode.
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 10 }}
+            >
+              How many seconds each station card stays on screen before
+              advancing to the next one in Carousel mode.
             </Text>
-            <Space align="center" wrap>
+            <Space align="center" wrap className="nlex-settings-slider-row">
               <Slider
                 min={3}
                 max={60}
@@ -629,14 +797,77 @@ function SettingsPanel() {
       ),
     },
 
-    /* ── Tab 5: Maintenance ── */
+    /* ── Tab 5: AQI Descriptions ── */
+    {
+      key: "aqi-descriptions",
+      label: (
+        <Space size={6}>
+          <MessageOutlined />
+          <span>AQI Messages</span>
+        </Space>
+      ),
+      children: (
+        <Space direction="vertical" style={{ width: "100%" }} size={12}>
+          <Alert
+            type="info"
+            showIcon
+            message="Edit the AQI status messages shown on the NLEX display."
+          />
+          <div className="nlex-aqi-message-grid">
+            {AQI_DESCRIPTION_BANDS.map((band) => (
+              <div
+                key={band.id}
+                className="nlex-aqi-message-item"
+                style={{
+                  borderColor: `${band.color}55`,
+                  background: `${band.color}0d`,
+                }}
+              >
+                <Space align="center" style={{ marginBottom: 8 }} wrap>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: band.color,
+                      display: "inline-block",
+                    }}
+                  />
+                  <Text strong>{band.label}</Text>
+                  <Tag color="default">AQI {band.range}</Tag>
+                </Space>
+                <Input.TextArea
+                  value={(draft.aqiDescriptions ?? DEFAULT_AQI_DESCRIPTIONS)[band.id] ?? ""}
+                  onChange={(e) => updateAqiDescription(band.id, e.target.value)}
+                  rows={2}
+                  maxLength={180}
+                  showCount
+                />
+              </div>
+            ))}
+          </div>
+          <div>
+            <Button onClick={resetAqiDescriptions} icon={<UndoOutlined />}>
+              Restore Default Messages
+            </Button>
+          </div>
+        </Space>
+      ),
+    },
+
+    /* ── Tab 6: Maintenance ── */
     {
       key: "maintenance",
       label: (
         <Space size={6}>
           <ToolOutlined />
           <span>Maintenance</span>
-          {draft.nlexMaintenance && <Tag color="error" style={{ marginInlineStart: 0 }}>ON</Tag>}
+          {draft.nlexMaintenance && (
+            <Tag color="error" style={{ marginInlineStart: 0 }}>
+              ON
+            </Tag>
+          )}
         </Space>
       ),
       children: (
@@ -653,11 +884,15 @@ function SettingsPanel() {
           >
             <Space direction="vertical" size={0}>
               <Text strong>Enable Maintenance Overlay</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>When on, a maintenance notice covers the NLEX display.</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                When on, a maintenance notice covers the NLEX display.
+              </Text>
             </Space>
             <Switch
               checked={draft.nlexMaintenance ?? false}
-              onChange={() => patchDraft({ nlexMaintenance: !draft.nlexMaintenance })}
+              onChange={() =>
+                patchDraft({ nlexMaintenance: !draft.nlexMaintenance })
+              }
               checkedChildren="On"
               unCheckedChildren="Off"
             />
@@ -667,7 +902,9 @@ function SettingsPanel() {
               <Input.TextArea
                 placeholder="Optional maintenance message (leave blank for default)"
                 value={draft.nlexMaintenanceMsg ?? ""}
-                onChange={(e) => patchDraft({ nlexMaintenanceMsg: e.target.value })}
+                onChange={(e) =>
+                  patchDraft({ nlexMaintenanceMsg: e.target.value })
+                }
                 rows={2}
                 maxLength={200}
                 showCount
@@ -680,14 +917,22 @@ function SettingsPanel() {
             </>
           )}
           <div>
-            <Text strong style={{ display: "block", marginBottom: 4 }}>Update Description</Text>
-            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-              Shown on the display for ~20 seconds when maintenance is turned <strong>off</strong>. Describe what was updated.
+            <Text strong style={{ display: "block", marginBottom: 4 }}>
+              Update Description
+            </Text>
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+            >
+              Shown on the display for 5 seconds when maintenance is turned{" "}
+              <strong>off</strong>. Describe what was updated.
             </Text>
             <Input.TextArea
               placeholder="e.g. Firmware updated. Sensor calibration complete. All stations operational."
               value={draft.nlexMaintenanceUpdateDesc ?? ""}
-              onChange={(e) => patchDraft({ nlexMaintenanceUpdateDesc: e.target.value })}
+              onChange={(e) =>
+                patchDraft({ nlexMaintenanceUpdateDesc: e.target.value })
+              }
               rows={2}
               maxLength={300}
               showCount
@@ -699,8 +944,8 @@ function SettingsPanel() {
   ];
 
   return (
-    <div style={{ maxWidth: "min(720px, 100%)" }}>
-      <Space align="center" style={{ marginBottom: 8 }}>
+    <div className="nlex-settings-page">
+      <Space align="center" className="nlex-settings-heading">
         <MonitorOutlined style={{ fontSize: 18 }} />
         <Title level={4} style={{ margin: 0 }}>
           NLEX Display Settings
@@ -710,7 +955,7 @@ function SettingsPanel() {
       <Alert
         type="info"
         showIcon
-        style={{ marginBottom: 16 }}
+        className="nlex-settings-info"
         message="How settings work"
         description={
           <>
@@ -724,9 +969,10 @@ function SettingsPanel() {
       />
 
       <Tabs
+        className="nlex-settings-tabs"
         type="card"
         size="middle"
-        style={{ marginBottom: 16 }}
+        tabBarGutter={6}
         tabBarStyle={{ overflowX: "auto", flexWrap: "nowrap" }}
         items={tabItems}
       />
@@ -734,7 +980,7 @@ function SettingsPanel() {
       <Divider />
 
       {/* ── Action bar ────────────────────────────────────────── */}
-      <Space wrap>
+      <Space wrap className="nlex-settings-action-bar">
         <Button
           type="primary"
           icon={savedFlag ? <CheckCircleOutlined /> : <SaveOutlined />}
@@ -751,11 +997,7 @@ function SettingsPanel() {
         <Button danger onClick={handleReset}>
           Reset to Defaults
         </Button>
-        <Button
-          icon={<ExportOutlined />}
-          href={nlexUrl}
-          target="_blank"
-        >
+        <Button icon={<ExportOutlined />} href={nlexUrl} target="_blank">
           Open Display
         </Button>
       </Space>

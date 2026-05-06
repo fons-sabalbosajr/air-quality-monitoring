@@ -2,6 +2,16 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { getApiBase } from "../util/apiBase";
 
 const BC_CHANNEL = "nlex-settings-sync";
+const SERVER_POLL_MS = 5000;
+
+const DEFAULT_AQI_DESCRIPTIONS = {
+  good: "Air is clean. Safe for everyone.",
+  fair: "Acceptable. Sensitive groups take caution.",
+  usg: "Unhealthy for children, elderly & sick. Limit outdoor activity.",
+  vu: "Wear a mask. Everyone may feel health effects.",
+  au: "Health hazard for all. Avoid outdoor exposure.",
+  emergency: "Stay indoors. Air is dangerous for everyone.",
+};
 
 export const DEFAULT_SETTINGS = {
   stationsVisible: {
@@ -38,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   nlexMaintenance: false,         // true = show maintenance overlay on /nlex
   nlexMaintenanceMsg: "",         // optional custom message on overlay
   nlexMaintenanceUpdateDesc: "",  // shown on /nlex when maintenance is turned off
+  aqiDescriptions: DEFAULT_AQI_DESCRIPTIONS,
 };
 
 export const NlexSettingsContext = createContext({
@@ -62,6 +73,10 @@ function mergeSettings(source) {
     pollutantsVisible: {
       ...DEFAULT_SETTINGS.pollutantsVisible,
       ...(rest.pollutantsVisible ?? {}),
+    },
+    aqiDescriptions: {
+      ...DEFAULT_AQI_DESCRIPTIONS,
+      ...(rest.aqiDescriptions ?? {}),
     },
   };
 }
@@ -160,7 +175,7 @@ export function NlexSettingsProvider({ children }) {
       } catch {}
     }
     fetchFromServer();
-    const pollId = setInterval(fetchFromServer, 15000);
+    const pollId = setInterval(fetchFromServer, SERVER_POLL_MS);
 
     // BroadcastChannel: fast cross-tab sync (works same-origin, all tabs)
     let bc;

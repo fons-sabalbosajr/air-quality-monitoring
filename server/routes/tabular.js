@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { Router } = require("express");
 const { TABULAR_SHEETS } = require("../config/sheets");
 const { getTabularTable, enrichWithAqi, getRawTabularTable } = require("../services/googleSheets");
+const { parseDateValue, formatDateAmPm } = require("../utils/dateUtils");
 const { ensureMongo } = require("../services/mongo");
 const {
   backupOne,
@@ -16,6 +17,7 @@ const {
 } = require("../services/tabularBackup");
 const { clearCache: clearSheetCache, clearCacheForKey: clearSheetCacheForKey } = require("../services/googleSheets");
 const { isMaintenanceMode } = require("../config/env");
+const { requireAdminToken } = require("./admin-auth");
 
 const router = Router();
 
@@ -44,9 +46,9 @@ function setCacheHeaders(req, res, body) {
   return false;
 }
 
-// Debounce background backup refreshes — at most once per key every 2 min
+// Debounce background backup refreshes — active displays/admin pages monitor Sheets without overlapping syncs.
 const _lastBackupRefresh = new Map();
-const BACKUP_REFRESH_DEBOUNCE_MS = 120_000; // 2 min
+const BACKUP_REFRESH_DEBOUNCE_MS = 30_000;
 
 function maybeRefreshBackup(province, pollutant) {
   const key = `${province}:${pollutant}`;
@@ -54,12 +56,58 @@ function maybeRefreshBackup(province, pollutant) {
   const last = _lastBackupRefresh.get(key) || 0;
   if (now - last < BACKUP_REFRESH_DEBOUNCE_MS) return; // skip, too soon
   _lastBackupRefresh.set(key, now);
-  backupOne(province, pollutant).catch(() => {});
+  backupOne(province, pollutant)
+    .then((result) => {
+      if (result?.updated) {
+        _enrichedCache.delete(key);
+      }
+    })
+    .catch(() => {});
 }
 
 // In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
 const _enrichedCache = new Map();
-const ENRICHED_CACHE_TTL_MS = 120_000; // 2 min (near-real-time for kiosk)
+const ENRICHED_CACHE_TTL_MS = 30_000; // near-real-time for dashboard/NLEX
+
+function isValidLatestAqiRow(row) {
+  if (!row) return false;
+  const aqi = Number(row["AQI"] ?? row["aqi"]);
+  if (!isFinite(aqi) || aqi <= 0 || aqi > 500) return false;
+  const status = row["Status"] ?? row["status"];
+  if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
+  const concentrationKey = Object.keys(row).find((k) => /concentration/i.test(k));
+  if (concentrationKey) {
+    const concentration = Number(String(row[concentrationKey] ?? "").replace(/[, ]/g, ""));
+    if (isFinite(concentration) && (concentration < 0 || concentration >= 9999)) return false;
+  }
+  return true;
+}
+
+function rowEpochMs(row, dateKey) {
+  if (!row || !dateKey || row[dateKey] == null) return 0;
+  const parsed = parseDateValue(row[dateKey], "MDY") || parseDateValue(row[dateKey], "DMY");
+  if (!parsed || parsed.getFullYear() < 2015) return 0;
+  return parsed.getTime();
+}
+
+function selectLatestAqiRow(rows, dateKey) {
+  if (!Array.isArray(rows) || !rows.length) return { row: null, time: null, displayTime: null };
+  let best = null;
+  for (const row of rows) {
+    if (!isValidLatestAqiRow(row)) continue;
+    const epochMs = rowEpochMs(row, dateKey);
+    if (!best || epochMs > best.epochMs) {
+      best = { row, epochMs };
+    }
+  }
+  if (!best) return { row: null, time: null, displayTime: null };
+  const time = best.epochMs || null;
+  return {
+    row: best.row,
+    time,
+    displayTime: time ? formatDateAmPm(new Date(time)) : null,
+  };
+}
 
 function getCachedEnriched(key) {
   const entry = _enrichedCache.get(key);
@@ -214,17 +262,20 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
     const cachedJson = getCachedEnriched(fullCacheKey);
     if (cachedJson) {
       const parsed = JSON.parse(cachedJson);
-      // Return the latest valid row (skip erratic: AQI=0 or Invalid/For Validation)
-      const row = parsed.rows
-        ? (parsed.rows.find((r) => {
-            const aqi = r["AQI"] ?? r["aqi"];
-            if (aqi == null || Number(aqi) === 0) return false;
-            const status = r["Status"] ?? r["status"];
-            if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
-            return true;
-          }) || parsed.rows[0] || null)
-        : null;
-      const body = { province, pollutant, row, fetchedAt: parsed.fetchedAt, source: parsed.source };
+      const latest = selectLatestAqiRow(parsed.rows, parsed.dateKey);
+      const body = {
+        province,
+        pollutant,
+        row: latest.row,
+        time: latest.time,
+        displayTime: latest.displayTime,
+        dateKey: parsed.dateKey || null,
+        fetchedAt: parsed.fetchedAt,
+        source: parsed.source,
+        backupMeta: parsed.backupMeta || null,
+        sheetSyncing: isSyncing(fullCacheKey),
+        latestAqiVerified: parsed.latestAqiVerified ?? false,
+      };
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
     }
@@ -233,6 +284,7 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
     //    cache the enriched result so the next full tabular call is also instant.
     const backup = await getBackupData(province, pollutant);
     if (backup && backup.rows && backup.rows.length > 0) {
+      maybeRefreshBackup(province, pollutant);
       const enriched = enrichWithAqi(
         { columns: backup.columns, rows: backup.rows, dateKey: backup.dateKey, concKey: backup.concKey },
         pollutant,
@@ -249,19 +301,23 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
         backupMeta: backup.backupMeta,
         dateKey: enriched.dateKey || null,
         concKey: enriched.concKey || null,
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
       };
       setCachedEnriched(fullCacheKey, fullBody);
-      // Return latest valid row (skip erratic: AQI=0 or Invalid/For Validation)
-      const row = enriched.rows
-        ? (enriched.rows.find((r) => {
-            const aqi = r["AQI"] ?? r["aqi"];
-            if (aqi == null || Number(aqi) === 0) return false;
-            const status = r["Status"] ?? r["status"];
-            if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
-            return true;
-          }) || enriched.rows[0] || null)
-        : null;
-      const body = { province, pollutant, row, fetchedAt: backup.fetchedAt, source: backup.source };
+      const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
+      const body = {
+        province,
+        pollutant,
+        row: latest.row,
+        time: latest.time,
+        displayTime: latest.displayTime,
+        dateKey: enriched.dateKey || null,
+        fetchedAt: backup.fetchedAt,
+        source: backup.source,
+        backupMeta: backup.backupMeta,
+        sheetSyncing: isSyncing(fullCacheKey),
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
+      };
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
     }
@@ -295,7 +351,7 @@ router.get("/api/backup/check/:province/:pollutant", async (req, res) => {
 });
 
 // Force a backup cycle (admin trigger — bypasses maintenance mode)
-router.post("/api/backup/sync", async (_req, res) => {
+router.post("/api/backup/sync", requireAdminToken, async (_req, res) => {
   try {
     // Clear in-memory sheet cache so fresh data is fetched from Google Sheets
     clearSheetCache();
@@ -310,7 +366,7 @@ router.post("/api/backup/sync", async (_req, res) => {
 
 // Per-station force-sync: bypasses all caches and overwrites MongoDB from Google Sheets.
 // Use when data in the app doesn’t match the sheet (stale cache, failed backup, etc.).
-router.post("/api/tabular/:province/:pollutant/force-sync", async (req, res) => {
+router.post("/api/tabular/:province/:pollutant/force-sync", requireAdminToken, async (req, res) => {
   try {
     const province  = String(req.params.province  || "").toLowerCase();
     const pollutant = String(req.params.pollutant || "").toLowerCase();
@@ -365,6 +421,10 @@ router.post("/api/tabular/:province/:pollutant/force-sync", async (req, res) => 
       syncResult: {
         updated: syncResult.updated,
         rowCount: syncResult.rowCount,
+        rawRowCount: syncResult.rawRowCount ?? null,
+        erraticRows: syncResult.erraticRows ?? null,
+        deletedRows: syncResult.deletedRows ?? 0,
+        protected: syncResult.protected ?? false,
         reason: syncResult.reason ?? null,
       },
     };
@@ -444,6 +504,8 @@ async function warmEnrichedCache() {
         province: backup.province, pollutant: backup.pollutant,
         columns: enriched.columns, rows: enriched.rows, totalRows: enriched.rows.length,
         fetchedAt: backup.fetchedAt, source: backup.source, backupMeta: backup.backupMeta,
+        dateKey: enriched.dateKey || null, concKey: enriched.concKey || null,
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
       };
       setCachedEnriched(cacheKey, body);
       ok++;
@@ -461,7 +523,6 @@ module.exports.warmEnrichedCache = warmEnrichedCache;
    ADMIN CRUD + CSV EXPORT  (require X-Admin-Token)
    ═══════════════════════════════════════════════════════════════ */
 const { ObjectId } = require("mongodb");
-const { requireAdminToken } = require("./admin-auth");
 
 function getBackupCollection(db, province, pollutant) {
   return db.collection("air_data_backup");

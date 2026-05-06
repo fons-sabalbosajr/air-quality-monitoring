@@ -474,6 +474,17 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
     columns.find((c) => /\bcategory\b/i.test(c) && !/aqi/i.test(c)) ||
     columns.find((c) => /\bstatus\b/i.test(c) && !/aqi/i.test(c)) || null;
 
+  function categoryFromAqiIndex(value) {
+    const n = Number(value);
+    if (!isFinite(n)) return "";
+    if (n <= 50) return "Good";
+    if (n <= 100) return "Fair";
+    if (n <= 150) return "Unhealthy for Sensitive Groups";
+    if (n <= 200) return "Very Unhealthy";
+    if (n <= 300) return "Acutely Unhealthy";
+    return "Emergency";
+  }
+
   const numericSeen = [];
   const enrichedRows = [];
   let latestAqiVerified = false; // true when the newest row’s AQI came from the sheet
@@ -495,23 +506,16 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
 
     if (concKey) {
       const n = coerceNumber(r[concKey]);
-      const isSentinel = n != null && n >= 9999;
+      const isSentinel = n != null && (n < 0 || n >= 9999);
 
       // Skip rows with null/empty concentration (equipment downtime)
       if (n == null) {
         continue;
       }
 
-      // Erratic / sentinel values (>=9999): keep the row for tabular display
-      // but exclude from rolling average and mark as "For Validation"
+      // Erratic / sentinel values are excluded from app-facing tabular output.
+      // They still remain visible in the source Google Sheet for auditing.
       if (isSentinel) {
-        r[rollingKey] = null;
-        r["AQI"] = null;
-        r["Status"] = "For Validation";
-        if (aqiCatKey) delete r[aqiCatKey];
-        if (catStatusKey) delete r[catStatusKey];
-        if (aqiIndexKey) delete r[aqiIndexKey];
-        enrichedRows.push(r);
         continue;
       }
 
@@ -588,13 +592,23 @@ function enrichWithAqi(prepared, pollutantKey, opts = {}) {
       const avg24h = numericSeen.length
         ? meanLast(numericSeen, requiredLogs)
         : 0;
-      r[rollingKey] = avg24h;
+      r[rollingKey] = Number(avg24h.toFixed(2));
 
       if (hasSheetAqi && hasSheetStatus) {
         // Use Google Sheet’s pre-computed values (exact match with what the sheet shows)
         r["AQI"] = sheetAqi;
         r["Status"] = sheetStatus;
         latestAqiVerified = true;
+      } else if (hasSheetAqi && aqiIndexKey) {
+        r["AQI"] = sheetAqi;
+        r["Status"] = categoryFromAqiIndex(sheetAqi);
+        latestAqiVerified = true;
+      } else if (aqiIndexKey) {
+        // Current sheet format: AQI must come from the sheet's AQI Index column.
+        // Newer concentration-only rows are not publishable AQI rows yet.
+        r["AQI"] = null;
+        r["Status"] = "Loading";
+        latestAqiVerified = false;
       } else {
         // Compute from rolling average when sheet values are missing/loading
         const { aqi, status } = statusFn(avg24h);
@@ -646,26 +660,31 @@ function enhanceTabularRows(table, pollutantKey, opts = {}) {
  * Fetch raw data from Google Sheets, cleaned and deduped but WITHOUT AQI computation.
  * Stores _epochMs on each row for indexing. Used by the backup service.
  */
-async function getRawTabularTable(provinceKey, pollutantKey) {
+async function getRawTabularTable(provinceKey, pollutantKey, opts = {}) {
   const entry = resolveSheetEntry(TABULAR_SHEETS?.[provinceKey]?.[pollutantKey]);
   const sheetUrl = entry.url;
   const dateFormat = entry.dateFormat;
   const tabName = entry.tabName || null;
+  const forceRefresh = opts.forceRefresh === true;
+  const allowStale = opts.allowStale !== false;
   if (!sheetUrl) {
     const err = new Error("Sheet URL not configured");
     err.code = "NOT_CONFIGURED";
     throw err;
   }
   const cacheKey = `raw-tabular:${provinceKey}:${pollutantKey}`;
+  if (forceRefresh) {
+    clearCacheForKey(cacheKey);
+  }
   const cached = cacheGet(cacheKey);
 
   // Fresh cache → return immediately
-  if (cached.fresh) {
+  if (!forceRefresh && cached.fresh) {
     return { ...cached.payload, source: "cache" };
   }
 
   // Stale cache → return stale data immediately, revalidate in background
-  if (cached.stale) {
+  if (!forceRefresh && allowStale && cached.stale) {
     if (!_revalidating.has(cacheKey)) {
       _revalidating.add(cacheKey);
       fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName)
@@ -675,13 +694,14 @@ async function getRawTabularTable(provinceKey, pollutantKey) {
   }
 
   // No cache → fetch synchronously
-  return fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName);
+  return fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName, { fallbackToStale: allowStale });
 }
 
 /**
  * Internal: fetch from Google Sheets, prepare rows, and cache the result.
  */
-async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName) {
+async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, dateFormat, tabName, opts = {}) {
+  const fallbackToStale = opts.fallbackToStale !== false;
   try {
     const table = await fetchAllSheetsAsTable(sheetUrl, tabName);
     const prepared = prepareRawRows(table, { dateFormat });
@@ -703,7 +723,7 @@ async function fetchAndCacheRaw(cacheKey, sheetUrl, provinceKey, pollutantKey, d
       `[raw-tabular] Error fetching ${provinceKey}/${pollutantKey}: ${fetchErr.message}`,
     );
     // Fall back to any stale data
-    const stale = cacheGet(cacheKey);
+    const stale = fallbackToStale ? cacheGet(cacheKey) : { hit: false };
     if (stale.hit) {
       return { ...stale.payload, source: "stale-cache" };
     }

@@ -47,6 +47,28 @@ function parseDateValue(v, fmt) {
 
     const isDMY = fmt === "DMY";
 
+    function buildStrictDate(year, monthIndex, day, hour = 0, minute = 0, second = 0) {
+      const d = new Date(year, monthIndex, day, hour, minute, second);
+      if (isNaN(d.getTime())) return null;
+      if (
+        d.getFullYear() !== year ||
+        d.getMonth() !== monthIndex ||
+        d.getDate() !== day ||
+        d.getHours() !== hour ||
+        d.getMinutes() !== minute ||
+        d.getSeconds() !== second
+      ) {
+        return null;
+      }
+      return d;
+    }
+
+    function parseSlashParts(a, b, year, hour = 0, minute = 0, second = 0, forceDMY = isDMY) {
+      const month = forceDMY ? Number(b) - 1 : Number(a) - 1;
+      const day = forceDMY ? Number(a) : Number(b);
+      return buildStrictDate(Number(year), month, day, hour, minute, second);
+    }
+
     // A/B/YYYY with optional 24h time (H:MM or HH:MM:SS)
     // Handles: "3/2/2026", "03/02/2026", "13/09/2025 1:00"
     // When fmt='DMY': A=day, B=month.  Otherwise: A=month, B=day.
@@ -54,17 +76,13 @@ function parseDateValue(v, fmt) {
       /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/,
     );
     if (m) {
-      const month = isDMY ? Number(m[2]) - 1 : Number(m[1]) - 1;
-      const day   = isDMY ? Number(m[1])     : Number(m[2]);
-      const d = new Date(
-        Number(m[3]),
-        month,
-        day,
-        Number(m[4] || 0),
-        Number(m[5] || 0),
-        Number(m[6] || 0),
+      const hour = Number(m[4] || 0);
+      const minute = Number(m[5] || 0);
+      const second = Number(m[6] || 0);
+      return (
+        parseSlashParts(m[1], m[2], m[3], hour, minute, second) ||
+        parseSlashParts(m[1], m[2], m[3], hour, minute, second, !isDMY)
       );
-      return isNaN(d.getTime()) ? null : d;
     }
 
     // A/B/YYYY H:MM AM/PM or A/B/YYYY H:MM:SS AM/PM (12-hour format)
@@ -77,17 +95,10 @@ function parseDateValue(v, fmt) {
       const ampm = m2[7].toUpperCase();
       if (ampm === "PM" && h < 12) h += 12;
       if (ampm === "AM" && h === 12) h = 0;
-      const month = isDMY ? Number(m2[2]) - 1 : Number(m2[1]) - 1;
-      const day   = isDMY ? Number(m2[1])     : Number(m2[2]);
-      const d = new Date(
-        Number(m2[3]),
-        month,
-        day,
-        h,
-        Number(m2[5]),
-        Number(m2[6] || 0),
+      return (
+        parseSlashParts(m2[1], m2[2], m2[3], h, Number(m2[5]), Number(m2[6] || 0)) ||
+        parseSlashParts(m2[1], m2[2], m2[3], h, Number(m2[5]), Number(m2[6] || 0), !isDMY)
       );
-      return isNaN(d.getTime()) ? null : d;
     }
 
     // Google Sheets gviz/tq CSV may return dates as Date(y,m,d,H,M,S)

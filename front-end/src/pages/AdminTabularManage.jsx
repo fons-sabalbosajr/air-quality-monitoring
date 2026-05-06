@@ -17,6 +17,7 @@ import {
 import Swal from "sweetalert2";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
+import { secureSession } from "../utils/secureStorage";
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -41,6 +42,11 @@ const STATUS_OPTIONS = [
 ];
 
 const SESSION_KEY = "admin-pin-token";
+const ADMIN_TABULAR_CACHE_TTL_MS = 30 * 1000;
+const ADMIN_TABULAR_STORAGE_TTL_MS = 15 * 60 * 1000;
+const ADMIN_TABULAR_CACHE_VERSION = 1;
+const ADMIN_TABULAR_CACHE = new Map();
+const ADMIN_TABULAR_ETAGS = new Map();
 
 function getToken() {
   return sessionStorage.getItem(SESSION_KEY) || "";
@@ -56,6 +62,115 @@ function adminFetch(path, opts = {}) {
     },
     ...opts,
   });
+}
+
+function getAdminCacheKey(province, pollutant) {
+  return `${province || ""}:${pollutant || ""}`;
+}
+
+function getAdminStorageKey(cacheKey) {
+  return `aqm_admin_tabular:${cacheKey}`;
+}
+
+function normalizeAdminTabularPayload(json) {
+  const columns = (json.columns ?? []).filter((c) => c !== "_id");
+  const rows = (json.rows ?? []).map((row, i) => ({
+    ...row,
+    _rowId: row._id ?? row["_id"] ?? `row-${i}`,
+  }));
+  return {
+    columns,
+    rows,
+    totalRows: json.totalRows ?? rows.length,
+    source: json.source ?? null,
+    fetchedAt: json.fetchedAt ?? Date.now(),
+    sheetSyncing: json.sheetSyncing ?? false,
+    syncResult: json.syncResult ?? null,
+  };
+}
+
+function readAdminTabularCache(province, pollutant) {
+  const cacheKey = getAdminCacheKey(province, pollutant);
+  const memory = ADMIN_TABULAR_CACHE.get(cacheKey);
+  if (memory?.data) {
+    return {
+      ...memory,
+      fresh: Date.now() - memory.cachedAt < ADMIN_TABULAR_CACHE_TTL_MS,
+    };
+  }
+  try {
+    const stored = secureSession.getJSON(getAdminStorageKey(cacheKey));
+    if (!stored?.data || stored.version !== ADMIN_TABULAR_CACHE_VERSION) return null;
+    if (Date.now() - stored.cachedAt > ADMIN_TABULAR_STORAGE_TTL_MS) {
+      secureSession.removeItem(getAdminStorageKey(cacheKey));
+      return null;
+    }
+    ADMIN_TABULAR_CACHE.set(cacheKey, { data: stored.data, cachedAt: stored.cachedAt });
+    if (stored.etag) ADMIN_TABULAR_ETAGS.set(cacheKey, stored.etag);
+    return {
+      data: stored.data,
+      cachedAt: stored.cachedAt,
+      fresh: Date.now() - stored.cachedAt < ADMIN_TABULAR_CACHE_TTL_MS,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeAdminTabularCache(province, pollutant, data, etag = null) {
+  const cacheKey = getAdminCacheKey(province, pollutant);
+  const cachedAt = Date.now();
+  ADMIN_TABULAR_CACHE.set(cacheKey, { data, cachedAt });
+  if (etag) ADMIN_TABULAR_ETAGS.set(cacheKey, etag);
+  try {
+    secureSession.setJSON(getAdminStorageKey(cacheKey), {
+      version: ADMIN_TABULAR_CACHE_VERSION,
+      cachedAt,
+      etag: etag ?? ADMIN_TABULAR_ETAGS.get(cacheKey) ?? null,
+      data,
+    });
+  } catch { /* best-effort */ }
+}
+
+function clearAdminTabularCache(province, pollutant) {
+  const cacheKey = getAdminCacheKey(province, pollutant);
+  ADMIN_TABULAR_CACHE.delete(cacheKey);
+  ADMIN_TABULAR_ETAGS.delete(cacheKey);
+  secureSession.removeItem(getAdminStorageKey(cacheKey));
+}
+
+function formatMaxDecimals(value, maximumFractionDigits = 2) {
+  const n = Number(value);
+  if (!isFinite(n)) return value ?? "—";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(n);
+}
+
+async function requestAdminTabularData(province, pollutant, { force = false, signal } = {}) {
+  const cacheKey = getAdminCacheKey(province, pollutant);
+  const cached = readAdminTabularCache(province, pollutant);
+  if (!force && cached?.fresh) return cached.data;
+
+  const base = getApiBase();
+  const headers = { Accept: "application/json" };
+  const etag = ADMIN_TABULAR_ETAGS.get(cacheKey);
+  if (etag) headers["If-None-Match"] = etag;
+
+  const res = await fetch(`${base}/api/tabular/${province}/${pollutant}?limit=5000`, {
+    signal,
+    cache: "no-cache",
+    headers,
+  });
+
+  if (res.status === 304 && cached?.data) {
+    writeAdminTabularCache(province, pollutant, cached.data, etag);
+    return cached.data;
+  }
+  if (!res.ok) throw new Error(await res.text());
+
+  const json = await res.json();
+  const data = normalizeAdminTabularPayload(json);
+  writeAdminTabularCache(province, pollutant, data, res.headers.get("ETag"));
+  return data;
 }
 
 /** Returns true if the row looks erratic / out-of-range */
@@ -176,7 +291,17 @@ export default function AdminTabularManage() {
   const [sending, setSending] = useState(false);
 
   // ── Fetch ─────────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
+  const applyPayload = useCallback((payload) => {
+    if (!payload) return;
+    setColumns(payload.columns);
+    setRows(payload.rows);
+    setTotalRows(payload.totalRows);
+    setDataSource(payload.source);
+    setSyncedAt(payload.fetchedAt ? new Date(payload.fetchedAt) : null);
+    setSheetSyncing(payload.sheetSyncing ?? false);
+  }, []);
+
+  const fetchData = useCallback(async ({ force = false } = {}) => {
     // Cancel any previous in-flight request and any pending auto-refresh
     if (fetchControllerRef.current) {
       fetchControllerRef.current.abort();
@@ -189,31 +314,27 @@ export default function AdminTabularManage() {
     fetchControllerRef.current = controller;
 
     setLoading(true);
+    const cached = readAdminTabularCache(province, pollutant);
+    if (!force && cached?.data) {
+      applyPayload(cached.data);
+      setLoading(false);
+      if (cached.fresh) return;
+    }
+
+    setLoading(!cached?.data);
     setCurrentPage(1);
     try {
-      const base = getApiBase();
-      const r    = await fetch(`${base}/api/tabular/${province}/${pollutant}?limit=5000`, {
+      const payload = await requestAdminTabularData(province, pollutant, {
+        force,
         signal: controller.signal,
       });
-      if (!r.ok) throw new Error(await r.text());
-      const json = await r.json();
       if (controller.signal.aborted) return; // superseded by a newer request
-      const rawCols = (json.columns ?? []).filter((c) => c !== "_id");
-      setColumns(rawCols);
-      const enrichedRows = (json.rows ?? []).map((row, i) => ({
-        ...row,
-        _rowId: row._id ?? row["_id"] ?? `row-${i}`,
-      }));
-      setRows(enrichedRows);
-      setTotalRows(json.totalRows ?? enrichedRows.length);
-      setDataSource(json.source ?? null);
-      setSyncedAt(json.fetchedAt ? new Date(json.fetchedAt) : null);
-      setSheetSyncing(json.sheetSyncing ?? false);
+      applyPayload(payload);
       // If a background Sheets sync is in progress, auto-refresh once it's done
-      if (json.sheetSyncing && !autoRefreshTimerRef.current) {
+      if (payload.sheetSyncing && !autoRefreshTimerRef.current) {
         autoRefreshTimerRef.current = setTimeout(() => {
           autoRefreshTimerRef.current = null;
-          fetchData();
+          fetchData({ force: true });
         }, 10000);
       }
     } catch (e) {
@@ -222,7 +343,7 @@ export default function AdminTabularManage() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [province, pollutant]);
+  }, [applyPayload, province, pollutant]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -247,13 +368,13 @@ export default function AdminTabularManage() {
   // ── Add/Edit/Delete ────────────────────────────────────────────
   function handleAdd() { setEditingRow(null); form.resetFields(); setModalOpen(true); }
 
-  function handleEdit(row) {
+  const handleEdit = useCallback((row) => {
     setEditingRow(row);
     const vals = {};
     columns.forEach((c) => { vals[c] = row[c] ?? ""; });
     form.setFieldsValue(vals);
     setModalOpen(true);
-  }
+  }, [columns, form]);
 
   async function handleSave() {
     let vals;
@@ -278,7 +399,8 @@ export default function AdminTabularManage() {
         message.success("Row added");
       }
       setModalOpen(false);
-      fetchData();
+      clearAdminTabularCache(province, pollutant);
+      fetchData({ force: true });
     } catch (e) {
       Swal.fire({ icon: "error", title: "Save Error", text: e.message, confirmButtonColor: "#1677ff" });
     } finally {
@@ -286,7 +408,7 @@ export default function AdminTabularManage() {
     }
   }
 
-  async function handleDelete(row) {
+  const handleDelete = useCallback(async (row) => {
     try {
       const r = await adminFetch(
         `/api/tabular/${province}/${pollutant}/rows/${row._rowId}`,
@@ -295,11 +417,12 @@ export default function AdminTabularManage() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Delete failed");
       message.success("Row deleted");
-      fetchData();
+      clearAdminTabularCache(province, pollutant);
+      fetchData({ force: true });
     } catch (e) {
       Swal.fire({ icon: "error", title: "Delete Error", text: e.message, confirmButtonColor: "#1677ff" });
     }
-  }
+  }, [fetchData, pollutant, province]);
 
   // ── Force sync from Google Sheets (bypasses all caches + overwrites MongoDB) ──
   async function handleForceSync() {
@@ -313,6 +436,7 @@ export default function AdminTabularManage() {
       const base = getApiBase();
       const r = await fetch(`${base}/api/tabular/${province}/${pollutant}/force-sync`, {
         method: "POST",
+        headers: { "X-Admin-Token": getToken() },
         signal: controller.signal,
       });
       if (!r.ok) {
@@ -321,17 +445,9 @@ export default function AdminTabularManage() {
       }
       const json = await r.json();
       if (controller.signal.aborted) return;
-      const rawCols = (json.columns ?? []).filter((c) => c !== "_id");
-      setColumns(rawCols);
-      const enrichedRows = (json.rows ?? []).map((row, i) => ({
-        ...row,
-        _rowId: row._id ?? row["_id"] ?? `row-${i}`,
-      }));
-      setRows(enrichedRows);
-      setTotalRows(json.totalRows ?? enrichedRows.length);
-      setDataSource(json.source ?? "sheet");
-      setSyncedAt(json.fetchedAt ? new Date(json.fetchedAt) : new Date());
-      setSheetSyncing(false);
+      const payload = normalizeAdminTabularPayload({ ...json, source: json.source ?? "sheet", sheetSyncing: false });
+      writeAdminTabularCache(province, pollutant, payload);
+      applyPayload(payload);
       const label = json.syncResult?.updated
         ? `Synced ${json.syncResult.rowCount?.toLocaleString() ?? ""} rows from Google Sheets`
         : `Sheet data unchanged (${json.syncResult?.rowCount?.toLocaleString() ?? ""} rows)`;
@@ -436,7 +552,10 @@ export default function AdminTabularManage() {
             const aqiColor = n <= 50 ? "#16a34a" : n <= 100 ? "#ca8a04" : n <= 150 ? "#ea580c" : n <= 200 ? "#dc2626" : n <= 300 ? "#9333ea" : "#9b1c1c";
             return <span style={{ color: aqiColor, fontWeight: 700 }}>{n}</span>;
           }
-          if (/rolling\s*avg(?:erage)?|concentration/i.test(col)) {
+          if (/rolling\s*avg(?:erage)?/i.test(col)) {
+            return formatMaxDecimals(val, 2);
+          }
+          if (/concentration/i.test(col)) {
             const n = parseFloat(val);
             return isFinite(n) ? n.toFixed(2) : (val ?? "—");
           }
@@ -467,7 +586,7 @@ export default function AdminTabularManage() {
     });
 
     return dataCols;
-  }, [columns, rows]);
+  }, [columns, handleDelete, handleEdit]);
 
   // Sum of all column widths — prevents Ant Design fixed-column misalignment
   const tableScrollX = useMemo(
@@ -490,7 +609,7 @@ export default function AdminTabularManage() {
           <Button icon={<FilterOutlined />} onClick={() => setExportModalOpen(true)}>
             Export / Email
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>Refresh</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchData({ force: true })} loading={loading}>Refresh</Button>
           <Button
             icon={forceSyncing ? <SyncOutlined spin /> : <CloudDownloadOutlined />}
             onClick={handleForceSync}

@@ -21,7 +21,8 @@ import { secureStorage } from "../utils/secureStorage";
 // Persist the latest AQI row in secureStorage so the AQI card can render
 // immediately on the next page load without waiting for the network.
 const AQI_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 h — evict stale cache
-const LATEST_POLL_MS = 60_000;                  // 1 min fast-poll for new data
+const LATEST_POLL_MS = 30_000;                  // fast-poll for new AQI rows
+const AQI_CACHE_SCHEMA_VERSION = 3;
 
 function getAqiCacheKey(province, pollutant) {
   return `aqm_aqi_latest:${province}:${pollutant}`;
@@ -32,6 +33,10 @@ function readPersistedLatest(province, pollutant) {
   try {
     const stored = secureStorage.getJSON(getAqiCacheKey(province, pollutant));
     if (!stored?.row || !stored?.savedAt) return null;
+    if (stored.version !== AQI_CACHE_SCHEMA_VERSION) {
+      secureStorage.removeItem(getAqiCacheKey(province, pollutant));
+      return null;
+    }
     if (Date.now() - stored.savedAt > AQI_CACHE_TTL_MS) {
       secureStorage.removeItem(getAqiCacheKey(province, pollutant));
       return null;
@@ -45,11 +50,11 @@ function readPersistedLatest(province, pollutant) {
 function persistLatestRow(province, pollutant, row) {
   if (!province || !pollutant || !row) return;
   try {
-    secureStorage.setJSON(getAqiCacheKey(province, pollutant), { row, savedAt: Date.now() });
+    secureStorage.setJSON(getAqiCacheKey(province, pollutant), { version: AQI_CACHE_SCHEMA_VERSION, row, savedAt: Date.now() });
   } catch { /* best-effort */ }
 }
 
-const TABULAR_REFRESH_MS = 120_000;                  // 2 min background refresh
+const TABULAR_REFRESH_MS = 60_000;                   // 1 min background refresh
 const TABULAR_CACHE = new Map();
 const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
@@ -266,12 +271,12 @@ export default function useTabularData(province, pollutant) {
     if (!rows.length) return null;
     const validRow = rows.find((r) => {
       const aqi = r["AQI"] ?? r["aqi"];
-      if (aqi == null || Number(aqi) === 0) return false;
+      if (aqi == null || Number(aqi) === 0 || Number(aqi) > 500) return false;
       const status = r["Status"] ?? r["status"];
       if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
       return true;
     });
-    return validRow || rows[0]; // fall back to absolute newest if all rows are erratic
+    return validRow || null;
   }, [rows]);
 
   // Persist latest row to secureStorage whenever it changes so the AQI card
@@ -299,7 +304,7 @@ export default function useTabularData(province, pollutant) {
       try {
         const base = getApiBase();
         const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
-        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        const res = await fetch(url, { cache: "no-cache", headers: { Accept: "application/json" } });
         if (!res.ok || cancelled) return;
         const json = await res.json();
         if (cancelled || !json?.row) return;

@@ -40,7 +40,7 @@ function api(path, opts = {}) {
 }
 
 /* ── PIN input component ──────────────────────────────────────── */
-function PinInput({ value, onChange, label, placeholder = "Enter PIN (4–16 digits)", autoFocus }) {
+function PinInput({ value, onChange, label, placeholder = "Enter 6-digit PIN", autoFocus }) {
   const dark = useDark();
   const inputBorder = dark ? "#334155" : "#d1d5db";
   return (
@@ -53,9 +53,9 @@ function PinInput({ value, onChange, label, placeholder = "Enter PIN (4–16 dig
       <input
         type="password"
         inputMode="numeric"
-        pattern="\d{4,16}"
+        pattern="\d{6}"
         value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 16))}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
         placeholder={placeholder}
         autoFocus={autoFocus}
         style={{
@@ -170,7 +170,7 @@ export default function AdminPinGate({ children }) {
 
   /* ── First-time setup ────────────────────────────────────────── */
   async function handleSetup() {
-    if (pin.length < 4) return err("PIN must be at least 4 digits.");
+    if (pin.length !== 6) return err("PIN must be exactly 6 digits.");
     if (pin !== pin2)   return err("PINs do not match.");
     setBusy(true);
     try {
@@ -226,7 +226,7 @@ export default function AdminPinGate({ children }) {
   /* ── Forgot PIN: confirm OTP + new PIN ───────────────────────── */
   async function handleResetConfirm() {
     if (otp.length !== 6) return err("Please enter the 6-digit OTP.");
-    if (pin.length < 4)   return err("New PIN must be at least 4 digits.");
+    if (pin.length !== 6) return err("New PIN must be exactly 6 digits.");
     if (pin !== pin2)     return err("PINs do not match.");
     setBusy(true);
     try {
@@ -261,7 +261,7 @@ export default function AdminPinGate({ children }) {
     return (
       <GateCard
         title="Create Admin PIN"
-        subtitle="Set a numeric PIN (4–16 digits) to protect this admin panel."
+        subtitle="Set a 6-digit numeric PIN to protect this admin panel."
       >
         <PinInput label="New PIN" value={pin} onChange={setPin} autoFocus />
         <PinInput label="Confirm PIN" value={pin2} onChange={setPin2} placeholder="Re-enter PIN" />

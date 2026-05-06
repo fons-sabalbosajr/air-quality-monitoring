@@ -16,6 +16,15 @@ const router = Router();
 const COLLECTION = "nlex_settings";
 const DOC_ID = "nlex";
 
+const DEFAULT_AQI_DESCRIPTIONS = {
+  good: "Air is clean. Safe for everyone.",
+  fair: "Acceptable. Sensitive groups take caution.",
+  usg: "Unhealthy for children, elderly & sick. Limit outdoor activity.",
+  vu: "Wear a mask. Everyone may feel health effects.",
+  au: "Health hazard for all. Avoid outdoor exposure.",
+  emergency: "Stay indoors. Air is dangerous for everyone.",
+};
+
 const DEFAULT_SETTINGS = {
   stationsVisible: {
     clark: true,
@@ -51,7 +60,32 @@ const DEFAULT_SETTINGS = {
   nlexMaintenance: false,
   nlexMaintenanceMsg: "",
   nlexMaintenanceUpdateDesc: "",
+  aqiDescriptions: DEFAULT_AQI_DESCRIPTIONS,
 };
+
+function mergeSettings(source) {
+  const settings = source && typeof source === "object" ? source : {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    stationsVisible: {
+      ...DEFAULT_SETTINGS.stationsVisible,
+      ...(settings.stationsVisible || {}),
+    },
+    carouselStationsVisible: {
+      ...DEFAULT_SETTINGS.carouselStationsVisible,
+      ...(settings.carouselStationsVisible || {}),
+    },
+    pollutantsVisible: {
+      ...DEFAULT_SETTINGS.pollutantsVisible,
+      ...(settings.pollutantsVisible || {}),
+    },
+    aqiDescriptions: {
+      ...DEFAULT_AQI_DESCRIPTIONS,
+      ...(settings.aqiDescriptions || {}),
+    },
+  };
+}
 
 // GET /api/nlex-settings — public, no auth required
 // Returns { settings, persisted } where persisted=true means an admin explicitly saved settings.
@@ -63,7 +97,7 @@ router.get("/api/nlex-settings", async (req, res) => {
     const col = db.collection(COLLECTION);
     const doc = await col.findOne({ _id: DOC_ID });
     if (doc) {
-      res.json({ settings: doc.settings, persisted: true });
+      res.json({ settings: mergeSettings(doc.settings), persisted: true });
     } else {
       res.json({ settings: DEFAULT_SETTINGS, persisted: false });
     }
@@ -84,9 +118,10 @@ router.put("/api/nlex-settings", requireAdminToken, async (req, res) => {
     }
     const db = await ensureMongo();
     const col = db.collection(COLLECTION);
+    const merged = mergeSettings(settings);
     await col.updateOne(
       { _id: DOC_ID },
-      { $set: { settings, updatedAt: new Date() } },
+      { $set: { settings: merged, updatedAt: new Date() } },
       { upsert: true }
     );
     res.json({ ok: true });

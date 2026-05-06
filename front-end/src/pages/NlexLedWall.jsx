@@ -115,6 +115,12 @@ function getBand(v) {
   return BANDS.find((b) => n >= b.min && n < b.max) ?? BANDS[BANDS.length - 1];
 }
 
+function getBandDescription(band, aqiDescriptions) {
+  if (!band) return "";
+  const custom = aqiDescriptions?.[band.id];
+  return typeof custom === "string" && custom.trim() ? custom.trim() : band.desc;
+}
+
 function getWeatherIcon(code, isDay) {
   if (code == null) return null;
   if ([95, 96, 99].includes(code)) return TbCloudStorm;
@@ -1299,14 +1305,19 @@ function StationTile({
   gridStyle,
   hideGauge,
   isCarousel,
+  aqiDescriptions,
 }) {
   const firstWithData = pollutants.find((p) => p.aqi != null);
   const dominantBand = firstWithData ? getBand(firstWithData.aqi) : null;
   const isDual = pollutants.length > 1;
 
-  const pollutantDates = pollutants.map((p) =>
-    extractTimestamp(p.latest, p.dateCol, p.fetchedAt),
-  );
+  const pollutantDates = pollutants.map((p) => {
+    if (p.time) {
+      const d = new Date(p.time);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return extractTimestamp(p.latest, p.dateCol, p.fetchedAt);
+  });
   const dates = pollutantDates.filter(Boolean);
   const asOfDate = dates.length
     ? new Date(Math.max(...dates.map((d) => d.getTime())))
@@ -1424,12 +1435,12 @@ function StationTile({
                     className="nlex-category-dot"
                     style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
                   />
-                  {p.loading ? "Loading\u2026" : band ? `${band.emoji} ${band.short}` : "No Data"}
+                  {p.loading || !band ? "Loading\u2026" : `${band.emoji} ${band.short}`}
                 </div>
 
                 {/* Per-pollutant as-of date */}
                 <div className="nlex-carousel-param-asof">
-                  {pDate ? `As of ${fmtDateTime(pDate)}` : "Awaiting data\u2026"}
+                  {pDate ? `As of ${fmtDateTime(pDate)}` : "Loading\u2026"}
                 </div>
               </div>
             );
@@ -1449,7 +1460,7 @@ function StationTile({
                 className="nlex-spotlight-desc nlex-carousel-desc-inverted"
                 style={{ background: bands[0].color, borderColor: bands[0].color, color: "#fff" }}
               >
-                {bands[0].desc}
+                {getBandDescription(bands[0], aqiDescriptions)}
               </div>
             );
           }
@@ -1462,7 +1473,7 @@ function StationTile({
                   style={{ background: bands[i].color, borderColor: bands[i].color, color: "#fff" }}
                 >
                   <span className="nlex-spotlight-desc-label">{p.label}:</span>{" "}
-                  {bands[i].desc}
+                  {getBandDescription(bands[i], aqiDescriptions)}
                 </div>
               ))}
             </div>
@@ -1563,7 +1574,7 @@ function StationTile({
                       className="nlex-category-dot"
                       style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
                     />
-                    {p.loading ? "Loading…" : band ? `${band.emoji} ${band.short}` : "No Data"}
+                    {p.loading || !band ? "Loading…" : `${band.emoji} ${band.short}`}
                   </div>
                   )}
                   {isCarousel && hideGauge && (
@@ -1571,7 +1582,7 @@ function StationTile({
                       <span>
                         {pollutantDates[pIdx]
                           ? `As of ${fmtDateTime(pollutantDates[pIdx])}`
-                          : "Awaiting data…"}
+                          : "Loading…"}
                       </span>
                     </div>
                   )}
@@ -1597,7 +1608,7 @@ function StationTile({
                       color: "#fff",
                     }}
                   >
-                    {bands[0].desc}
+                    {getBandDescription(bands[0], aqiDescriptions)}
                   </div>
                 );
               }
@@ -1616,7 +1627,7 @@ function StationTile({
                       <span className="nlex-spotlight-desc-label">
                         {p.label}:
                       </span>{" "}
-                      {bands[i].desc}
+                      {getBandDescription(bands[i], aqiDescriptions)}
                     </div>
                   ))}
                 </div>
@@ -1646,7 +1657,7 @@ function StationTile({
                         className="nlex-category-dot"
                         style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
                       />
-                      {p.loading ? "Loading\u2026" : band ? `${band.emoji} ${band.short}` : "No Data"}
+                      {p.loading || !band ? "Loading\u2026" : `${band.emoji} ${band.short}`}
                     </div>
                   );
                 })}
@@ -1733,14 +1744,14 @@ function StationTile({
                     className="nlex-category-dot"
                     style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
                   />
-                  {p.loading ? "Loading…" : band ? `${band.emoji} ${band.name}` : "No Data"}
+                  {p.loading || !band ? "Loading…" : `${band.emoji} ${band.name}`}
                 </div>
               );
             })}
           </div>
           {isCarousel && hideGauge && (
             <div className="nlex-tile-asof no-gauge nlex-carousel-inline-asof">
-              {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Awaiting data…"}
+              {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Loading…"}
             </div>
           )}
           {(solo || hideGauge || spotlit) && firstWithData && dominantBand && (
@@ -1752,7 +1763,7 @@ function StationTile({
                 color: "#fff",
               }}
             >
-              {dominantBand.desc}
+              {getBandDescription(dominantBand, aqiDescriptions)}
             </div>
           )}
         </>
@@ -1771,14 +1782,14 @@ function StationTile({
                 <span>
                   {pollutantDates[i]
                     ? `${fmtDateTime(pollutantDates[i])}`
-                    : "Awaiting data…"}
+                    : "Loading…"}
                 </span>
               </div>
             ))}
           </div>
         ) : (
           <div className={`nlex-tile-asof${hideGauge ? " no-gauge" : ""}`}>
-            {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Awaiting data…"}
+            {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Loading…"}
           </div>
         ))}
     </div>
@@ -1906,7 +1917,7 @@ function NlexLedWallInner() {
         clearTimeout(maintenanceDoneTimerRef.current);
       maintenanceDoneTimerRef.current = setTimeout(
         () => setShowMaintenanceDone(false),
-        20000,
+        5000,
       );
     }
     return () => {
@@ -2122,6 +2133,7 @@ function NlexLedWallInner() {
                         latest: clarkPm10.latest,
                         dateCol: clarkPm10.dateCol,
                         fetchedAt: clarkPm10.fetchedAt,
+                        time: clarkPm10.time,
                       },
                     ];
                     return all.filter(Boolean);
@@ -2136,6 +2148,7 @@ function NlexLedWallInner() {
                         latest: sfPm10.latest,
                         dateCol: sfPm10.dateCol,
                         fetchedAt: sfPm10.fetchedAt,
+                        time: sfPm10.time,
                       },
                     ];
                     return all.filter(Boolean);
@@ -2150,6 +2163,7 @@ function NlexLedWallInner() {
                         latest: meycPm10.latest,
                         dateCol: meycPm10.dateCol,
                         fetchedAt: meycPm10.fetchedAt,
+                        time: meycPm10.time,
                       },
                       pollVisible["meycauayan_pm25"] !== false && {
                         key: "meyc-pm25",
@@ -2159,6 +2173,7 @@ function NlexLedWallInner() {
                         latest: meycPm25.latest,
                         dateCol: meycPm25.dateCol,
                         fetchedAt: meycPm25.fetchedAt,
+                        time: meycPm25.time,
                       },
                     ];
                     return all.filter(Boolean);
@@ -2173,6 +2188,7 @@ function NlexLedWallInner() {
                         latest: zamPm10.latest,
                         dateCol: zamPm10.dateCol,
                         fetchedAt: zamPm10.fetchedAt,
+                        time: zamPm10.time,
                       },
                       pollVisible["zambales_pm25"] !== false && {
                         key: "zam-pm25",
@@ -2182,6 +2198,7 @@ function NlexLedWallInner() {
                         latest: zamPm25.latest,
                         dateCol: zamPm25.dateCol,
                         fetchedAt: zamPm25.fetchedAt,
+                        time: zamPm25.time,
                       },
                     ];
                     return all.filter(Boolean);
@@ -2212,6 +2229,7 @@ function NlexLedWallInner() {
                           pollutants={getPollutants(st.key)}
                           hideGauge={hideGauge}
                           isCarousel={true}
+                          aqiDescriptions={settings.aqiDescriptions}
                         />
                       </div>
                       {/* Pagination dots */}
@@ -2252,6 +2270,7 @@ function NlexLedWallInner() {
                           solo={spotlight === i}
                           pollutants={getPollutants(st.key)}
                           hideGauge={hideGauge}
+                          aqiDescriptions={settings.aqiDescriptions}
                           gridStyle={
                             isLast3
                               ? {

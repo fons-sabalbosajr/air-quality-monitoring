@@ -53,9 +53,9 @@ function isValidToken(token) {
   return true;
 }
 
-/* Validate PIN input (4–16 alphanumeric digits) */
+/* Validate PIN input (6 numeric digits) */
 function validatePin(pin) {
-  return typeof pin === "string" && /^\d{4,16}$/.test(pin);
+  return typeof pin === "string" && /^\d{6}$/.test(pin);
 }
 
 /* ── Middleware — exported for use in other routes ────────────── */
@@ -84,7 +84,7 @@ router.post("/api/admin/auth/setup", async (req, res) => {
   try {
     const { pin, recoveryEmail } = req.body;
     if (!validatePin(pin)) {
-      return res.status(400).json({ error: "PIN must be 4–16 digits" });
+      return res.status(400).json({ error: "PIN must be 6 digits" });
     }
     const db  = await ensureMongo();
     const col = db.collection(COLLECTION);
@@ -193,7 +193,7 @@ router.post("/api/admin/auth/reset-confirm", async (req, res) => {
       return res.status(400).json({ error: "OTP and new PIN required" });
     }
     if (!validatePin(newPin)) {
-      return res.status(400).json({ error: "PIN must be 4–16 digits" });
+      return res.status(400).json({ error: "PIN must be 6 digits" });
     }
 
     const db  = await ensureMongo();

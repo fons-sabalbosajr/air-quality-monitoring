@@ -382,10 +382,10 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
 
   // Push to context
   useEffect(() => {
-    try {
-      setCategory && setCategory(latestAqi.category);
-    } catch {}
-  }, [latestAqi.category]);
+    if (typeof setCategory === "function") {
+      setCategory(latestAqi.category);
+    }
+  }, [latestAqi.category, setCategory]);
 
   // ── Progress bar for auto-cycle ──
   const [progress, setProgress] = useState(0);
@@ -983,14 +983,12 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
         station={station}
         tabular={tabular}
         tabular2={station.merged ? tabular2 : null}
-        dark={dark}
       />
 
       {/* ── Map Modal ── */}
       <KioskMapModal
         open={mapModalOpen}
         onClose={() => setMapModalOpen(false)}
-        dark={dark}
       />
     </div>
   );
@@ -1027,7 +1025,7 @@ const PROVINCE_LABELS = {
    Kiosk Tabular Modal
    Full-featured table with filters, export, and email sharing
    ══════════════════════════════════════════════════════════════════ */
-function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) {
+function KioskTabularModal({ open, onClose, station, tabular, tabular2 }) {
   const { token } = theme.useToken();
   const [activePollutant, setActivePollutant] = useState("pm10");
 
@@ -1088,7 +1086,9 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
             ? <Tag color={t} style={{ fontWeight: 700 }}>{typeof v === "number" ? Math.round(v) : v}</Tag>
             : <span style={{ fontWeight: 600 }}>{typeof v === "number" ? Math.round(v) : v}</span>;
         }
-        if (c.toLowerCase().includes("rolling average") && typeof v === "number") return v.toFixed(2);
+        if (c.toLowerCase().includes("rolling average") && typeof v === "number") {
+          return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v);
+        }
         return v == null ? "" : String(v);
       },
     };
@@ -1269,7 +1269,7 @@ function KioskTabularModal({ open, onClose, station, tabular, tabular2, dark }) 
    Kiosk Map Modal 
    Embedded Google Maps with station markers (no redirect)
    ══════════════════════════════════════════════════════════════════ */
-function KioskMapModal({ open, onClose, dark }) {
+function KioskMapModal({ open, onClose }) {
   const [focusStation, setFocusStation] = useState(null);
 
   const mapSrc = useMemo(() => {
