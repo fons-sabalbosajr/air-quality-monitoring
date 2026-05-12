@@ -16,25 +16,8 @@ import HourlyWeatherCard from "../components/HourlyWeatherCard";
 import HistoricalAqiGraph from "../components/HistoricalAqiGraph";
 import AqiCalendar from "../components/AqiCalendar";
 import WindMapCard from "../components/WindMapCard";
+import { getAqiColor, hexToRgba } from "../utils/aqiPalette";
 import "./Dashboard.css";
-
-/* ── Status colour helper ─────────────────────────────────────────── */
-const STATUS_COLORS = {
-  Good: "#52c41a",
-  Fair: "#d4b106",
-  "Unhealthy for Sensitive Groups": "#fa8c16",
-  "Very Unhealthy": "#f5222d",
-  "Acutely Unhealthy": "#722ed1",
-  Emergency: "#a8071a",
-};
-function getStatusColor(status) {
-  if (!status) return null;
-  const s = String(status).toLowerCase();
-  for (const [key, color] of Object.entries(STATUS_COLORS)) {
-    if (s.includes(key.toLowerCase().split(" ")[0])) return color;
-  }
-  return null;
-}
 
 /* ── Dashboard Page ────────────────────────────────────────────────── */
 export default function DashboardPage() {
@@ -195,12 +178,8 @@ export default function DashboardPage() {
   const dashAccent = useMemo(() => {
     const v = latestAqi.value;
     if (v == null || !isFinite(v)) return { color: "#0ea5e9", light: "rgba(14,165,233,0.06)", border: "rgba(14,165,233,0.15)" };
-    if (v <= 50) return { color: "#34d399", light: "rgba(52,211,153,0.06)", border: "rgba(52,211,153,0.18)" };
-    if (v <= 100) return { color: "#fbbf24", light: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.18)" };
-    if (v <= 150) return { color: "#fb923c", light: "rgba(251,146,60,0.06)", border: "rgba(251,146,60,0.18)" };
-    if (v <= 200) return { color: "#f87171", light: "rgba(248,113,113,0.06)", border: "rgba(248,113,113,0.18)" };
-    if (v <= 300) return { color: "#a78bfa", light: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.18)" };
-    return { color: "#fb7185", light: "rgba(251,113,133,0.07)", border: "rgba(251,113,133,0.2)" };
+    const color = getAqiColor(v);
+    return { color, light: hexToRgba(color, 0.06), border: hexToRgba(color, 0.18) };
   }, [latestAqi.value]);
 
   // Live clock for toolbar

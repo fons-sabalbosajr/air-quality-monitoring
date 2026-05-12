@@ -34,6 +34,7 @@ import {
   NlexSettingsProvider,
   useNlexSettings,
 } from "../context/NlexSettingsContext";
+import { AQI_COLORS } from "../utils/aqiPalette";
 import "./NlexLedWall.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -47,7 +48,7 @@ const BANDS = [
     short: "Good",
     min: 0,
     max: 50,
-    color: "#16a34a",
+    color: AQI_COLORS.good,
     emoji: "😊",
     desc: "Air is clean. Safe for everyone.",
   },
@@ -58,7 +59,7 @@ const BANDS = [
     short: "Fair",
     min: 50,
     max: 100,
-    color: "#ca8a04",
+    color: AQI_COLORS.fair,
     emoji: "😐",
     desc: "Acceptable. Sensitive groups take caution.",
   },
@@ -69,7 +70,7 @@ const BANDS = [
     short: "Sensitive",
     min: 100,
     max: 150,
-    color: "#ea580c",
+    color: AQI_COLORS.usg,
     emoji: "😷",
     desc: "Unhealthy for children, elderly & sick. Limit outdoor activity.",
   },
@@ -80,7 +81,7 @@ const BANDS = [
     short: "Very Unhealthy",
     min: 150,
     max: 200,
-    color: "#dc2626",
+    color: AQI_COLORS.vu,
     emoji: "😰",
     desc: "Wear a mask. Everyone may feel health effects.",
   },
@@ -91,7 +92,7 @@ const BANDS = [
     short: "Acutely",
     min: 200,
     max: 300,
-    color: "#7c3aed",
+    color: AQI_COLORS.au,
     emoji: "😱",
     desc: "Health hazard for all. Avoid outdoor exposure.",
   },
@@ -102,7 +103,7 @@ const BANDS = [
     short: "Emergency",
     min: 300,
     max: 500,
-    color: "#9f1239",
+    color: AQI_COLORS.emergency,
     emoji: "☠️",
     desc: "Stay indoors. Air is dangerous for everyone.",
   },
@@ -939,7 +940,7 @@ function useAnimatedAqi(targetAqi, duration = 1000) {
 /* Animated counter display — smoothly counts to new AQI value */
 function AnimatedNumber({ value }) {
   const anim = useAnimatedAqi(value);
-  if (value == null) return "—";
+  if (value == null) return "...";
   return <>{Math.round(anim ?? value)}</>;
 }
 
@@ -1129,7 +1130,7 @@ function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInsid
           {band.emoji}
         </text>
       )}
-      {showAqiInside && !loading && (
+      {showAqiInside && (
         <>
           <text
             x={cx}
@@ -1142,7 +1143,7 @@ function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInsid
             fill={band.color}
             className="nlex-gauge-aqi-inside"
           >
-            {animAqi != null ? Math.round(animAqi) : "—"}
+            {loading || animAqi == null ? "..." : Math.round(animAqi)}
           </text>
           <text
             x={cx}
@@ -1550,7 +1551,7 @@ function StationTile({
                         style={{ color: band ? band.color : "#9ca3af" }}
                       >
                         {p.loading ? (
-                          <span className="nlex-aqi-loading">···</span>
+                          <span className="nlex-aqi-loading">...</span>
                         ) : (
                           <AnimatedNumber value={p.aqi} />
                         )}
@@ -1712,7 +1713,7 @@ function StationTile({
                       style={{ color: band ? band.color : "#9ca3af" }}
                     >
                       {p.loading ? (
-                        <span className="nlex-aqi-loading">···</span>
+                        <span className="nlex-aqi-loading">...</span>
                       ) : (
                         <AnimatedNumber value={p.aqi} />
                       )}

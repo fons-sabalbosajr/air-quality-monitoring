@@ -44,6 +44,7 @@ import {
   useNlexSettings,
   DEFAULT_SETTINGS,
 } from "../context/NlexSettingsContext";
+import { AQI_COLORS } from "../utils/aqiPalette";
 import "./NlexSettingsPage.css";
 
 const { Title, Text } = Typography;
@@ -133,17 +134,17 @@ const COMPONENT_TOGGLES = [
 const DEFAULT_AQI_DESCRIPTIONS = DEFAULT_SETTINGS.aqiDescriptions;
 
 const AQI_DESCRIPTION_BANDS = [
-  { id: "good", label: "Good", range: "0-50", color: "#16a34a" },
-  { id: "fair", label: "Fair", range: "51-100", color: "#ca8a04" },
+  { id: "good", label: "Good", range: "0-50", color: AQI_COLORS.good },
+  { id: "fair", label: "Fair", range: "51-100", color: AQI_COLORS.fair },
   {
     id: "usg",
     label: "Unhealthy for Sensitive Groups",
     range: "101-150",
-    color: "#ea580c",
+    color: AQI_COLORS.usg,
   },
-  { id: "vu", label: "Very Unhealthy", range: "151-200", color: "#dc2626" },
-  { id: "au", label: "Acutely Unhealthy", range: "201-300", color: "#7c3aed" },
-  { id: "emergency", label: "Emergency", range: "301-500", color: "#9f1239" },
+  { id: "vu", label: "Very Unhealthy", range: "151-200", color: AQI_COLORS.vu },
+  { id: "au", label: "Acutely Unhealthy", range: "201-300", color: AQI_COLORS.au },
+  { id: "emergency", label: "Emergency", range: "301-500", color: AQI_COLORS.emergency },
 ];
 
 /* ── Shared row style ─────────────────────────────────────── */

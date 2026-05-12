@@ -15,16 +15,17 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { AQI_COLORS } from "../utils/aqiPalette";
 import "./HistoricalAqiGraph.css";
 
 /* ── AQI colour bands ─────────────────────────────────────────────── */
 const BANDS = [
-  { name: "Good",                              min: 0,   max: 50,  color: "#34d399" },
-  { name: "Fair",                              min: 51,  max: 100, color: "#fbbf24" },
-  { name: "Unhealthy for Sensitive Groups",    min: 101, max: 150, color: "#fb923c" },
-  { name: "Very Unhealthy",                    min: 151, max: 200, color: "#f87171" },
-  { name: "Acutely Unhealthy",                 min: 201, max: 300, color: "#a78bfa" },
-  { name: "Emergency",                         min: 301, max: 999, color: "#fb7185" },
+  { name: "Good",                              min: 0,   max: 50,  color: AQI_COLORS.good },
+  { name: "Fair",                              min: 51,  max: 100, color: AQI_COLORS.fair },
+  { name: "Unhealthy for Sensitive Groups",    min: 101, max: 150, color: AQI_COLORS.usg },
+  { name: "Very Unhealthy",                    min: 151, max: 200, color: AQI_COLORS.vu },
+  { name: "Acutely Unhealthy",                 min: 201, max: 300, color: AQI_COLORS.au },
+  { name: "Emergency",                         min: 301, max: 999, color: AQI_COLORS.emergency },
 ];
 
 function getColor(val) {
@@ -81,12 +82,12 @@ function ChartTooltip({ active, payload, label }) {
 
 /* ── Secondary colour palette for PM2.5 (blue-teal tones) ─────── */
 const BANDS2 = [
-  { name: "Good",                              min: 0,   max: 50,  color: "#06b6d4" },
-  { name: "Fair",                              min: 51,  max: 100, color: "#eab308" },
-  { name: "Unhealthy for Sensitive Groups",    min: 101, max: 150, color: "#f97316" },
-  { name: "Very Unhealthy",                    min: 151, max: 200, color: "#ef4444" },
-  { name: "Acutely Unhealthy",                 min: 201, max: 300, color: "#8b5cf6" },
-  { name: "Emergency",                         min: 301, max: 999, color: "#e11d48" },
+  { name: "Good",                              min: 0,   max: 50,  color: AQI_COLORS.good },
+  { name: "Fair",                              min: 51,  max: 100, color: AQI_COLORS.fair },
+  { name: "Unhealthy for Sensitive Groups",    min: 101, max: 150, color: AQI_COLORS.usg },
+  { name: "Very Unhealthy",                    min: 151, max: 200, color: AQI_COLORS.vu },
+  { name: "Acutely Unhealthy",                 min: 201, max: 300, color: AQI_COLORS.au },
+  { name: "Emergency",                         min: 301, max: 999, color: AQI_COLORS.emergency },
 ];
 
 function getColor2(val) {
@@ -264,7 +265,7 @@ export default function HistoricalAqiGraph({
         <div className="hist-aqi-stats">
           {hasDual && (
             <>
-              <Tag color="#34d399" style={{ fontWeight: 700, fontSize: 11 }}>
+              <Tag color={AQI_COLORS.good} style={{ fontWeight: 700, fontSize: 11 }}>
                 {label || "PM10"}
               </Tag>
               <Tag color="#06b6d4" style={{ fontWeight: 700, fontSize: 11 }}>

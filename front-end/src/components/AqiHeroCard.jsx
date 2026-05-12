@@ -27,6 +27,7 @@ import {
   TbInfoCircle,
 } from "react-icons/tb";
 import AqiCategoryMeter from "./AqiCategoryMeter";
+import { AQI_COLORS } from "../utils/aqiPalette";
 import "./AqiHeroCard.css";
 
 /* ── AQI colour bands (Philippine NAAQGV-style, PM10) ─────────────── */
@@ -35,7 +36,7 @@ const AQI_BANDS = [
     name: "GOOD",
     min: 0,
     max: 50,
-    color: "#34d399",
+    color: AQI_COLORS.good,
     textColor: "#065f46",
     heroText: "#1a3a4a",
     heroTextSub: "rgba(20,60,80,0.65)",
@@ -51,7 +52,7 @@ const AQI_BANDS = [
     name: "FAIR",
     min: 51,
     max: 100,
-    color: "#fbbf24",
+    color: AQI_COLORS.fair,
     textColor: "#78350f",
     heroText: "#3d2a00",
     heroTextSub: "rgba(60,40,0,0.6)",
@@ -67,7 +68,7 @@ const AQI_BANDS = [
     name: "UNHEALTHY FOR SENSITIVE GROUPS",
     min: 101,
     max: 150,
-    color: "#fb923c",
+    color: AQI_COLORS.usg,
     textColor: "#7c2d12",
     heroText: "#ffffff",
     heroTextSub: "rgba(255,255,255,0.7)",
@@ -83,7 +84,7 @@ const AQI_BANDS = [
     name: "VERY UNHEALTHY",
     min: 151,
     max: 200,
-    color: "#f87171",
+    color: AQI_COLORS.vu,
     textColor: "#7f1d1d",
     heroText: "#ffffff",
     heroTextSub: "rgba(255,255,255,0.7)",
@@ -99,7 +100,7 @@ const AQI_BANDS = [
     name: "ACUTELY UNHEALTHY",
     min: 201,
     max: 300,
-    color: "#a78bfa",
+    color: AQI_COLORS.au,
     textColor: "#3b0764",
     heroText: "#ffffff",
     heroTextSub: "rgba(255,255,255,0.7)",
@@ -115,7 +116,7 @@ const AQI_BANDS = [
     name: "EMERGENCY",
     min: 301,
     max: 999,
-    color: "#fb7185",
+    color: AQI_COLORS.emergency,
     textColor: "#4c0519",
     heroText: "#ffffff",
     heroTextSub: "rgba(255,255,255,0.7)",

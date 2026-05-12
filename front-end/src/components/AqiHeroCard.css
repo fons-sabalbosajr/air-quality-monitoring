@@ -260,7 +260,7 @@
   width: 140px;
   height: 140px;
   border-radius: 50%;
-  border: 4px solid var(--gauge-color, #34d399);
+  border: 4px solid var(--gauge-color, #3AAE49);
   background: rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -269,7 +269,7 @@
   align-items: center;
   justify-content: center;
   box-shadow:
-    0 0 30px var(--gauge-glow, rgba(52, 211, 153, 0.4)),
+    0 0 30px var(--gauge-glow, rgba(58, 174, 73, 0.4)),
     inset 0 0 25px rgba(255, 255, 255, 0.15);
   transition:
     border-color 0.6s ease,
@@ -320,7 +320,7 @@
   position: absolute;
   inset: -8px;
   border-radius: 50%;
-  border: 3px solid var(--gauge-color, #34d399);
+  border: 3px solid var(--gauge-color, #3AAE49);
   opacity: 0;
   animation: gauge-pulse 2.5s ease-out infinite;
   z-index: 1;
@@ -644,9 +644,9 @@
   color: #90cdf4;
 }
 .aqi-sheet-sync-banner--computing {
-  background: rgba(251, 191, 36, 0.14);
-  border: 1px solid rgba(251, 191, 36, 0.38);
-  color: #fbbf24;
+  background: rgba(255, 222, 89, 0.14);
+  border: 1px solid rgba(255, 222, 89, 0.38);
+  color: #FFDE59;
 }
 .aqi-sheet-sync-icon {
   display: flex;
@@ -696,15 +696,15 @@
   gap: 4px;
   margin-top: 6px;
   padding: 8px 12px;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(255, 222, 89, 0.15);
+  border: 1px solid rgba(255, 222, 89, 0.35);
   border-radius: 8px;
   max-width: 340px;
 }
 .aqi-hero-fallback-badge {
   font-size: 11px;
   font-weight: 700;
-  color: #fbbf24;
+  color: #FFDE59;
   letter-spacing: 0.3px;
 }
 .aqi-hero-fallback-text {
@@ -717,22 +717,22 @@
 }
 /* Alternate badge style for Live badge */
 .aqi-live-badge--fallback {
-  background: rgba(251, 191, 36, 0.2);
-  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(255, 222, 89, 0.2);
+  border-color: rgba(255, 222, 89, 0.4);
 }
 .aqi-live-dot--warn {
-  background: #fbbf24 !important;
-  box-shadow: 0 0 6px rgba(251, 191, 36, 0.6) !important;
+  background: #FFDE59 !important;
+  box-shadow: 0 0 6px rgba(255, 222, 89, 0.6) !important;
 }
 /* Stale badge style (>7 days outdated) */
 .aqi-live-badge--stale {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(255, 49, 49, 0.18);
+  border-color: rgba(255, 49, 49, 0.4);
   color: #fca5a5;
 }
 .aqi-live-dot--stale {
-  background: #ef4444 !important;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6) !important;
+  background: #FF3131 !important;
+  box-shadow: 0 0 6px rgba(255, 49, 49, 0.6) !important;
   animation: none !important;
 }
 
@@ -747,8 +747,8 @@
   align-items: center;
   gap: 12px;
   padding: 14px 20px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px dashed rgba(239, 68, 68, 0.35);
+  background: rgba(255, 49, 49, 0.08);
+  border: 1px dashed rgba(255, 49, 49, 0.35);
   border-radius: 12px;
   backdrop-filter: blur(4px);
 }
@@ -759,7 +759,7 @@
 .stale-data-overlay-text {
   font-size: 13px;
   font-weight: 600;
-  color: #ef4444;
+  color: #FF3131;
   line-height: 1.5;
 }
 .stale-data-overlay-sub {
@@ -1058,8 +1058,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--aqi-accent, #34d399);
-  box-shadow: 0 0 6px var(--aqi-accent, rgba(52, 211, 153, 0.6));
+  background: var(--aqi-accent, #3AAE49);
+  box-shadow: 0 0 6px var(--aqi-accent, rgba(58, 174, 73, 0.6));
   animation: live-pulse 1.8s ease-in-out infinite;
   flex-shrink: 0;
 }

@@ -193,6 +193,20 @@ export default function useLatestAqi(province, pollutant) {
     return () => clearInterval(iv);
   }, [fetchLatest]);
 
+  useEffect(() => {
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") fetchLatest();
+    }
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", fetchLatest);
+    window.addEventListener("online", fetchLatest);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", fetchLatest);
+      window.removeEventListener("online", fetchLatest);
+    };
+  }, [fetchLatest]);
+
   // Derive AQI number from the latest row
   const aqi = latest
     ? (() => { const v = Number(latest["AQI"] ?? latest["aqi"]); return isFinite(v) && v > 0 ? v : null; })()

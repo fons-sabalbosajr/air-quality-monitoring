@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Tag, Tooltip } from "antd";
+import { AQI_COLORS } from "../utils/aqiPalette";
 import "./AqiCategoryMeter.css";
 
 /* ── AQI Category bands (Philippine NAAQGV breakpoints) ────────── */
@@ -8,42 +9,42 @@ const BANDS = [
     name: "Good",
     min: 0,
     max: 50,
-    color: "#34d399",
+    color: AQI_COLORS.good,
     desc: "Air quality is satisfactory; little or no health risk.",
   },
   {
     name: "Fair",
     min: 51,
     max: 100,
-    color: "#fbbf24",
+    color: AQI_COLORS.fair,
     desc: "Air quality is acceptable; moderate health concern for sensitive individuals.",
   },
   {
     name: "Unhealthy for Sensitive Groups",
     min: 101,
     max: 150,
-    color: "#fb923c",
+    color: AQI_COLORS.usg,
     desc: "Members of sensitive groups may experience health effects; general public is less likely to be affected.",
   },
   {
     name: "Very Unhealthy",
     min: 151,
     max: 200,
-    color: "#f87171",
+    color: AQI_COLORS.vu,
     desc: "Health alert — everyone may begin to experience health effects.",
   },
   {
     name: "Acutely Unhealthy",
     min: 201,
     max: 300,
-    color: "#a78bfa",
+    color: AQI_COLORS.au,
     desc: "Health warning of emergency conditions; entire population is likely to be affected.",
   },
   {
     name: "Emergency",
     min: 301,
     max: 500,
-    color: "#fb7185",
+    color: AQI_COLORS.emergency,
     desc: "Serious health effects for everyone; emergency conditions.",
   },
 ];

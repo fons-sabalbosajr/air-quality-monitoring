@@ -17,6 +17,7 @@ import {
 import Swal from "sweetalert2";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
+import { getAqiColor, getAqiStatusColor } from "../utils/aqiPalette";
 import { secureSession } from "../utils/secureStorage";
 
 const { Title, Text } = Typography;
@@ -534,22 +535,16 @@ export default function AdminTabularManage() {
         } : {}),
         render: (val) => {
           if (col === "Status" && val) {
-            const color = {
-              Good: "green", Fair: "gold",
-              "Unhealthy for Sensitive Groups": "orange",
-              "Very Unhealthy": "red",
-              "Acutely Unhealthy": "purple",
-              Emergency: "magenta",
-              Invalid: "default",
-              "For Validation": "default",
-            }[val] ?? "default";
-            return <Tag color={color}>{val}</Tag>;
+            const color = getAqiStatusColor(val);
+            return color
+              ? <Tag style={{ color, borderColor: `${color}66`, background: `${color}1a` }}>{val}</Tag>
+              : <Tag color="default">{val}</Tag>;
           }
           if (col === "AQI") {
             if (val == null) return <span style={{ color: "#9ca3af" }}>—</span>;
             const n = Number(val);
             if (!isFinite(n)) return val;
-            const aqiColor = n <= 50 ? "#16a34a" : n <= 100 ? "#ca8a04" : n <= 150 ? "#ea580c" : n <= 200 ? "#dc2626" : n <= 300 ? "#9333ea" : "#9b1c1c";
+            const aqiColor = getAqiColor(n);
             return <span style={{ color: aqiColor, fontWeight: 700 }}>{n}</span>;
           }
           if (/rolling\s*avg(?:erage)?/i.test(col)) {

@@ -4,16 +4,17 @@ import dayjs from "dayjs";
 import { TbCalendar, TbDownload, TbFileTypeCsv, TbChevronLeft, TbChevronRight } from "react-icons/tb";
 import { LoadingOutlined } from "@ant-design/icons";
 import STATIONS, { getMergedStations } from "../config/stations";
+import { AQI_BG_COLORS, AQI_COLORS } from "../utils/aqiPalette";
 import "./AqiCalendar.css";
 
 /* ── AQI colour bands ─────────────────────────────────────────────── */
 const BANDS = [
-  { name: "Good",                          min: 0,   max: 50,  color: "#34d399", bg: "#d1fae5", face: "😊" },
-  { name: "Fair",                          min: 51,  max: 100, color: "#fbbf24", bg: "#fef3c7", face: "🙂" },
-  { name: "Unhealthy for Sensitive Groups", min: 101, max: 150, color: "#fb923c", bg: "#ffedd5", face: "😷" },
-  { name: "Very Unhealthy",               min: 151, max: 200, color: "#f87171", bg: "#fee2e2", face: "🤢" },
-  { name: "Acutely Unhealthy",            min: 201, max: 300, color: "#a78bfa", bg: "#ede9fe", face: "😨" },
-  { name: "Emergency",                    min: 301, max: 999, color: "#fb7185", bg: "#fce7f3", face: "☠️" },
+  { name: "Good",                          min: 0,   max: 50,  color: AQI_COLORS.good, bg: AQI_BG_COLORS.good, face: "😊" },
+  { name: "Fair",                          min: 51,  max: 100, color: AQI_COLORS.fair, bg: AQI_BG_COLORS.fair, face: "🙂" },
+  { name: "Unhealthy for Sensitive Groups", min: 101, max: 150, color: AQI_COLORS.usg, bg: AQI_BG_COLORS.usg, face: "😷" },
+  { name: "Very Unhealthy",               min: 151, max: 200, color: AQI_COLORS.vu, bg: AQI_BG_COLORS.vu, face: "🤢" },
+  { name: "Acutely Unhealthy",            min: 201, max: 300, color: AQI_COLORS.au, bg: AQI_BG_COLORS.au, face: "😨" },
+  { name: "Emergency",                    min: 301, max: 999, color: AQI_COLORS.emergency, bg: AQI_BG_COLORS.emergency, face: "☠️" },
 ];
 
 function getBand(val) {
@@ -448,7 +449,7 @@ export default function AqiCalendar({
           <span className="aqi-cal-legend-label">No data</span>
         </span>
         <span className="aqi-cal-legend-item">
-          <span className="aqi-cal-legend-swatch" style={{ background: "#fff7ed", border: "1.5px solid #fb923c" }}>⚠</span>
+          <span className="aqi-cal-legend-swatch" style={{ background: AQI_BG_COLORS.usg, border: `1.5px solid ${AQI_COLORS.usg}` }}>⚠</span>
           <span className="aqi-cal-legend-label">For Validation</span>
         </span>
       </div>
@@ -495,19 +496,19 @@ export default function AqiCalendar({
               </div>
               <div className="aqi-cal-summary-item">
                 <span className="aqi-cal-summary-label">Good</span>
-                <span className="aqi-cal-summary-value" style={{ color: "#34d399" }}>
+                <span className="aqi-cal-summary-value" style={{ color: AQI_COLORS.good }}>
                   {monthStats.goodDays}d
                 </span>
               </div>
               <div className="aqi-cal-summary-item">
                 <span className="aqi-cal-summary-label">Fair</span>
-                <span className="aqi-cal-summary-value" style={{ color: "#fbbf24" }}>
+                <span className="aqi-cal-summary-value" style={{ color: AQI_COLORS.fair }}>
                   {monthStats.fairDays}d
                 </span>
               </div>
               <div className="aqi-cal-summary-item">
                 <span className="aqi-cal-summary-label">Unhealthy</span>
-                <span className="aqi-cal-summary-value" style={{ color: "#fb923c" }}>
+                <span className="aqi-cal-summary-value" style={{ color: AQI_COLORS.usg }}>
                   {monthStats.unhealthyDays}d
                 </span>
               </div>
@@ -539,8 +540,8 @@ export default function AqiCalendar({
               // Use primary band for cell background; if only secondary, use that
               const activeBand = band || band2;
               const bg = activeBand ? activeBand.bg : isErratic ? "#fff7ed" : "#f3f4f6";
-              const borderColor = activeBand ? activeBand.color : isErratic ? "#fb923c" : "#e5e7eb";
-              const textColor = activeBand ? activeBand.color : isErratic ? "#ea580c" : "var(--aqm-muted)";
+              const borderColor = activeBand ? activeBand.color : isErratic ? AQI_COLORS.usg : "#e5e7eb";
+              const textColor = activeBand ? activeBand.color : isErratic ? AQI_COLORS.usg : "var(--aqm-muted)";
               const hasAny = val != null || val2 != null || isErratic;
               return (
                 <Tooltip
@@ -565,7 +566,7 @@ export default function AqiCalendar({
                         </div>
                       ) : null}
                       {isErratic && (
-                        <div style={{ marginTop: 4, borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: 4, color: "#fb923c", fontSize: 11, fontWeight: 600 }}>
+                        <div style={{ marginTop: 4, borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: 4, color: AQI_COLORS.usg, fontSize: 11, fontWeight: 600 }}>
                           ⚠ Erratic data — For Validation
                         </div>
                       )}
@@ -705,7 +706,7 @@ export default function AqiCalendar({
                 items={[
                   {
                     key: "primary",
-                    label: <Tag color="#34d399" style={{ margin: 0, fontWeight: 700, fontSize: 12 }}>{label || "PM10"}</Tag>,
+                    label: <Tag color={AQI_COLORS.good} style={{ margin: 0, fontWeight: 700, fontSize: 12 }}>{label || "PM10"}</Tag>,
                     children: (
                       <DayTable
                         readings={filteredDayReadings}
