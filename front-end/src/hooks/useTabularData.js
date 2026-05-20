@@ -21,7 +21,7 @@ import { secureStorage } from "../utils/secureStorage";
 // Persist the latest AQI row in secureStorage so the AQI card can render
 // immediately on the next page load without waiting for the network.
 const AQI_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 h — evict stale cache
-const LATEST_POLL_MS = 30_000;                  // fast-poll for new AQI rows
+const LATEST_POLL_MS = 15_000;                  // fast-poll for new AQI rows
 const AQI_CACHE_SCHEMA_VERSION = 3;
 
 function getAqiCacheKey(province, pollutant) {
@@ -54,7 +54,7 @@ function persistLatestRow(province, pollutant, row) {
   } catch { /* best-effort */ }
 }
 
-const TABULAR_REFRESH_MS = 60_000;                   // 1 min background refresh
+const TABULAR_REFRESH_MS = 45_000;                   // frequent background refresh
 const TABULAR_CACHE = new Map();
 const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
@@ -85,7 +85,11 @@ async function requestTabularData(province, pollutant, force = false) {
   const pending = (async () => {
     const base = getApiBase();
     const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}`;
-    const headers = { Accept: "application/json" };
+    const headers = {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    };
 
     // Send ETag for conditional request (saves bandwidth when data unchanged)
     const etagKey = getCacheKey(province, pollutant);
@@ -94,7 +98,7 @@ async function requestTabularData(province, pollutant, force = false) {
       headers["If-None-Match"] = existingEtag;
     }
 
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { cache: "no-cache", headers });
 
     // 304 Not Modified — data unchanged, reuse cached data
     if (res.status === 304) {
@@ -147,6 +151,28 @@ async function requestTabularData(province, pollutant, force = false) {
 
 export function prefetchTabularData(province, pollutant) {
   return requestTabularData(province, pollutant).catch(() => null);
+}
+
+export async function prefetchLatestAqi(province, pollutant) {
+  if (!province || !pollutant) return null;
+  try {
+    const base = getApiBase();
+    const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json?.row) persistLatestRow(province, pollutant, json.row);
+    return json;
+  } catch {
+    return null;
+  }
 }
 
 export default function useTabularData(province, pollutant) {
@@ -304,7 +330,14 @@ export default function useTabularData(province, pollutant) {
       try {
         const base = getApiBase();
         const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
-        const res = await fetch(url, { cache: "no-cache", headers: { Accept: "application/json" } });
+        const res = await fetch(url, {
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
         if (!res.ok || cancelled) return;
         const json = await res.json();
         if (cancelled || !json?.row) return;

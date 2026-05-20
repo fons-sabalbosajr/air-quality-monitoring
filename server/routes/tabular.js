@@ -20,6 +20,7 @@ const { isMaintenanceMode } = require("../config/env");
 const { requireAdminToken } = require("./admin-auth");
 
 const router = Router();
+const API_CACHE_CONTROL = "private, no-cache, max-age=0, must-revalidate";
 
 /**
  * Generate a weak ETag from response payload for conditional caching.
@@ -35,8 +36,10 @@ function generateETag(body) {
  */
 function setCacheHeaders(req, res, body) {
   const etag = generateETag(body);
-  // Private cache: don't store in shared proxies; revalidate after 60s
-  res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+  // AQI data is display-critical; always revalidate while still allowing ETag 304s.
+  res.setHeader("Cache-Control", API_CACHE_CONTROL);
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.setHeader("ETag", etag);
   res.setHeader("Vary", "Accept");
   if (req.headers["if-none-match"] === etag) {
@@ -49,20 +52,36 @@ function setCacheHeaders(req, res, body) {
 // Debounce background backup refreshes — active displays/admin pages monitor Sheets without overlapping syncs.
 const _lastBackupRefresh = new Map();
 const BACKUP_REFRESH_DEBOUNCE_MS = 30_000;
+const LATEST_REFRESH_DEBOUNCE_MS = 15_000;
+const LATEST_REFRESH_WAIT_MS = Number(process.env.LATEST_REFRESH_WAIT_MS || 8000);
 
-function maybeRefreshBackup(province, pollutant) {
+function maybeRefreshBackup(province, pollutant, opts = {}) {
   const key = `${province}:${pollutant}`;
   const now = Date.now();
   const last = _lastBackupRefresh.get(key) || 0;
-  if (now - last < BACKUP_REFRESH_DEBOUNCE_MS) return; // skip, too soon
+  const debounceMs = Number(opts.debounceMs ?? BACKUP_REFRESH_DEBOUNCE_MS);
+  if (!opts.force && now - last < debounceMs) {
+    return Promise.resolve({ updated: false, skipped: true, reason: "debounced" });
+  }
   _lastBackupRefresh.set(key, now);
-  backupOne(province, pollutant)
+  return backupOne(province, pollutant, { force: opts.force === true })
     .then((result) => {
       if (result?.updated) {
         _enrichedCache.delete(key);
       }
+      return result;
     })
-    .catch(() => {});
+    .catch((error) => ({ updated: false, error: error?.message || "refresh failed" }));
+}
+
+async function refreshBackupForLatest(province, pollutant) {
+  const refresh = maybeRefreshBackup(province, pollutant, {
+    debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
+  });
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve({ updated: false, timedOut: true }), LATEST_REFRESH_WAIT_MS);
+  });
+  return Promise.race([refresh, timeout]);
 }
 
 // In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
@@ -151,9 +170,8 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
       // forward the rest of the cached response as-is.
       const cached = JSON.parse(cachedJson);
       const live = { ...cached, sheetSyncing: isSyncing(cacheKey) };
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-      return res.end(JSON.stringify(live));
+      if (setCacheHeaders(req, res, live)) return;
+      return res.json(live);
     }
 
     // 1) Try MongoDB backup first (raw data, sub-second response)
@@ -259,6 +277,53 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
 
     // 1) Use warm in-memory enriched cache (built by the full tabular route) — instant
     const fullCacheKey = `${province}:${pollutant}`;
+    const refreshResult = await refreshBackupForLatest(province, pollutant);
+    const refreshedBackup = refreshResult?.updated
+      ? await getBackupData(province, pollutant)
+      : null;
+    if (refreshedBackup && refreshedBackup.rows && refreshedBackup.rows.length > 0) {
+      const enriched = enrichWithAqi(
+        {
+          columns: refreshedBackup.columns,
+          rows: refreshedBackup.rows,
+          dateKey: refreshedBackup.dateKey,
+          concKey: refreshedBackup.concKey,
+        },
+        pollutant,
+        { logsPerHour: 1 },
+      );
+      const fullBody = {
+        province: refreshedBackup.province,
+        pollutant: refreshedBackup.pollutant,
+        columns: enriched.columns,
+        rows: enriched.rows,
+        totalRows: enriched.rows.length,
+        fetchedAt: refreshedBackup.fetchedAt,
+        source: refreshedBackup.source,
+        backupMeta: refreshedBackup.backupMeta,
+        dateKey: enriched.dateKey || null,
+        concKey: enriched.concKey || null,
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
+      };
+      setCachedEnriched(fullCacheKey, fullBody);
+      const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
+      const body = {
+        province,
+        pollutant,
+        row: latest.row,
+        time: latest.time,
+        displayTime: latest.displayTime,
+        dateKey: enriched.dateKey || null,
+        fetchedAt: refreshedBackup.fetchedAt,
+        source: refreshedBackup.source,
+        backupMeta: refreshedBackup.backupMeta,
+        sheetSyncing: isSyncing(fullCacheKey),
+        latestAqiVerified: enriched.latestAqiVerified ?? false,
+      };
+      if (setCacheHeaders(req, res, body)) return;
+      return res.json(body);
+    }
+
     const cachedJson = getCachedEnriched(fullCacheKey);
     if (cachedJson) {
       const parsed = JSON.parse(cachedJson);

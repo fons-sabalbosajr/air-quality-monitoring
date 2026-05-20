@@ -91,33 +91,46 @@ async function fetchSheetTabCSV(spreadsheetId, tabName) {
     `https://docs.google.com/spreadsheets/d/${spreadsheetId}` +
     `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
 
-  const TIMEOUT_MS = 15000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(csvUrl, {
-      method: "GET",
-      redirect: "follow",
-      headers: { "User-Agent": "aqm-server/1.0", Accept: "text/csv,*/*" },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const text = await res.text();
-    // Google Sheets returns an HTML page when the tab doesn't exist
-    if (
-      !text ||
-      text.length < 10 ||
-      text.trimStart().startsWith("<!") ||
-      text.trimStart().startsWith("<html")
-    ) {
-      return null;
+  const TIMEOUT_MS = Number(process.env.SHEET_FETCH_TIMEOUT_MS || 15000);
+  const MAX_ATTEMPTS = Math.max(1, Number(process.env.SHEET_FETCH_RETRIES || 3));
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const freshUrl = `${csvUrl}&cacheBust=${Date.now()}-${attempt}`;
+      const res = await fetch(freshUrl, {
+        method: "GET",
+        redirect: "follow",
+        headers: {
+          "User-Agent": "aqm-server/1.0",
+          Accept: "text/csv,*/*",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        if (res.status >= 500 || res.status === 429) continue;
+        return null;
+      }
+      const text = await res.text();
+      // Google Sheets returns an HTML page when the tab doesn't exist.
+      if (
+        !text ||
+        text.length < 10 ||
+        text.trimStart().startsWith("<!") ||
+        text.trimStart().startsWith("<html")
+      ) {
+        return null;
+      }
+      return text;
+    } catch {
+      clearTimeout(timer);
+      if (attempt >= MAX_ATTEMPTS) return null;
     }
-    return text;
-  } catch {
-    clearTimeout(timer);
-    return null;
   }
+  return null;
 }
 
 /**

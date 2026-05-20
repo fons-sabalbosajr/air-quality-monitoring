@@ -17,7 +17,9 @@ const router = Router();
 function setAqiCacheHeaders(res, body) {
   const hash = crypto.createHash("md5").update(JSON.stringify(body)).digest("hex").slice(0, 16);
   const etag = `W/"${hash}"`;
-  res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+  res.setHeader("Cache-Control", "private, no-cache, max-age=0, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.setHeader("ETag", etag);
   res.setHeader("Vary", "Accept");
   return etag;

@@ -347,14 +347,15 @@
   inset: 0;
   border-radius: inherit;
   background-size: 250% 250%;
-  animation: nlex-header-grad-shift 5s ease-in-out infinite alternate;
+  animation: nlex-header-grad-shift 4.2s ease-in-out infinite alternate;
   pointer-events: none;
+  opacity: 0.96;
 }
 
 @keyframes nlex-header-grad-shift {
-  0%   { background-position: 0% 50%;   opacity: 0.75; }
+  0%   { background-position: 0% 50%;   opacity: 0.82; }
   50%  { background-position: 100% 50%; opacity: 1;    }
-  100% { background-position: 0% 50%;   opacity: 0.75; }}
+  100% { background-position: 0% 50%;   opacity: 0.88; }}
 
 .nlex-station-name {
   font-size: 30px;
@@ -362,6 +363,22 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   line-height: 1.2;
+  background-image: linear-gradient(
+    90deg,
+    currentColor 0%,
+    var(--nlex-band-color, #60a5fa) 42%,
+    currentColor 78%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: nlex-title-gradient-shift 4.8s ease-in-out infinite alternate;
+}
+
+@keyframes nlex-title-gradient-shift {
+  from { background-position: 0% 50%; }
+  to   { background-position: 100% 50%; }
 }
 
 .nlex-tile-day  .nlex-station-name  { color: #1a2340; }
@@ -1032,7 +1049,6 @@
   position: absolute;
   border-radius: 50%;
   animation: nlex-cloud-drift ease-in-out infinite alternate;
-  will-change: transform;
   pointer-events: none;
 }
 
@@ -1257,7 +1273,6 @@
 
 .nlex-cityscape-mtn-far {
   animation: nlex-mtn-parallax 60s ease-in-out infinite alternate;
-  will-change: transform;
 }
 
 @keyframes nlex-mtn-parallax {
@@ -1267,7 +1282,6 @@
 
 .nlex-cityscape-hill {
   animation: nlex-hill-parallax 42s ease-in-out infinite alternate;
-  will-change: transform;
 }
 
 @keyframes nlex-hill-parallax {
@@ -1710,6 +1724,23 @@
   line-height: 1.25;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .nlex-bg-cloud,
+  .nlex-cloud-shape,
+  .nlex-star,
+  .nlex-snow-particle,
+  .nlex-fog-shape,
+  .nlex-rain-canvas,
+  .nlex-lightning,
+  .nlex-cityscape-mtn-far,
+  .nlex-cityscape-hill,
+  .nlex-antenna-blink,
+  .nlex-location-icon,
+  .nlex-carousel-location-icon {
+    animation: none !important;
+  }
+}
+
 /* Carousel non-gauge-hidden: also enlarge status/desc since there is more room */
 .nlex-carousel-stage .nlex-category-badge {
   font-size: 36px;
@@ -1848,6 +1879,17 @@
 .nlex-carousel-station-name span {
   min-width: 0;
   white-space: nowrap;
+  background-image: linear-gradient(
+    90deg,
+    currentColor 0%,
+    var(--nlex-band-color, #60a5fa) 42%,
+    currentColor 78%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: nlex-title-gradient-shift 4.8s ease-in-out infinite alternate;
 }
 
 .nlex-tile-day  .nlex-carousel-station-name { color: #1a2340; }
@@ -2013,7 +2055,6 @@
 
 /* ── Inverted description (carousel mode) ── */
 .nlex-carousel-desc-inverted {
-  color: #fff !important;
   font-size: 34px !important;
   border-radius: 16px;
   padding: 14px 24px !important;
@@ -2060,7 +2101,7 @@
 .nlex-carousel-aqi-scale-short {
   font-size: 14px;
   font-weight: 800;
-  color: #fff;
+  color: inherit;
   text-align: center;
   letter-spacing: 0.04em;
   line-height: 1.1;
@@ -2068,7 +2109,7 @@
 .nlex-carousel-aqi-scale-range {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255,255,255,0.82);
+  color: var(--nlex-scale-muted, rgba(255,255,255,0.82));
   text-align: center;
   letter-spacing: 0.02em;
 }

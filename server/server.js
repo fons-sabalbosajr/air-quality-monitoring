@@ -44,10 +44,28 @@ const kioskSettingsRoutes = require("./routes/kioskSettings");
 const app = express();
 
 // ── Security headers ──
-// Lightweight helmet-style headers without adding a dependency
+// Lightweight helmet-style headers without adding a dependency.
+// /nlex is intentionally frameable for VNNOX web-display players.
 app.use((_req, res, next) => {
+  const path = String(_req.path || "").toLowerCase();
+  const isNlexDisplay =
+    path === "/nlex" ||
+    path === "/air-quality-monitoring/nlex" ||
+    path.endsWith("/nlex/");
+  const frameAncestors =
+    process.env.VNNOX_FRAME_ANCESTORS ||
+    process.env.FRAME_ANCESTORS ||
+    "'self' https: http:";
+
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (isNlexDisplay) {
+    res.removeHeader("X-Frame-Options");
+    res.setHeader("Content-Security-Policy", `frame-ancestors ${frameAncestors}`);
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  } else {
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+  }
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader(

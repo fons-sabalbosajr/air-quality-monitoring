@@ -68,10 +68,10 @@ function statusTint(status) {
 /* ─── Data-fetching hook with simulated progress ─── */
 function useTabularWithProgress(provinceKey, pollutantKey) {
   const q = useApiEndpoint(`/api/tabular/${provinceKey}/${pollutantKey}`, {
-    refreshMs: 300000,
+    refreshMs: 60000,
     retries: 2,
     timeoutMs: 60000,
-    cacheTtlMs: 60000,
+    cacheTtlMs: 20000,
     enabled: !!provinceKey && !!pollutantKey,
   });
 

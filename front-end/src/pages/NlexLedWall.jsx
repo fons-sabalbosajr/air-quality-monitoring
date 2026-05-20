@@ -11,7 +11,6 @@
  *  - Poppins font
  */
 import { useEffect, useState, useRef } from "react";
-import { ConfigProvider } from "antd";
 import {
   TbMapPin,
   TbWorld,
@@ -120,6 +119,14 @@ function getBandDescription(band, aqiDescriptions) {
   if (!band) return "";
   const custom = aqiDescriptions?.[band.id];
   return typeof custom === "string" && custom.trim() ? custom.trim() : band.desc;
+}
+
+function getBandTextColor(band) {
+  return band?.id === "fair" ? "#1a2340" : "#fff";
+}
+
+function getBandDotColor(band) {
+  return band?.id === "fair" ? "rgba(26,35,64,0.58)" : "rgba(255,255,255,0.75)";
 }
 
 function getWeatherIcon(code, isDay) {
@@ -439,7 +446,7 @@ const CLOUD_DEFS = [
 ];
 
 /* Stars for night scenes */
-const STAR_DEFS = Array.from({ length: 60 }, (_, i) => ({
+const STAR_DEFS = Array.from({ length: 36 }, (_, i) => ({
   id: i,
   left: `${(i * 1.618 * 17) % 100}%`,
   top: `${(i * 1.618 * 13) % 70}%`,
@@ -449,7 +456,7 @@ const STAR_DEFS = Array.from({ length: 60 }, (_, i) => ({
   opacity: 0.4 + (i % 4) * 0.15,
 }));
 
-const SNOW_PARTICLES = Array.from({ length: 32 }, (_, i) => ({
+const SNOW_PARTICLES = Array.from({ length: 18 }, (_, i) => ({
   id: i,
   left: `${(i * 3.7) % 100}%`,
   size: 2 + (i % 4),
@@ -503,7 +510,7 @@ function CloudLayer({ show, cloudCover, night, sunnyClear = false }) {
       : "rgba(200,225,255,0.22)";
   return (
     <div className={`nlex-clouds-layer${sunnyClear ? " sunny-clear" : ""}`}>
-      {CLOUD_DEFS.map((c, i) => (
+      {CLOUD_DEFS.slice(0, 5).map((c, i) => (
         <div
           key={i}
           className={`nlex-cloud-shape${c.alt ? " alt" : ""}${
@@ -940,7 +947,7 @@ function useAnimatedAqi(targetAqi, duration = 1000) {
 /* Animated counter display — smoothly counts to new AQI value */
 function AnimatedNumber({ value }) {
   const anim = useAnimatedAqi(value);
-  if (value == null) return "...";
+  if (value == null) return "Updating";
   return <>{Math.round(anim ?? value)}</>;
 }
 
@@ -1143,7 +1150,7 @@ function SvgGauge({ aqi, loading, size, isNight, showEmoji = false, showAqiInsid
             fill={band.color}
             className="nlex-gauge-aqi-inside"
           >
-            {loading || animAqi == null ? "..." : Math.round(animAqi)}
+            {loading || animAqi == null ? "" : Math.round(animAqi)}
           </text>
           <text
             x={cx}
@@ -1180,7 +1187,15 @@ function CarouselAqiScale({ isNight }) {
       </div>
       <div className="nlex-carousel-aqi-scale-bands">
         {BANDS.map((b) => (
-          <div key={b.id} className="nlex-carousel-aqi-scale-band" style={{ background: b.color }}>
+          <div
+            key={b.id}
+            className="nlex-carousel-aqi-scale-band"
+            style={{
+              background: b.color,
+              color: getBandTextColor(b),
+              "--nlex-scale-muted": b.id === "fair" ? "rgba(26,35,64,0.72)" : "rgba(255,255,255,0.82)",
+            }}
+          >
             <span className="nlex-carousel-aqi-scale-short">{b.short}</span>
             <span className="nlex-carousel-aqi-scale-range">
               {b.min}&ndash;{b.max >= AQI_MAX ? "500+" : b.max}
@@ -1308,11 +1323,27 @@ function StationTile({
   isCarousel,
   aqiDescriptions,
 }) {
-  const firstWithData = pollutants.find((p) => p.aqi != null);
-  const dominantBand = firstWithData ? getBand(firstWithData.aqi) : null;
-  const isDual = pollutants.length > 1;
+  const lastGoodPollutantsRef = useRef(new Map());
+  const displayPollutants = pollutants.map((p) => {
+    const previous = lastGoodPollutantsRef.current.get(p.key);
+    if (p.aqi != null) {
+      lastGoodPollutantsRef.current.set(p.key, {
+        aqi: p.aqi,
+        latest: p.latest,
+        dateCol: p.dateCol,
+        fetchedAt: p.fetchedAt,
+        time: p.time,
+      });
+      return p;
+    }
+    return previous ? { ...p, ...previous, loading: false, isFallback: true } : p;
+  });
 
-  const pollutantDates = pollutants.map((p) => {
+  const firstWithData = displayPollutants.find((p) => p.aqi != null);
+  const dominantBand = firstWithData ? getBand(firstWithData.aqi) : null;
+  const isDual = displayPollutants.length > 1;
+
+  const pollutantDates = displayPollutants.map((p) => {
     if (p.time) {
       const d = new Date(p.time);
       if (!isNaN(d.getTime())) return d;
@@ -1356,6 +1387,7 @@ function StationTile({
       <div
         className={tileClass}
         style={{
+          ...(dominantBand ? { "--nlex-band-color": dominantBand.color } : {}),
           ...(!spotlit && tileBg ? { background: tileBg } : {}),
           ...(tileBorder ? { border: tileBorder } : {}),
         }}
@@ -1384,7 +1416,7 @@ function StationTile({
 
         {/* Param columns — PM10 | PM2.5, each with gauge */}
         <div className="nlex-dual-params nlex-carousel-dual-params">
-          {pollutants.map((p, pIdx) => {
+          {displayPollutants.map((p, pIdx) => {
             const band = p.aqi != null ? getBand(p.aqi) : null;
             const colClass = `nlex-carousel-param-col ${isDual ? "nlex-carousel-param-col--dual" : "nlex-carousel-param-col--solo"}`;
             const pDate = pollutantDates[pIdx];
@@ -1427,21 +1459,21 @@ function StationTile({
                       ? {
                           background: band.color,
                           borderColor: band.color,
-                          color: "#fff",
+                          color: getBandTextColor(band),
                         }
                       : {}
                   }
                 >
                   <span
                     className="nlex-category-dot"
-                    style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
+                    style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                   />
-                  {p.loading || !band ? "Loading\u2026" : `${band.emoji} ${band.short}`}
+                  {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
                 </div>
 
                 {/* Per-pollutant as-of date */}
                 <div className="nlex-carousel-param-asof">
-                  {pDate ? `As of ${fmtDateTime(pDate)}` : "Loading\u2026"}
+                  {pDate ? `As of ${fmtDateTime(pDate)}` : "Updating"}
                 </div>
               </div>
             );
@@ -1450,7 +1482,7 @@ function StationTile({
 
         {/* AQI status description — inverted background */}
         {(() => {
-          const loaded = pollutants.filter((p) => p.aqi != null);
+          const loaded = displayPollutants.filter((p) => p.aqi != null);
           if (!loaded.length) return null;
           const bands = loaded.map((p) => getBand(p.aqi));
           const allSame =
@@ -1459,7 +1491,7 @@ function StationTile({
             return (
               <div
                 className="nlex-spotlight-desc nlex-carousel-desc-inverted"
-                style={{ background: bands[0].color, borderColor: bands[0].color, color: "#fff" }}
+                style={{ background: bands[0].color, borderColor: bands[0].color, color: getBandTextColor(bands[0]) }}
               >
                 {getBandDescription(bands[0], aqiDescriptions)}
               </div>
@@ -1471,7 +1503,7 @@ function StationTile({
                 <div
                   key={p.key}
                   className="nlex-spotlight-desc nlex-spotlight-desc-sm nlex-carousel-desc-inverted"
-                  style={{ background: bands[i].color, borderColor: bands[i].color, color: "#fff" }}
+                  style={{ background: bands[i].color, borderColor: bands[i].color, color: getBandTextColor(bands[i]) }}
                 >
                   <span className="nlex-spotlight-desc-label">{p.label}:</span>{" "}
                   {getBandDescription(bands[i], aqiDescriptions)}
@@ -1492,6 +1524,7 @@ function StationTile({
     <div
       className={tileClass}
       style={{
+        ...(dominantBand ? { "--nlex-band-color": dominantBand.color } : {}),
         ...(!spotlit && tileBg ? { background: tileBg } : {}),
         ...(tileBorder ? { border: tileBorder } : {}),
         ...(gridStyle ?? {}),
@@ -1520,7 +1553,7 @@ function StationTile({
         /* ── DUAL layout: each parameter is a self-contained centered column ── */
         <>
           <div className="nlex-dual-params">
-            {pollutants.map((p, pIdx) => {
+            {displayPollutants.map((p, pIdx) => {
               const band = p.aqi != null ? getBand(p.aqi) : null;
               return (
                 <div
@@ -1551,7 +1584,7 @@ function StationTile({
                         style={{ color: band ? band.color : "#9ca3af" }}
                       >
                         {p.loading ? (
-                          <span className="nlex-aqi-loading">...</span>
+                          <span className="nlex-aqi-loading">Updating</span>
                         ) : (
                           <AnimatedNumber value={p.aqi} />
                         )}
@@ -1566,16 +1599,16 @@ function StationTile({
                         ? {
                             background: band.color,
                             borderColor: band.color,
-                            color: "#fff",
+                            color: getBandTextColor(band),
                           }
                         : {}
                     }
                   >
                     <span
                       className="nlex-category-dot"
-                      style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
+                      style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                     />
-                    {p.loading || !band ? "Loading…" : `${band.emoji} ${band.short}`}
+                    {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
                   </div>
                   )}
                   {isCarousel && hideGauge && (
@@ -1583,7 +1616,7 @@ function StationTile({
                       <span>
                         {pollutantDates[pIdx]
                           ? `As of ${fmtDateTime(pollutantDates[pIdx])}`
-                          : "Loading…"}
+                          : "Updating"}
                       </span>
                     </div>
                   )}
@@ -1594,7 +1627,7 @@ function StationTile({
           {/* Spotlight description — single if both bands match, else one per pollutant */}
           {(solo || hideGauge || spotlit) &&
             (() => {
-              const loaded = pollutants.filter((p) => p.aqi != null);
+              const loaded = displayPollutants.filter((p) => p.aqi != null);
               if (!loaded.length) return null;
               const bands = loaded.map((p) => getBand(p.aqi));
               const allSame =
@@ -1606,7 +1639,7 @@ function StationTile({
                     style={{
                       background: bands[0].color,
                       borderColor: bands[0].color,
-                      color: "#fff",
+                      color: getBandTextColor(bands[0]),
                     }}
                   >
                     {getBandDescription(bands[0], aqiDescriptions)}
@@ -1622,7 +1655,7 @@ function StationTile({
                       style={{
                         background: bands[i].color,
                         borderColor: bands[i].color,
-                        color: "#fff",
+                        color: getBandTextColor(bands[i]),
                       }}
                     >
                       <span className="nlex-spotlight-desc-label">
@@ -1635,11 +1668,11 @@ function StationTile({
               );
             })()}
           {!isCarousel && (() => {
-            const loaded = pollutants.filter((p) => p.aqi != null);
+            const loaded = displayPollutants.filter((p) => p.aqi != null);
             const allSameBand = loaded.length > 0 && loaded.every(
               (p) => getBand(p.aqi).id === getBand(loaded[0].aqi).id
             );
-            const toShow = allSameBand ? [loaded[0]] : pollutants;
+            const toShow = allSameBand ? [loaded[0]] : displayPollutants;
             return (
               <div className="nlex-tile-badges">
                 {toShow.map((p) => {
@@ -1650,15 +1683,15 @@ function StationTile({
                       className="nlex-category-badge"
                       style={
                         band
-                          ? { background: band.color, borderColor: band.color, color: "#fff" }
+                          ? { background: band.color, borderColor: band.color, color: getBandTextColor(band) }
                           : {}
                       }
                     >
                       <span
                         className="nlex-category-dot"
-                        style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
+                        style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                       />
-                      {p.loading || !band ? "Loading\u2026" : `${band.emoji} ${band.short}`}
+                      {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
                     </div>
                   );
                 })}
@@ -1674,7 +1707,7 @@ function StationTile({
               className="nlex-gauges-row"
               style={{ animation: "nlex-fade-in 0.55s ease both" }}
             >
-              {pollutants.map((p) => (
+              {displayPollutants.map((p) => (
                 <div key={p.key} className="nlex-gauge-wrap">
                   <div className="nlex-pollutant-label">{p.label}</div>
                   <SvgGauge
@@ -1695,7 +1728,7 @@ function StationTile({
               className="nlex-aqi-value-row no-gauge"
               style={{ animation: "nlex-fade-in 0.55s ease both" }}
             >
-              {pollutants.map((p) => {
+              {displayPollutants.map((p) => {
                 const band = p.aqi != null ? getBand(p.aqi) : null;
                 return (
                   <div key={p.key} className="nlex-aqi-value-block no-gauge">
@@ -1713,7 +1746,7 @@ function StationTile({
                       style={{ color: band ? band.color : "#9ca3af" }}
                     >
                       {p.loading ? (
-                        <span className="nlex-aqi-loading">...</span>
+                        <span className="nlex-aqi-loading">Updating</span>
                       ) : (
                         <AnimatedNumber value={p.aqi} />
                       )}
@@ -1725,7 +1758,7 @@ function StationTile({
           )}
 
           <div className={`nlex-tile-badges${hideGauge ? " no-gauge" : ""}`}>
-            {pollutants.map((p) => {
+            {displayPollutants.map((p) => {
               const band = p.aqi != null ? getBand(p.aqi) : null;
               return (
                 <div
@@ -1736,23 +1769,23 @@ function StationTile({
                       ? {
                           background: band.color,
                           borderColor: band.color,
-                          color: "#fff",
+                          color: getBandTextColor(band),
                         }
                       : {}
                   }
                 >
                   <span
                     className="nlex-category-dot"
-                    style={{ background: band ? "rgba(255,255,255,0.75)" : "#d1d5db" }}
+                    style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                   />
-                  {p.loading || !band ? "Loading…" : `${band.emoji} ${band.name}`}
+                  {p.loading || !band ? "Updating" : `${band.emoji} ${band.name}`}
                 </div>
               );
             })}
           </div>
           {isCarousel && hideGauge && (
             <div className="nlex-tile-asof no-gauge nlex-carousel-inline-asof">
-              {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Loading…"}
+              {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Updating"}
             </div>
           )}
           {(solo || hideGauge || spotlit) && firstWithData && dominantBand && (
@@ -1761,7 +1794,7 @@ function StationTile({
               style={{
                 background: dominantBand.color,
                 borderColor: dominantBand.color,
-                color: "#fff",
+                color: getBandTextColor(dominantBand),
               }}
             >
               {getBandDescription(dominantBand, aqiDescriptions)}
@@ -1775,7 +1808,7 @@ function StationTile({
       {!(isCarousel && hideGauge) &&
         (isDual ? (
           <div className="nlex-tile-asof-dual">
-            {pollutants.map((p, i) => (
+            {displayPollutants.map((p, i) => (
               <div
                 key={p.key}
                 className={`nlex-tile-asof-col${hideGauge ? " no-gauge" : ""}`}
@@ -1783,14 +1816,14 @@ function StationTile({
                 <span>
                   {pollutantDates[i]
                     ? `${fmtDateTime(pollutantDates[i])}`
-                    : "Loading…"}
+                    : "Updating"}
                 </span>
               </div>
             ))}
           </div>
         ) : (
           <div className={`nlex-tile-asof${hideGauge ? " no-gauge" : ""}`}>
-            {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Loading…"}
+            {asOfDate ? `As of ${fmtDateTime(asOfDate)}` : "Updating"}
           </div>
         ))}
     </div>
@@ -2012,7 +2045,6 @@ function NlexLedWallInner() {
   }, []);
 
   return (
-    <ConfigProvider>
       <div className="nlex-page-root">
         <WeatherBackground weatherData={weatherData} />
         {/* Persistent animated background clouds */}
@@ -2020,8 +2052,6 @@ function NlexLedWallInner() {
           <div className="nlex-bg-cloud nlex-bg-cloud-1" />
           <div className="nlex-bg-cloud nlex-bg-cloud-2" />
           <div className="nlex-bg-cloud nlex-bg-cloud-3" />
-          <div className="nlex-bg-cloud nlex-bg-cloud-4" />
-          <div className="nlex-bg-cloud nlex-bg-cloud-5" />
         </div>
 
         <div
@@ -2444,6 +2474,5 @@ function NlexLedWallInner() {
           </div>
         </div>
       </div>
-    </ConfigProvider>
   );
 }

@@ -20,7 +20,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { getApiBase } from "../util/apiBase";
 import { secureStorage } from "../utils/secureStorage";
 
-const POLL_MS        = 30_000;                  // re-fetch every 30 s
+const POLL_MS        = 15_000;                  // re-fetch every 15 s
 const CACHE_TTL_MS   = 12 * 60 * 60 * 1000;    // 12 h — evict stale secureStorage
 const FETCH_TIMEOUT_MS = 10_000;
 const FETCH_RETRIES = 2;
@@ -132,11 +132,15 @@ export default function useLatestAqi(province, pollutant) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
         try {
-          const headers = { Accept: "application/json" };
+          const headers = {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          };
           if (etagRef.current) headers["If-None-Match"] = etagRef.current;
           const res = await fetch(
             `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`,
-            { cache: "no-cache", headers, signal: controller.signal }
+            { cache: "no-store", headers, signal: controller.signal }
           );
           clearTimeout(timeoutId);
           if (res.status === 304) {

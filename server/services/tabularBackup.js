@@ -15,7 +15,7 @@ const { coerceNumber } = require("../utils/mathUtils");
 
 const BACKUP_COLLECTION = "air_data_backup";
 const BACKUP_META_COLLECTION = "air_data_backup_meta";
-const BACKUP_CRON = process.env.BACKUP_CRON || "*/10 * * * *"; // every 10 min
+const BACKUP_CRON = process.env.BACKUP_CRON || "*/1 * * * *"; // every minute
 let _backupRunning = false;
 let _backupScheduled = false;
 let _db = null;

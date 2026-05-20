@@ -11,7 +11,7 @@ const DEFAULT_RELATIVE = path.join(__dirname, "..", "data", "aqi.xlsm");
 
 // ── Cache tuning ──
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 60_000);
-const SHEET_CACHE_TTL_MS = Number(process.env.SHEET_CACHE_TTL_MS || 300000);
+const SHEET_CACHE_TTL_MS = Number(process.env.SHEET_CACHE_TTL_MS || 20_000);
 const DISK_CACHE_ENABLED = process.env.DISABLE_DISK_CACHE === "1" ? false : true;
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, "..", "data", ".cache");
 

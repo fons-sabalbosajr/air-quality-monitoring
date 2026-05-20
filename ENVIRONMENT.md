@@ -43,7 +43,12 @@
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `CACHE_TTL_MS` | No | `60000` | Workbook cache TTL in milliseconds |
-| `SHEET_CACHE_TTL_MS` | No | `300000` | Google Sheets cache TTL (5 min) |
+| `SHEET_CACHE_TTL_MS` | No | `20000` | Google Sheets cache TTL (20 seconds) |
+| `SHEET_FETCH_TIMEOUT_MS` | No | `15000` | Per-tab Google Sheets CSV fetch timeout |
+| `SHEET_FETCH_RETRIES` | No | `3` | Per-tab Google Sheets CSV retry attempts |
+| `BACKUP_CRON` | No | `*/1 * * * *` | Google Sheets to MongoDB backup cadence |
+| `LATEST_REFRESH_WAIT_MS` | No | `8000` | Max time `/latest` waits for a fresh station sync before serving cached backup |
+| `VNNOX_FRAME_ANCESTORS` | No | `'self' https: http:` | CSP `frame-ancestors` used only for the `/nlex` display route |
 | `DISABLE_DISK_CACHE` | No | `0` | Set `1` to disable on-disk caching |
 | `CACHE_DIR` | No | `server/data/.cache` | Directory for disk cache files |
 

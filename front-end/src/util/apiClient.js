@@ -60,7 +60,15 @@ export async function fetchJson(endpointOrUrl, opts = {}) {
     const compositeSignal = signal ? tieSignals(signal, attemptController.signal) : attemptController.signal;
     const tId = setTimeout(() => attemptController.abort(), timeoutMs);
     try {
-      const res = await fetch(url.toString(), { signal: compositeSignal, headers: { 'Accept': 'application/json' } });
+      const res = await fetch(url.toString(), {
+        cache: 'no-cache',
+        signal: compositeSignal,
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       clearTimeout(tId);
       if (!res.ok) {
         // Treat 5xx and network errors as retryable; 4xx as fatal

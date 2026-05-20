@@ -244,10 +244,44 @@ nano /etc/nginx/sites-available/embr3-hr-pms
     }
 
     # ── AQM Front-end (static SPA) ──────────────────────────────────
+    # -- AQM NLEX / VNNOX display (iframe-friendly) -----------------
+    # Put this BEFORE the generic /air-quality-monitoring/ SPA block.
+    location = /air-quality-monitoring/nlex {
+        alias /var/www/air-quality-monitoring/front-end/dist/index.html;
+        default_type text/html;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
+        add_header Content-Security-Policy "frame-ancestors 'self' https: http:" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+    }
+
+    # Optional but useful for VNNOX players that normalize URLs with a
+    # trailing slash before loading the web-display iframe.
+    location = /air-quality-monitoring/nlex/ {
+        alias /var/www/air-quality-monitoring/front-end/dist/index.html;
+        default_type text/html;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
+        add_header Content-Security-Policy "frame-ancestors 'self' https: http:" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+    }
+
     location /air-quality-monitoring/ {
         alias /var/www/air-quality-monitoring/front-end/dist/;
         index index.html;
         try_files $uri $uri/ /air-quality-monitoring/index.html;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Content-Security-Policy "frame-ancestors 'self'" always;
     }
 
     # ── Admin shortcut redirect ──────────────────────────────────────
@@ -271,6 +305,28 @@ nano /etc/nginx/sites-available/embr3-hr-pms
         proxy_read_timeout 30s;
     }
 ```
+
+### VNNOX / iframe header audit
+
+After deployment and CDN purge, test the exact display URL:
+
+```bash
+curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex
+curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex/
+```
+
+Expected for both `/nlex` URLs:
+
+- `HTTP/2 200`
+- no `X-Frame-Options` header
+- `Content-Security-Policy: frame-ancestors 'self' https: http:`
+- `Cache-Control: no-cache, max-age=0, must-revalidate`
+
+If a CDN is in front of NGINX, make sure it does not inject `X-Frame-Options`
+or replace `Content-Security-Policy` for `/air-quality-monitoring/nlex*`.
+Bypass or revalidate CDN cache for `/air-quality-monitoring/nlex*` and
+`/air-quality-monitoring/api/*`; the AQI APIs already send no-cache headers and
+ETags, so browser/CDN revalidation stays accurate without serving stale LED data.
 
 > **Where exactly?** After the `location /ocsm/socket.io/ { ... }` block and its blank line, before the line `listen 443 ssl; # managed by Certbot`.
 

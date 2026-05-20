@@ -42,7 +42,7 @@ import {
 import { AqiProvider, useAqi } from "../context/AqiContext";
 import { KioskSettingsProvider, useKioskSettings } from "../context/KioskSettingsContext";
 import STATIONS, { getStationPhoto, getUniqueLocations, bgEmbPhoto } from "../config/stations";
-import useTabularData, { prefetchTabularData } from "../hooks/useTabularData";
+import useTabularData, { prefetchLatestAqi } from "../hooks/useTabularData";
 import useStationWeather, { prefetchStationWeather } from "../hooks/useStationWeather";
 import AqiHeroCard from "../components/AqiHeroCard";
 import HourlyWeatherCard, { prefetchHourlyWeather } from "../components/HourlyWeatherCard";
@@ -203,10 +203,10 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
 
   useEffect(() => {
     for (const kioskStation of KIOSK_STATIONS) {
-      prefetchTabularData(kioskStation.province, kioskStation.pollutant);
+      prefetchLatestAqi(kioskStation.province, kioskStation.pollutant);
       kioskStation.pollutants?.forEach((pollutant) => {
         if (pollutant !== kioskStation.pollutant) {
-          prefetchTabularData(kioskStation.province, pollutant);
+          prefetchLatestAqi(kioskStation.province, pollutant);
         }
       });
       prefetchStationWeather(kioskStation.lat, kioskStation.lon);

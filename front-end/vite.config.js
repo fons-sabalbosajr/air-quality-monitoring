@@ -8,6 +8,7 @@ export default defineConfig({
   base: '/air-quality-monitoring/',
   plugins: [react(), basicSsl()],
   build: {
+    modulePreload: false,
     chunkSizeWarningLimit: 1400,
     rollupOptions: {
       output: {
