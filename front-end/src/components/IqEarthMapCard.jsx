@@ -10,21 +10,30 @@ import "./IqEarthMapCard.css";
  * Stations are shown at their GPS locations on the map.
  */
 export default function IqEarthMapCard({ latitude, longitude, stationName, stations = [] }) {
+  const stationLat = Number(latitude);
+  const stationLng = Number(longitude);
+  const hasValidCoordinates =
+    Number.isFinite(stationLat) &&
+    Number.isFinite(stationLng) &&
+    stationLat >= -90 &&
+    stationLat <= 90 &&
+    stationLng >= -180 &&
+    stationLng <= 180;
   // Build the IQAir Earth map URL centered on the station location
   const mapUrl = useMemo(() => {
-    const lat = latitude || 15.0;
-    const lng = longitude || 120.7;
+    const lat = hasValidCoordinates ? stationLat : 15.0;
+    const lng = hasValidCoordinates ? stationLng : 120.7;
     // IQAir visual earth map – public, no key required
     return `https://www.iqair.com/air-quality-map?lat=${lat}&lng=${lng}&zoomLevel=8`;
-  }, [latitude, longitude]);
+  }, [hasValidCoordinates, stationLat, stationLng]);
 
   // Build a static fallback embed using OpenStreetMap air quality overlay  
   const embedUrl = useMemo(() => {
-    const lat = latitude || 15.0;
-    const lng = longitude || 120.7;
+    const lat = hasValidCoordinates ? stationLat : 15.0;
+    const lng = hasValidCoordinates ? stationLng : 120.7;
     // WAQI (World Air Quality Index) provides a free embeddable map
     return `https://aqicn.org/map/philippines/?lat=${lat}&lng=${lng}&zoom=8`;
-  }, [latitude, longitude]);
+  }, [hasValidCoordinates, stationLat, stationLng]);
 
   return (
     <div className="iqearth-map-section">

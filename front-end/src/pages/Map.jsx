@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import STATIONS, { getUniqueLocations, getStationPhoto, bgEmbPhoto } from "../config/stations";
+import STATIONS, {
+  getUniqueLocations,
+  getStationPhoto,
+  bgEmbPhoto,
+  hasValidCoordinates,
+} from "../config/stations";
 import { Modal, Select, Tag, Segmented } from "antd";
 import {
   TbMapPin,
@@ -44,7 +49,7 @@ function useMultiWeather(stations) {
     async function fetchAll() {
       const results = {};
       await Promise.allSettled(
-        stations.map(async (s) => {
+        stations.filter(hasValidCoordinates).map(async (s) => {
           try {
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}&current_weather=true&forecast_days=1&timezone=auto`;
             const r = await fetch(url);
@@ -111,7 +116,7 @@ export default function MapPage() {
   const globeRef = useRef(null);
   const flyToStation = useCallback((s) => {
     const globe = globeRef.current;
-    if (globe) {
+    if (globe && hasValidCoordinates(s)) {
       try {
         globe.pointOfView({ lat: s.lat, lng: s.lon, altitude: 0.25 }, 1200);
       } catch {}
@@ -654,7 +659,7 @@ function GlobeView({
     } catch {}
 
     // Station markers with labels and pulse
-    const markerData = allStations.map((s) => ({
+    const markerData = allStations.filter(hasValidCoordinates).map((s) => ({
       lat: s.lat,
       lng: s.lon,
       name: s.name,

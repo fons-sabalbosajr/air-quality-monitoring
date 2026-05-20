@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { getApiBase } from "../util/apiBase";
 
 const BC_CHANNEL = "nlex-settings-sync";
-const SERVER_POLL_MS = 5000;
+const SERVER_POLL_MS = 30000;
 
 const DEFAULT_AQI_DESCRIPTIONS = {
   good: "Air is clean. Safe for everyone.",

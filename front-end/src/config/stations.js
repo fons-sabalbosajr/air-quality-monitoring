@@ -41,6 +41,29 @@ const env = (key, fallback) => {
   return v != null && v !== "" ? v : fallback;
 };
 
+function parseCoordinate(key, fallback, { min, max }) {
+  const raw = env(key, fallback);
+  const parsed = Number(String(raw).trim());
+  if (Number.isFinite(parsed) && parsed >= min && parsed <= max) {
+    return parsed;
+  }
+
+  const safeFallback = Number(fallback);
+  if (import.meta.env?.DEV) {
+    console.warn(
+      `[stations] Invalid coordinate for ${key}: ${String(raw)}. Using ${safeFallback}.`,
+    );
+  }
+  return safeFallback;
+}
+
+const lat = (key, fallback) => parseCoordinate(key, fallback, { min: -90, max: 90 });
+const lon = (key, fallback) => parseCoordinate(key, fallback, { min: -180, max: 180 });
+
+export function hasValidCoordinates(station) {
+  return Number.isFinite(station?.lat) && Number.isFinite(station?.lon);
+}
+
 const STATIONS = [
   {
     key: "meycauayan-pm10",
@@ -49,8 +72,8 @@ const STATIONS = [
     pollutantLabel: "PM10",
     name: "Meycauayan AQMS (PM10)",
     address: "Meycauayan, Bulacan",
-    lat: Number(env("VITE_STATION_MEYCAUAYAN_LAT", "14.727555")),
-    lon: Number(env("VITE_STATION_MEYCAUAYAN_LON", "120.958200")),
+    lat: lat("VITE_STATION_MEYCAUAYAN_LAT", "14.727555"),
+    lon: lon("VITE_STATION_MEYCAUAYAN_LON", "120.958200"),
   },
   {
     key: "meycauayan-pm25",
@@ -59,8 +82,8 @@ const STATIONS = [
     pollutantLabel: "PM2.5",
     name: "Meycauayan AQMS (PM2.5)",
     address: "Meycauayan, Bulacan",
-    lat: Number(env("VITE_STATION_MEYCAUAYAN_LAT", "14.727555")),
-    lon: Number(env("VITE_STATION_MEYCAUAYAN_LON", "120.958200")),
+    lat: lat("VITE_STATION_MEYCAUAYAN_LAT", "14.727555"),
+    lon: lon("VITE_STATION_MEYCAUAYAN_LON", "120.958200"),
   },
   {
     key: "zambales-pm10",
@@ -69,8 +92,8 @@ const STATIONS = [
     pollutantLabel: "PM10",
     name: "Zambales AQMS (PM10)",
     address: "Santa Cruz, Zambales",
-    lat: Number(env("VITE_STATION_ZAMBALES_LAT", "15.775290")),
-    lon: Number(env("VITE_STATION_ZAMBALES_LON", "119.915489")),
+    lat: lat("VITE_STATION_ZAMBALES_LAT", "15.775290"),
+    lon: lon("VITE_STATION_ZAMBALES_LON", "119.915489"),
   },
   {
     key: "zambales-pm25",
@@ -79,8 +102,8 @@ const STATIONS = [
     pollutantLabel: "PM2.5",
     name: "Zambales AQMS (PM2.5)",
     address: "Santa Cruz, Zambales",
-    lat: Number(env("VITE_STATION_ZAMBALES_LAT", "15.775290")),
-    lon: Number(env("VITE_STATION_ZAMBALES_LON", "119.915489")),
+    lat: lat("VITE_STATION_ZAMBALES_LAT", "15.775290"),
+    lon: lon("VITE_STATION_ZAMBALES_LON", "119.915489"),
   },
   {
     key: "clark-pm10",
@@ -89,8 +112,8 @@ const STATIONS = [
     pollutantLabel: "PM10",
     name: "Clark AQMS",
     address: "Clark Freeport Zone, Pampanga",
-    lat: Number(env("VITE_STATION_CLARK_LAT", "15.177166")),
-    lon: Number(env("VITE_STATION_CLARK_LON", "120.536421")),
+    lat: lat("VITE_STATION_CLARK_LAT", "15.177166"),
+    lon: lon("VITE_STATION_CLARK_LON", "120.536421"),
   },
   {
     key: "san-fernando-pm10",
@@ -99,8 +122,8 @@ const STATIONS = [
     pollutantLabel: "PM10",
     name: "San Fernando AQMS",
     address: "San Fernando, Pampanga",
-    lat: Number(env("VITE_STATION_SAN_FERNANDO_LAT", "15.056462")),
-    lon: Number(env("VITE_STATION_SAN_FERNANDO_LON", "120.643932")),
+    lat: lat("VITE_STATION_SAN_FERNANDO_LAT", "15.056462"),
+    lon: lon("VITE_STATION_SAN_FERNANDO_LON", "120.643932"),
   },
 ];
 
@@ -161,7 +184,8 @@ export function getMergedStations() {
 export function getUniqueLocations() {
   const seen = new Set();
   return STATIONS.filter((s) => {
-    const k = `${s.lat},${s.lon}`;
+    if (!hasValidCoordinates(s)) return false;
+    const k = `${s.lat.toFixed(6)},${s.lon.toFixed(6)}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;

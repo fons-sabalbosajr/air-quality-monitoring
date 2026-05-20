@@ -55,6 +55,7 @@ function persistLatestRow(province, pollutant, row) {
 }
 
 const TABULAR_REFRESH_MS = 45_000;                   // frequent background refresh
+const FETCH_TIMEOUT_MS = 10_000;
 const TABULAR_CACHE = new Map();
 const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
@@ -98,7 +99,14 @@ async function requestTabularData(province, pollutant, force = false) {
       headers["If-None-Match"] = existingEtag;
     }
 
-    const res = await fetch(url, { cache: "no-cache", headers });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, { cache: "no-cache", headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     // 304 Not Modified — data unchanged, reuse cached data
     if (res.status === 304) {
@@ -158,14 +166,22 @@ export async function prefetchLatestAqi(province, pollutant) {
   try {
     const base = getApiBase();
     const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!res.ok) return null;
     const json = await res.json();
     if (json?.row) persistLatestRow(province, pollutant, json.row);
@@ -330,14 +346,22 @@ export default function useTabularData(province, pollutant) {
       try {
         const base = getApiBase();
         const url = `${base}/api/tabular/${encodeURIComponent(province)}/${encodeURIComponent(pollutant)}/latest`;
-        const res = await fetch(url, {
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-          },
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        let res;
+        try {
+          res = await fetch(url, {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache",
+            },
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
         if (!res.ok || cancelled) return;
         const json = await res.json();
         if (cancelled || !json?.row) return;

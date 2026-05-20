@@ -36,6 +36,9 @@ import {
 import { AQI_COLORS } from "../utils/aqiPalette";
 import "./NlexLedWall.css";
 
+const VNNOX_COMPAT_MODE = true;
+const NLEX_CLOCK_REFRESH_MS = VNNOX_COMPAT_MODE ? 60_000 : 1_000;
+
 /* ═══════════════════════════════════════════════════════════════
    AQI BANDS
    ═══════════════════════════════════════════════════════════════ */
@@ -839,12 +842,21 @@ function CityScapeLayer({ isNight }) {
   );
 }
 
-function WeatherBackground({ weatherData }) {
+function WeatherBackground({ weatherData, lightweight = false }) {
   const code = weatherData?.weatherCode ?? null;
   const cloudCover = weatherData?.cloudCover ?? 0;
   const isDay = weatherData?.isDay ?? 1;
   const wt = getWeatherTheme(code, isDay, cloudCover);
   const night = !isDay;
+
+  if (lightweight) {
+    return (
+      <div
+        className="nlex-weather-bg nlex-weather-bg-lite"
+        style={{ background: wt.grad }}
+      />
+    );
+  }
 
   const type = wt.type;
   const showStars =
@@ -917,6 +929,11 @@ function useAnimatedAqi(targetAqi, duration = 1000) {
   const rafRef = useRef(null);
   const prevRef = useRef(targetAqi);
   useEffect(() => {
+    if (VNNOX_COMPAT_MODE) {
+      setVal(targetAqi);
+      prevRef.current = targetAqi;
+      return;
+    }
     if (targetAqi == null) {
       setVal(null);
       prevRef.current = null;
@@ -1251,11 +1268,12 @@ function fmtDateTime(d) {
   return `${mo} ${d.getDate()}, ${d.getFullYear()} · ${h}:${m} ${ampm}`;
 }
 
-function fmtClock(d) {
+function fmtClock(d, includeSeconds = true) {
   let h = d.getHours();
   const ampm = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
   const m = String(d.getMinutes()).padStart(2, "0");
+  if (!includeSeconds) return `${h}:${m} ${ampm}`;
   const s = String(d.getSeconds()).padStart(2, "0");
   return `${h}:${m}:${s} ${ampm}`;
 }
@@ -1901,7 +1919,7 @@ function useSpotlight(count, ms = 5000) {
 function useLiveClock() {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), NLEX_CLOCK_REFRESH_MS);
     return () => clearInterval(id);
   }, []);
   return now;
@@ -2045,14 +2063,16 @@ function NlexLedWallInner() {
   }, []);
 
   return (
-      <div className="nlex-page-root">
-        <WeatherBackground weatherData={weatherData} />
+      <div className={`nlex-page-root${VNNOX_COMPAT_MODE ? " nlex-vnnox-compat" : ""}`}>
+        <WeatherBackground weatherData={weatherData} lightweight={VNNOX_COMPAT_MODE} />
         {/* Persistent animated background clouds */}
-        <div className="nlex-bg-clouds" aria-hidden="true">
-          <div className="nlex-bg-cloud nlex-bg-cloud-1" />
-          <div className="nlex-bg-cloud nlex-bg-cloud-2" />
-          <div className="nlex-bg-cloud nlex-bg-cloud-3" />
-        </div>
+        {!VNNOX_COMPAT_MODE && (
+          <div className="nlex-bg-clouds" aria-hidden="true">
+            <div className="nlex-bg-cloud nlex-bg-cloud-1" />
+            <div className="nlex-bg-cloud nlex-bg-cloud-2" />
+            <div className="nlex-bg-cloud nlex-bg-cloud-3" />
+          </div>
+        )}
 
         <div
           className="nlex-wall-scaler"
@@ -2382,7 +2402,9 @@ function NlexLedWallInner() {
                           );
                         })()}
                     </div>
-                    <div className="nlex-footer-clock">{fmtClock(clock)}</div>
+                    <div className="nlex-footer-clock">
+                      {fmtClock(clock, !VNNOX_COMPAT_MODE)}
+                    </div>
                   </div>
                 </footer>
               )}

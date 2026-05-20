@@ -263,7 +263,7 @@ function ThemedLayout({
   // Header location label — fetched once from reverse geocode
   const [headerLocation, setHeaderLocation] = useState(null);
   useEffect(() => {
-    if (!geoPos?.lat || !geoPos?.lon) return;
+    if (!Number.isFinite(geoPos?.lat) || !Number.isFinite(geoPos?.lon)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -416,7 +416,7 @@ function ThemedLayout({
           setWeatherData({
             location:
               place?.display ||
-              (typeof latitude === "number" && typeof longitude === "number"
+              (Number.isFinite(latitude) && Number.isFinite(longitude)
                 ? `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
                 : null),
             latitude,
@@ -442,9 +442,8 @@ function ThemedLayout({
       };
 
       if (
-        geoPos &&
-        typeof geoPos.lat === "number" &&
-        typeof geoPos.lon === "number"
+        Number.isFinite(geoPos?.lat) &&
+        Number.isFinite(geoPos?.lon)
       ) {
         await runWithCoords(geoPos.lat, geoPos.lon);
       } else {
@@ -1620,6 +1619,16 @@ function App() {
   });
   const location = useLocation();
   const navigate = useNavigate();
+  useEffect(() => {
+    if (location.pathname === "/nlex") return;
+    if (document.getElementById("material-symbols-rounded-css")) return;
+    const link = document.createElement("link");
+    link.id = "material-symbols-rounded-css";
+    link.rel = "stylesheet";
+    link.href =
+      "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0";
+    document.head.appendChild(link);
+  }, [location.pathname]);
   useEffect(() => {
     const root = document.documentElement;
     if (dark) {

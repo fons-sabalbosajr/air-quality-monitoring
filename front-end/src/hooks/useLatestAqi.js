@@ -20,7 +20,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { getApiBase } from "../util/apiBase";
 import { secureStorage } from "../utils/secureStorage";
 
-const POLL_MS        = 15_000;                  // re-fetch every 15 s
+const POLL_MS        = 60_000;                  // signage-friendly re-fetch cadence
 const CACHE_TTL_MS   = 12 * 60 * 60 * 1000;    // 12 h — evict stale secureStorage
 const FETCH_TIMEOUT_MS = 10_000;
 const FETCH_RETRIES = 2;

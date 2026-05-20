@@ -11,10 +11,20 @@ export default function WindMapCard({
   longitude,
   stationName,
 }) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  const hasValidCoordinates =
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180;
+
   const embedUrl = useMemo(() => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-    return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=11&overlay=wind&product=ecmwf&level=surface&lat=${latitude}&lon=${longitude}&marker=true&message=true`;
-  }, [latitude, longitude]);
+    if (!hasValidCoordinates) return null;
+    return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=11&overlay=wind&product=ecmwf&level=surface&lat=${lat}&lon=${lon}&marker=true&message=true`;
+  }, [hasValidCoordinates, lat, lon]);
 
   if (!embedUrl) return null;
 
@@ -44,7 +54,7 @@ export default function WindMapCard({
       </div>
       <a
         className="wind-map-link"
-        href={`https://www.windy.com/${latitude}/${longitude}?wind`}
+        href={`https://www.windy.com/${lat}/${lon}?wind`}
         target="_blank"
         rel="noopener noreferrer"
       >

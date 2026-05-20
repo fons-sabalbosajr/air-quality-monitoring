@@ -3,8 +3,6 @@
    Poppins · Custom SVG Gauge · Device-geolocation weather background
    ═══════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
-
 /* ── Global reset ──────────────────────────────────────────────── */
 .nlex-page-root,
 .nlex-page-root *,
@@ -2112,5 +2110,48 @@
   color: var(--nlex-scale-muted, rgba(255,255,255,0.82));
   text-align: center;
   letter-spacing: 0.02em;
+}
+
+/* VNNOX compatibility profile: keep the LED layout, reduce GPU/CPU churn. */
+.nlex-vnnox-compat,
+.nlex-vnnox-compat *,
+.nlex-vnnox-compat *::before,
+.nlex-vnnox-compat *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.nlex-vnnox-compat .nlex-weather-bg-lite {
+  background-attachment: scroll;
+}
+
+.nlex-vnnox-compat .nlex-wall,
+.nlex-vnnox-compat .nlex-tile,
+.nlex-vnnox-compat .nlex-bands-card,
+.nlex-vnnox-compat .nlex-footer-contact-card,
+.nlex-vnnox-compat .nlex-maintenance-box,
+.nlex-vnnox-compat .nlex-maintenance-done-box {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+.nlex-vnnox-compat .nlex-tile.nlex-tile-spotlit,
+.nlex-vnnox-compat .nlex-tile.nlex-tile-dimmed {
+  transform: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.nlex-vnnox-compat .nlex-station-name,
+.nlex-vnnox-compat .nlex-carousel-station-name span {
+  -webkit-text-fill-color: currentColor;
+  background-image: none !important;
+}
+
+.nlex-vnnox-compat .nlex-tile-header-grad {
+  opacity: 0.65;
+  background-size: auto !important;
 }
 

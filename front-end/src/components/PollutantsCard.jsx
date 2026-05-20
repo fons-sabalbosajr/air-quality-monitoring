@@ -140,12 +140,21 @@ function getProgress(pollutant, value) {
 }
 
 export default function PollutantsCard({ latitude, longitude }) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  const hasValidCoordinates =
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
-    if (!latitude || !longitude) {
+    if (!hasValidCoordinates) {
       setError("Station coordinates unavailable");
       setLoading(false);
       return;
@@ -154,8 +163,8 @@ export default function PollutantsCard({ latitude, longitude }) {
     setError(null);
     try {
       const params = new URLSearchParams({
-        latitude: String(latitude),
-        longitude: String(longitude),
+        latitude: String(lat),
+        longitude: String(lon),
         current:
           "carbon_monoxide,ozone,nitrogen_dioxide,sulphur_dioxide,pm10,pm2_5,us_aqi",
         timezone: "auto",
@@ -171,7 +180,7 @@ export default function PollutantsCard({ latitude, longitude }) {
     } finally {
       setLoading(false);
     }
-  }, [latitude, longitude]);
+  }, [hasValidCoordinates, lat, lon]);
 
   useEffect(() => {
     fetchData();
