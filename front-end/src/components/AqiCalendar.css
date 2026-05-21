@@ -2,8 +2,7 @@
    AQI Calendar – monthly calendar heatmap with day detail modal
    ═══════════════════════════════════════════════════════════════════ */
 
-/* =====================================================================
-   Air Quality Calendar (section)
+/* Air Quality Calendar (section)
    ===================================================================== */
 .aqi-cal-legend {
   display: flex;
@@ -263,7 +262,6 @@
   display: inline-block;
 }
 
-/* =====================================================================
 
 /* ── AQI Day Detail Modal ── */
 .aqi-day-modal .ant-modal-content {

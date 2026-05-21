@@ -277,7 +277,15 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
 
     // 1) Use warm in-memory enriched cache (built by the full tabular route) — instant
     const fullCacheKey = `${province}:${pollutant}`;
-    const refreshResult = await refreshBackupForLatest(province, pollutant);
+    const waitFresh = /^(1|true|yes)$/i.test(String(req.query.waitFresh || ""));
+    let refreshResult = null;
+    if (waitFresh) {
+      refreshResult = await refreshBackupForLatest(province, pollutant);
+    } else {
+      maybeRefreshBackup(province, pollutant, {
+        debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
+      });
+    }
     const refreshedBackup = refreshResult?.updated
       ? await getBackupData(province, pollutant)
       : null;

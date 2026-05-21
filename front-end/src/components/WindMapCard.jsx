@@ -23,7 +23,22 @@ export default function WindMapCard({
 
   const embedUrl = useMemo(() => {
     if (!hasValidCoordinates) return null;
-    return `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=11&overlay=wind&product=ecmwf&level=surface&lat=${lat}&lon=${lon}&marker=true&message=true`;
+    const params = new URLSearchParams({
+      type: "map",
+      location: "coordinates",
+      metricRain: "default",
+      metricTemp: "default",
+      metricWind: "default",
+      zoom: "11",
+      overlay: "wind",
+      product: "ecmwf",
+      level: "surface",
+      lat: lat.toFixed(6),
+      lon: lon.toFixed(6),
+      marker: "false",
+      message: "false",
+    });
+    return `https://embed.windy.com/embed.html?${params.toString()}`;
   }, [hasValidCoordinates, lat, lon]);
 
   if (!embedUrl) return null;
@@ -50,7 +65,7 @@ export default function WindMapCard({
           loading="lazy"
           allowFullScreen
         />
-
+        <span className="wind-map-local-pin" aria-hidden="true" />
       </div>
       <a
         className="wind-map-link"
