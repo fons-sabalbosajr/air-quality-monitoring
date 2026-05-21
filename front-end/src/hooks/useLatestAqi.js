@@ -18,6 +18,7 @@
  */
 import { useEffect, useState, useRef, useCallback } from "react";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse } from "../util/jsonResponse";
 import { secureStorage } from "../utils/secureStorage";
 
 const POLL_MS        = 60_000;                  // signage-friendly re-fetch cadence
@@ -152,7 +153,7 @@ export default function useLatestAqi(province, pollutant) {
             return;
           }
           etagRef.current = res.headers.get("ETag") || etagRef.current;
-          json = await res.json();
+          json = await readJsonResponse(res, "Latest AQI request");
           break;
         } catch {
           clearTimeout(timeoutId);

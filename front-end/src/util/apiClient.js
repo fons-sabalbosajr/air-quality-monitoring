@@ -1,6 +1,7 @@
 // Lightweight API client with retry, timeout, jitter, and in-memory cache.
 // Focus: robust data loading with stale-while-refresh semantics.
 import { getApiBase } from './apiBase';
+import { readJsonResponse } from './jsonResponse';
 
 const _cache = new Map(); // key -> { data, ts }
 
@@ -79,7 +80,7 @@ export async function fetchJson(endpointOrUrl, opts = {}) {
           return { error: 'HTTP ' + res.status, status: res.status };
         }
       }
-      const json = await res.json().catch(() => { throw new Error('Bad JSON'); });
+      const json = await readJsonResponse(res, 'API request');
       _cache.set(key, { data: json, ts: Date.now() });
       return { data: json, status: res.status, attempt };
     } catch (e) {

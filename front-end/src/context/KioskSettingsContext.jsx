@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse } from "../util/jsonResponse";
 
 const BC_CHANNEL = "kiosk-settings-sync";
 
@@ -108,7 +109,7 @@ export function KioskSettingsProvider({ children }) {
       try {
         const res = await fetch(`${getApiBase()}/api/kiosk-settings`, { cache: "no-store" });
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await readJsonResponse(res, "Kiosk settings request");
         if (data.persisted) {
           applyServerSettings(data.settings);
           lastServerTs.current = Date.now();

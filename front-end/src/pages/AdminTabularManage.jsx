@@ -17,6 +17,7 @@ import {
 import Swal from "sweetalert2";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse, responseToError } from "../util/jsonResponse";
 import { getAqiColor, getAqiStatusColor } from "../utils/aqiPalette";
 import { secureSession } from "../utils/secureStorage";
 
@@ -166,9 +167,9 @@ async function requestAdminTabularData(province, pollutant, { force = false, sig
     writeAdminTabularCache(province, pollutant, cached.data, etag);
     return cached.data;
   }
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await responseToError(res, "Admin tabular request");
 
-  const json = await res.json();
+  const json = await readJsonResponse(res, "Admin tabular request");
   const data = normalizeAdminTabularPayload(json);
   writeAdminTabularCache(province, pollutant, data, res.headers.get("ETag"));
   return data;

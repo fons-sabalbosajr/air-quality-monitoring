@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse } from "../util/jsonResponse";
 
 const POLL_INTERVAL_MS = 30000; // re-check every 30s
 
@@ -19,7 +20,7 @@ export default function useMaintenance() {
       try {
         const res = await fetch(`${getApiBase()}/api/health`, { cache: "no-store" });
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await readJsonResponse(res, "Health check");
         if (!cancelled) setMaintenanceMode(!!data.maintenanceMode);
       } catch {
         // Network error — don't change current state

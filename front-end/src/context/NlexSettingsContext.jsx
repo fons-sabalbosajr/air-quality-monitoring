@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse } from "../util/jsonResponse";
 
 const BC_CHANNEL = "nlex-settings-sync";
 const SERVER_POLL_MS = 30000;
@@ -152,7 +153,7 @@ export function NlexSettingsProvider({ children }) {
       try {
         const res = await fetch(`${getApiBase()}/api/nlex-settings`, { cache: "no-store" });
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await readJsonResponse(res, "NLEX settings request");
         if (data.persisted) {
           // Server has explicitly-saved settings — apply them as the source of truth
           // (applyServerSettings will skip if server data is stale vs our localTsRef)

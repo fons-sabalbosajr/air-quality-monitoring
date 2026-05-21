@@ -16,6 +16,7 @@
  */
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
+import { readJsonResponse, responseToError } from "../util/jsonResponse";
 import { secureStorage } from "../utils/secureStorage";
 
 // Persist the latest AQI row in secureStorage so the AQI card can render
@@ -114,7 +115,7 @@ async function requestTabularData(province, pollutant, force = false) {
       if (cachedEntry?.data) return cachedEntry.data;
     }
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw await responseToError(res, "Tabular data request");
 
     // Store ETag from response
     const responseEtag = res.headers.get("ETag");
@@ -122,7 +123,7 @@ async function requestTabularData(province, pollutant, force = false) {
       ETAG_STORE.set(etagKey, responseEtag);
     }
 
-    const json = await res.json();
+    const json = await readJsonResponse(res, "Tabular data request");
     return {
       raw: json,
       fetchedAt: json.fetchedAt || new Date().toISOString(),
@@ -183,7 +184,7 @@ export async function prefetchLatestAqi(province, pollutant) {
       clearTimeout(timeoutId);
     }
     if (!res.ok) return null;
-    const json = await res.json();
+    const json = await readJsonResponse(res, "Latest AQI request");
     if (json?.row) persistLatestRow(province, pollutant, json.row);
     return json;
   } catch {
@@ -363,7 +364,7 @@ export default function useTabularData(province, pollutant) {
           clearTimeout(timeoutId);
         }
         if (!res.ok || cancelled) return;
-        const json = await res.json();
+        const json = await readJsonResponse(res, "Latest AQI poll");
         if (cancelled || !json?.row) return;
         const newStr = JSON.stringify(json.row);
         const curStr = latestRowRef.current ? JSON.stringify(latestRowRef.current) : null;
