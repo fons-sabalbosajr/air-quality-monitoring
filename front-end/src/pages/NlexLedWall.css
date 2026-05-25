@@ -4,6 +4,16 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Global reset ──────────────────────────────────────────────── */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: #0a0f1e;
+  overflow: hidden;
+}
+
 .nlex-page-root,
 .nlex-page-root *,
 .nlex-page-root *::before,

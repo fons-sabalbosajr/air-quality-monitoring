@@ -2054,12 +2054,28 @@ function NlexLedWallInner() {
   const [scale, setScale] = useState(1);
   useEffect(() => {
     function calcScale() {
-      const s = Math.min(window.innerWidth / 960, window.innerHeight / 1536);
+      const viewport = window.visualViewport;
+      const width = viewport?.width || window.innerWidth || document.documentElement.clientWidth;
+      const height = viewport?.height || window.innerHeight || document.documentElement.clientHeight;
+      if (!width || !height) return;
+      const s = Math.min(width / 960, height / 1536);
       setScale(Math.min(1, s));
     }
     calcScale();
+    const rafId = requestAnimationFrame(calcScale);
+    const timeoutId = setTimeout(calcScale, 500);
     window.addEventListener("resize", calcScale);
-    return () => window.removeEventListener("resize", calcScale);
+    window.addEventListener("orientationchange", calcScale);
+    window.visualViewport?.addEventListener("resize", calcScale);
+    window.addEventListener("pageshow", calcScale);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timeoutId);
+      window.removeEventListener("resize", calcScale);
+      window.removeEventListener("orientationchange", calcScale);
+      window.visualViewport?.removeEventListener("resize", calcScale);
+      window.removeEventListener("pageshow", calcScale);
+    };
   }, []);
 
   return (
