@@ -9,7 +9,7 @@ const cron = require("node-cron");
 const crypto = require("crypto");
 const { MONGO_URI, INGEST_TZ } = require("../config/env");
 const { TABULAR_SHEETS } = require("../config/sheets");
-const { getRawTabularTable } = require("./googleSheets");
+const { getRawTabularTable, enrichWithAqi } = require("./googleSheets");
 const { parseDateValue } = require("../utils/dateUtils");
 const { coerceNumber } = require("../utils/mathUtils");
 
@@ -107,6 +107,46 @@ function summarizeSnapshot(rows, dateKey) {
   return { latestEpochMs, latestAqiEpochMs };
 }
 
+function isValidLatestAqiRow(row) {
+  if (!row) return false;
+  const aqi = Number(row["AQI"] ?? row["aqi"]);
+  if (!isFinite(aqi) || aqi <= 0 || aqi > 500) return false;
+  const status = row["Status"] ?? row["status"];
+  if (/^(invalid|for\s*validation|loading)$/i.test(String(status || ""))) return false;
+  return true;
+}
+
+function buildLatestAqiSnapshot({ province, pollutant, columns, rows, dateKey, concKey }) {
+  try {
+    const enriched = enrichWithAqi(
+      { columns, rows, dateKey, concKey },
+      pollutant,
+      { logsPerHour: 1 },
+    );
+    let best = null;
+    for (const row of enriched.rows || []) {
+      if (!isValidLatestAqiRow(row)) continue;
+      const epochMs = rowEpochMs(row, enriched.dateKey);
+      if (!best || epochMs > best.time) {
+        best = { row, time: epochMs || null };
+      }
+    }
+    if (!best) return null;
+    return {
+      province,
+      pollutant,
+      row: best.row,
+      time: best.time,
+      dateKey: enriched.dateKey || null,
+      concKey: enriched.concKey || null,
+      latestAqiVerified: enriched.latestAqiVerified ?? false,
+      generatedAt: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function isRiskySheetSnapshot(existingMeta, rows, summary) {
   const existingCount = Number(existingMeta?.rowCount || 0);
   if (!existingCount) return false;
@@ -182,6 +222,14 @@ async function backupOne(province, pollutant, { force = false } = {}) {
     const newHash = hashRows(rows);
     const rawRowCount = rawRows.length;
     const summary = summarizeSnapshot(rows, payload.dateKey);
+    const latestAqiSnapshot = buildLatestAqiSnapshot({
+      province,
+      pollutant,
+      columns,
+      rows,
+      dateKey: payload.dateKey,
+      concKey: payload.concKey,
+    });
 
     // Check if data changed (skip when force=true to always overwrite)
     const existingMeta = await metaCol.findOne({ key: backupKey });
@@ -190,7 +238,11 @@ async function backupOne(province, pollutant, { force = false } = {}) {
       await metaCol.updateOne(
         { key: backupKey },
         {
-          $set: { lastCheckedAt: new Date(), syncProtection: null },
+          $set: {
+            lastCheckedAt: new Date(),
+            syncProtection: null,
+            ...(latestAqiSnapshot ? { latestAqiSnapshot } : {}),
+          },
           $unset: {
             pendingHash: "",
             pendingRowCount: "",
@@ -293,6 +345,7 @@ async function backupOne(province, pollutant, { force = false } = {}) {
           rawRowCount,
           latestEpochMs: summary.latestEpochMs || null,
           latestAqiEpochMs: summary.latestAqiEpochMs || null,
+          latestAqiSnapshot: latestAqiSnapshot || null,
           hash: newHash,
           activeGeneration: generation,
           lastBackupAt: now,
@@ -427,6 +480,68 @@ async function getBackupData(province, pollutant) {
   }
 }
 
+async function getLatestAqiSnapshot(province, pollutant) {
+  const metaCol = getBackupMetaCollection();
+  if (!metaCol) return null;
+  const backupKey = `${province}:${pollutant}`;
+  try {
+    const meta = await metaCol.findOne(
+      { key: backupKey },
+      {
+        projection: {
+          latestAqiSnapshot: 1,
+          lastBackupAt: 1,
+          lastCheckedAt: 1,
+          rowCount: 1,
+          rawRowCount: 1,
+          erraticRows: 1,
+          syncProtection: 1,
+          source: 1,
+        },
+      },
+    );
+    if (!meta?.latestAqiSnapshot?.row) return null;
+    return {
+      ...meta.latestAqiSnapshot,
+      fetchedAt: meta.lastBackupAt ? meta.lastBackupAt.getTime() : meta.latestAqiSnapshot.generatedAt,
+      source: "mongodb-latest-snapshot",
+      backupMeta: {
+        lastBackupAt: meta.lastBackupAt,
+        lastCheckedAt: meta.lastCheckedAt,
+        rowCount: meta.rowCount,
+        rawRowCount: meta.rawRowCount,
+        erraticRows: meta.erraticRows,
+        syncProtection: meta.syncProtection,
+      },
+      sheetSyncing: isSyncing(backupKey),
+    };
+  } catch (err) {
+    console.warn(`[backup] getLatestAqiSnapshot(${backupKey}) failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function refreshLatestAqiSnapshotFromBackup(province, pollutant) {
+  const metaCol = getBackupMetaCollection();
+  if (!metaCol) return null;
+  const backup = await getBackupData(province, pollutant);
+  if (!backup?.rows?.length) return null;
+  const latestAqiSnapshot = buildLatestAqiSnapshot({
+    province,
+    pollutant,
+    columns: backup.columns,
+    rows: backup.rows,
+    dateKey: backup.dateKey,
+    concKey: backup.concKey,
+  });
+  if (!latestAqiSnapshot) return null;
+  await metaCol.updateOne(
+    { key: `${province}:${pollutant}` },
+    { $set: { latestAqiSnapshot } },
+  );
+  return getLatestAqiSnapshot(province, pollutant);
+}
+
 /**
  * Get freshness metadata for all backed-up datasets.
  */
@@ -520,6 +635,8 @@ module.exports = {
   backupOne,
   runBackupCycle,
   getBackupData,
+  getLatestAqiSnapshot,
+  refreshLatestAqiSnapshotFromBackup,
   getBackupStatus,
   checkForUpdates,
   scheduleBackup,

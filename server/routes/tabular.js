@@ -10,6 +10,8 @@ const { ensureMongo } = require("../services/mongo");
 const {
   backupOne,
   getBackupData,
+  getLatestAqiSnapshot,
+  refreshLatestAqiSnapshotFromBackup,
   getBackupStatus,
   checkForUpdates,
   runBackupCycle,
@@ -416,12 +418,22 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
   }
 });
 
-async function latestForNlex(province, pollutant, { refresh = true } = {}) {
+async function latestForNlex(province, pollutant, { refresh = false } = {}) {
   const cacheKey = `${province}:${pollutant}`;
   if (refresh) {
     maybeRefreshBackup(province, pollutant, {
       debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
     });
+  }
+
+  const snapshot = await getLatestAqiSnapshot(province, pollutant);
+  if (snapshot?.row) {
+    return snapshot;
+  }
+
+  const rebuiltSnapshot = await refreshLatestAqiSnapshotFromBackup(province, pollutant);
+  if (rebuiltSnapshot?.row) {
+    return rebuiltSnapshot;
   }
 
   const cachedJson = getCachedEnriched(cacheKey);
@@ -487,7 +499,7 @@ async function latestForNlex(province, pollutant, { refresh = true } = {}) {
   };
 }
 
-async function buildNlexLatestBundle({ refresh = true, force = false } = {}) {
+async function buildNlexLatestBundle({ refresh = false, force = false } = {}) {
   const now = Date.now();
   if (
     !force &&

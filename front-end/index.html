@@ -262,8 +262,9 @@
               '.vn-pollutant-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px}',
               '.vn-param{font-size:24px;font-weight:900;color:#14213d}',
               '.vn-status{font-size:16px;font-weight:900;border-radius:6px;padding:9px 10px;text-align:center;line-height:1.05;max-width:220px}',
-              '.vn-aqi-row{display:flex;align-items:center;justify-content:center;flex:1;min-height:92px}',
-              '.vn-aqi{font-size:104px;font-weight:900;line-height:.95;letter-spacing:0}',
+              '.vn-aqi-row{display:flex;align-items:center;justify-content:center;flex:1;min-height:118px}',
+              '.vn-aqi{font-size:150px;font-weight:900;line-height:.9;letter-spacing:0}',
+              '.vn-card-body.dual .vn-aqi{font-size:122px}',
               '.vn-meter{height:16px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-top:2px}',
               '.vn-meter span{display:block;height:100%;border-radius:999px}',
               '.vn-desc{font-size:17px;font-weight:800;line-height:1.2;color:#334155;margin-top:10px;min-height:42px}',
@@ -271,7 +272,7 @@
               '.vn-legend{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;min-height:48px}',
               '.vn-band{border-radius:6px;padding:10px 8px;text-align:center;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center}',
               '.vn-footer{display:flex;align-items:center;justify-content:space-between;font-size:18px;font-weight:900;color:#475569;min-height:28px}',
-              '@media (max-aspect-ratio: 3/4){.vn-wall{padding:28px}.vn-header{min-height:86px}.vn-logo{width:72px;height:72px}.vn-title{font-size:40px}.vn-clock{font-size:20px;min-width:210px}.vn-grid{gap:14px}.vn-card{padding:14px}.vn-card-title{font-size:25px}.vn-address{font-size:16px}.vn-param{font-size:20px}.vn-status{font-size:14px}.vn-aqi{font-size:82px}.vn-desc{font-size:15px}}',
+              '@media (max-aspect-ratio: 3/4){.vn-wall{padding:28px}.vn-header{min-height:86px}.vn-logo{width:72px;height:72px}.vn-title{font-size:40px}.vn-clock{font-size:20px;min-width:210px}.vn-grid{gap:14px}.vn-card{padding:14px}.vn-card-title{font-size:25px}.vn-address{font-size:16px}.vn-param{font-size:20px}.vn-status{font-size:14px}.vn-aqi{font-size:118px}.vn-card-body.dual .vn-aqi{font-size:96px}.vn-desc{font-size:15px}}',
             '</style>',
             '<div class="vn-wall">',
               '<div class="vn-header">',
@@ -295,7 +296,7 @@
               '</div>',
               '<div class="vn-footer">',
                 '<span>Real-time Particulate Matter Monitor</span>',
-                '<span>Data refreshes every 60 seconds</span>',
+                '<span>Data refreshes every 30 seconds</span>',
               '</div>',
             '</div>'
           ].join("");
@@ -367,6 +368,9 @@
           setInterval(render, 60000);
         }
 
+        loadJsonpBundle(function (ok) {
+          if (ok && root.getAttribute("data-vnnox-fallback")) render();
+        });
         setTimeout(startFallback, 1500);
       })();
     </script>
