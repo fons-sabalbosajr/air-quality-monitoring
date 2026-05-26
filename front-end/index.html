@@ -11,5 +11,246 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      (function () {
+        var path = window.location.pathname.replace(/\/+$/, "");
+        var isNlex = path === "/nlex" || path === "/air-quality-monitoring/nlex";
+        if (!isNlex) return;
+
+        var root = document.getElementById("root");
+        if (!root) return;
+
+        var stations = [
+          {
+            key: "clark",
+            name: "Clark Air Quality Index",
+            address: "Clark Freeport Zone, Pampanga",
+            pollutants: [{ province: "clark", pollutant: "pm10", label: "PM10" }]
+          },
+          {
+            key: "san-fernando",
+            name: "San Fernando Air Quality Index",
+            address: "San Fernando, Pampanga",
+            pollutants: [{ province: "san-fernando", pollutant: "pm10", label: "PM10" }]
+          },
+          {
+            key: "meycauayan",
+            name: "Meycauayan Air Quality Index",
+            address: "Meycauayan, Bulacan",
+            pollutants: [
+              { province: "meycauayan", pollutant: "pm10", label: "PM10" },
+              { province: "meycauayan", pollutant: "pm25", label: "PM2.5" }
+            ]
+          },
+          {
+            key: "zambales",
+            name: "Zambales Air Quality Index",
+            address: "Santa Cruz, Zambales",
+            pollutants: [
+              { province: "zambales", pollutant: "pm10", label: "PM10" },
+              { province: "zambales", pollutant: "pm25", label: "PM2.5" }
+            ]
+          }
+        ];
+
+        var bands = [
+          { id: "good", name: "GOOD", short: "Good", min: 0, max: 50, color: "#22c55e", text: "Air is clean. Safe for everyone." },
+          { id: "fair", name: "FAIR", short: "Fair", min: 50, max: 100, color: "#eab308", text: "Acceptable. Sensitive groups take caution." },
+          { id: "usg", name: "UNHEALTHY FOR SENSITIVE GROUPS", short: "Sensitive", min: 100, max: 150, color: "#f97316", text: "Children, elderly and sick people should limit outdoor activity." },
+          { id: "vu", name: "VERY UNHEALTHY", short: "Very Unhealthy", min: 150, max: 200, color: "#ef4444", text: "Wear a mask. Everyone may feel health effects." },
+          { id: "au", name: "ACUTELY UNHEALTHY", short: "Acutely Unhealthy", min: 200, max: 300, color: "#8b5cf6", text: "Health hazard for all. Avoid outdoor exposure." },
+          { id: "emergency", name: "EMERGENCY", short: "Emergency", min: 300, max: 501, color: "#7f1d1d", text: "Stay indoors. Air is dangerous for everyone." }
+        ];
+
+        var state = {};
+        var apiBase = window.location.origin + "/air-quality-monitoring";
+
+        function escapeHtml(value) {
+          return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+          });
+        }
+
+        function getBand(aqi) {
+          var n = Number(aqi);
+          var i;
+          if (!isFinite(n) || n < 0) return bands[0];
+          for (i = 0; i < bands.length; i += 1) {
+            if (n >= bands[i].min && n < bands[i].max) return bands[i];
+          }
+          return bands[bands.length - 1];
+        }
+
+        function fmtDate(msOrString) {
+          var d = msOrString ? new Date(msOrString) : null;
+          if (!d || isNaN(d.getTime())) return "Updating";
+          return d.toLocaleString("en-PH", {
+            month: "short",
+            day: "2-digit",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true
+          });
+        }
+
+        function xhrJson(url, done) {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", url, true);
+          xhr.setRequestHeader("Accept", "application/json");
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) return;
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try { done(null, JSON.parse(xhr.responseText)); }
+              catch (err) { done(err); }
+            } else {
+              done(new Error("HTTP " + xhr.status));
+            }
+          };
+          xhr.onerror = function () { done(new Error("network")); };
+          xhr.send();
+        }
+
+        function pollutantHtml(item) {
+          var key = item.province + ":" + item.pollutant;
+          var data = state[key] || {};
+          var row = data.row || {};
+          var aqi = Number(row.AQI || row.aqi);
+          var hasAqi = isFinite(aqi) && aqi > 0;
+          var band = getBand(hasAqi ? aqi : 0);
+          var status = hasAqi ? (row.Status || row.status || band.short) : "Updating";
+          var time = data.displayTime || data.time || row[data.dateKey || "Date & Time"];
+          var percent = hasAqi ? Math.max(0, Math.min(100, (aqi / 500) * 100)) : 0;
+          return [
+            '<div class="vn-pollutant">',
+              '<div class="vn-pollutant-head">',
+                '<span>', escapeHtml(item.label), '</span>',
+                '<span class="vn-status" style="background:', band.color, '">', escapeHtml(status), '</span>',
+              '</div>',
+              '<div class="vn-aqi-row">',
+                '<div class="vn-aqi" style="color:', band.color, '">', hasAqi ? Math.round(aqi) : "--", '</div>',
+                '<div class="vn-meter"><span style="width:', percent, '%;background:', band.color, '"></span></div>',
+              '</div>',
+              '<div class="vn-desc">', hasAqi ? escapeHtml(band.text) : "Waiting for live AQI data.", '</div>',
+              '<div class="vn-asof">As of ', escapeHtml(fmtDate(time)), '</div>',
+            '</div>'
+          ].join("");
+        }
+
+        function render() {
+          var now = new Date();
+          root.innerHTML = [
+            '<style>',
+              'html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#08111f;font-family:Arial,Helvetica,sans-serif;color:#f8fafc}',
+              '.vn-wall{width:100vw;height:100vh;box-sizing:border-box;padding:46px;background:linear-gradient(180deg,#dff4ff 0%,#f8fbff 46%,#d6f4ea 100%);color:#10213d;display:flex;flex-direction:column;gap:24px}',
+              '.vn-header{display:flex;align-items:center;gap:24px;min-height:150px}',
+              '.vn-logo{width:116px;height:116px;object-fit:contain;background:rgba(255,255,255,.62);border-radius:8px;padding:10px}',
+              '.vn-kicker{font-size:24px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:#0f766e}',
+              '.vn-title{font-size:50px;font-weight:900;line-height:1.02;margin-top:8px}',
+              '.vn-subtitle{font-size:24px;font-weight:700;color:#475569;margin-top:8px}',
+              '.vn-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;flex:1;min-height:0}',
+              '.vn-card{background:rgba(255,255,255,.76);border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,.12);display:flex;flex-direction:column;min-height:0}',
+              '.vn-card-title{font-size:28px;font-weight:900;line-height:1.05;margin-bottom:6px}',
+              '.vn-address{font-size:18px;font-weight:700;color:#64748b;margin-bottom:16px}',
+              '.vn-pollutant{border-top:1px solid rgba(15,23,42,.12);padding-top:16px;margin-top:12px}',
+              '.vn-pollutant:first-of-type{border-top:0;padding-top:0;margin-top:0}',
+              '.vn-pollutant-head{display:flex;align-items:center;justify-content:space-between;gap:12px}',
+              '.vn-pollutant-head>span:first-child{font-size:24px;font-weight:900}',
+              '.vn-status{font-size:14px;font-weight:900;color:white;border-radius:6px;padding:8px 10px;max-width:168px;text-align:center}',
+              '.vn-aqi-row{display:flex;align-items:center;gap:18px;margin-top:10px}',
+              '.vn-aqi{font-size:78px;font-weight:900;line-height:.95;min-width:112px}',
+              '.vn-meter{height:18px;flex:1;background:#dbeafe;border-radius:99px;overflow:hidden}',
+              '.vn-meter span{display:block;height:100%;border-radius:99px}',
+              '.vn-desc{font-size:18px;font-weight:700;line-height:1.25;color:#334155;margin-top:8px;min-height:46px}',
+              '.vn-asof{font-size:16px;font-weight:800;color:#64748b;margin-top:10px}',
+              '.vn-legend{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}',
+              '.vn-band{border-radius:7px;color:white;padding:10px 8px;text-align:center;font-size:13px;font-weight:900;min-height:42px;display:flex;align-items:center;justify-content:center}',
+              '.vn-footer{display:flex;align-items:center;justify-content:space-between;font-size:22px;font-weight:900;color:#1e293b;min-height:44px}',
+              '@media (max-aspect-ratio: 3/4){.vn-wall{padding:36px}.vn-grid{gap:16px}.vn-title{font-size:42px}.vn-card{padding:18px}.vn-aqi{font-size:64px}.vn-desc{font-size:16px}}',
+            '</style>',
+            '<div class="vn-wall">',
+              '<div class="vn-header">',
+                '<img class="vn-logo" src="/air-quality-monitoring/emblogo.svg" alt="EMB R3">',
+                '<div>',
+                  '<div class="vn-kicker">Environmental Management Bureau Region III</div>',
+                  '<div class="vn-title">Air Quality Index</div>',
+                  '<div class="vn-subtitle">Real-time Particulate Matter Monitoring Display</div>',
+                '</div>',
+              '</div>',
+              '<div class="vn-grid">',
+                stationCardHtml(stations[0]),
+                stationCardHtml(stations[1]),
+                stationCardHtml(stations[2]),
+                stationCardHtml(stations[3]),
+              '</div>',
+              '<div class="vn-legend">',
+                legendHtml(),
+              '</div>',
+              '<div class="vn-footer">',
+                '<span>NLEX LED Wall Compatibility Mode</span>',
+                '<span>', escapeHtml(fmtDate(now)), '</span>',
+              '</div>',
+            '</div>'
+          ].join("");
+        }
+
+        function stationCardHtml(station) {
+          var html = '<div class="vn-card"><div class="vn-card-title">' + escapeHtml(station.name) + '</div><div class="vn-address">' + escapeHtml(station.address) + '</div>';
+          var i;
+          for (i = 0; i < station.pollutants.length; i += 1) {
+            html += pollutantHtml(station.pollutants[i]);
+          }
+          html += "</div>";
+          return html;
+        }
+
+        function legendHtml() {
+          var html = "";
+          var i;
+          for (i = 0; i < bands.length; i += 1) {
+            html += '<div class="vn-band" style="background:' + bands[i].color + '">' + escapeHtml(bands[i].short) + '</div>';
+          }
+          return html;
+        }
+
+        function refresh() {
+          var pending = 0;
+          var stationIndex;
+          var pollutantIndex;
+          function doneFor(key) {
+            return function (err, json) {
+              if (!err && json) state[key] = json;
+              pending -= 1;
+              if (pending <= 0) render();
+            };
+          }
+          for (stationIndex = 0; stationIndex < stations.length; stationIndex += 1) {
+            for (pollutantIndex = 0; pollutantIndex < stations[stationIndex].pollutants.length; pollutantIndex += 1) {
+              var item = stations[stationIndex].pollutants[pollutantIndex];
+              var key = item.province + ":" + item.pollutant;
+              pending += 1;
+              xhrJson(apiBase + "/api/tabular/" + encodeURIComponent(item.province) + "/" + encodeURIComponent(item.pollutant) + "/latest", doneFor(key));
+            }
+          }
+          if (!pending) render();
+        }
+
+        function startFallback() {
+          var rootText = root.textContent || "";
+          var canReplaceRoot =
+            root.childElementCount === 0 ||
+            root.getAttribute("data-vnnox-fallback") ||
+            rootText.indexOf("Unable to load the live display") !== -1;
+          if (!canReplaceRoot) return;
+          root.setAttribute("data-vnnox-fallback", "true");
+          render();
+          refresh();
+          setInterval(refresh, 60000);
+          setInterval(render, 60000);
+        }
+
+        setTimeout(startFallback, 7000);
+      })();
+    </script>
   </body>
 </html>
