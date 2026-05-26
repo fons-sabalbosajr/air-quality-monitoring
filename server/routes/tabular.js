@@ -401,6 +401,114 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
   }
 });
 
+// JSONP bundle for legacy signage webviews. Script-tag loading avoids CORS
+// issues in VNNOX-style preview/player environments.
+router.get("/api/nlex-latest.js", async (req, res) => {
+  const rawCallback = String(req.query.callback || "__aqmNlexLatest");
+  const callback = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(rawCallback)
+    ? rawCallback
+    : "__aqmNlexLatest";
+  const datasets = [
+    { province: "clark", pollutant: "pm10" },
+    { province: "san-fernando", pollutant: "pm10" },
+    { province: "meycauayan", pollutant: "pm10" },
+    { province: "meycauayan", pollutant: "pm25" },
+    { province: "zambales", pollutant: "pm10" },
+    { province: "zambales", pollutant: "pm25" },
+  ];
+  const data = {};
+
+  async function latestFor(province, pollutant) {
+    const cacheKey = `${province}:${pollutant}`;
+    maybeRefreshBackup(province, pollutant, {
+      debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
+    });
+
+    const cachedJson = getCachedEnriched(cacheKey);
+    if (cachedJson) {
+      const parsed = JSON.parse(cachedJson);
+      const latest = selectLatestAqiRow(parsed.rows, parsed.dateKey);
+      return {
+        province,
+        pollutant,
+        row: latest.row,
+        time: latest.time,
+        displayTime: latest.displayTime,
+        dateKey: parsed.dateKey || null,
+        fetchedAt: parsed.fetchedAt,
+        source: parsed.source,
+        sheetSyncing: isSyncing(cacheKey),
+        latestAqiVerified: parsed.latestAqiVerified ?? false,
+      };
+    }
+
+    const backup = await getBackupData(province, pollutant);
+    if (!backup || !backup.rows || backup.rows.length === 0) {
+      return { province, pollutant, row: null, error: "No data available yet" };
+    }
+
+    const enriched = enrichWithAqi(
+      {
+        columns: backup.columns,
+        rows: backup.rows,
+        dateKey: backup.dateKey,
+        concKey: backup.concKey,
+      },
+      pollutant,
+      { logsPerHour: 1 },
+    );
+    const fullBody = {
+      province: backup.province,
+      pollutant: backup.pollutant,
+      columns: enriched.columns,
+      rows: enriched.rows,
+      totalRows: enriched.rows.length,
+      fetchedAt: backup.fetchedAt,
+      source: backup.source,
+      backupMeta: backup.backupMeta,
+      dateKey: enriched.dateKey || null,
+      concKey: enriched.concKey || null,
+      latestAqiVerified: enriched.latestAqiVerified ?? false,
+    };
+    setCachedEnriched(cacheKey, fullBody);
+    const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
+    return {
+      province,
+      pollutant,
+      row: latest.row,
+      time: latest.time,
+      displayTime: latest.displayTime,
+      dateKey: enriched.dateKey || null,
+      fetchedAt: backup.fetchedAt,
+      source: backup.source,
+      backupMeta: backup.backupMeta,
+      sheetSyncing: isSyncing(cacheKey),
+      latestAqiVerified: enriched.latestAqiVerified ?? false,
+    };
+  }
+
+  for (const item of datasets) {
+    const key = `${item.province}:${item.pollutant}`;
+    try {
+      data[key] = await latestFor(item.province, item.pollutant);
+    } catch (error) {
+      data[key] = {
+        province: item.province,
+        pollutant: item.pollutant,
+        row: null,
+        error: error?.message || "Failed to read latest row",
+      };
+    }
+  }
+
+  const body = { ok: true, generatedAt: Date.now(), data };
+  res.setHeader("Cache-Control", API_CACHE_CONTROL);
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.type("application/javascript; charset=utf-8");
+  res.send(`${callback}(${JSON.stringify(body)});`);
+});
+
 // Backup status — freshness info for all datasets
 router.get("/api/backup/status", async (_req, res) => {
   try {
