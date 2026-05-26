@@ -210,7 +210,7 @@
               cleanup();
               index += 1;
               tryNext();
-            }, 15000);
+            }, 8000);
             document.getElementsByTagName("head")[0].appendChild(script);
           }
           tryNext();
@@ -363,11 +363,11 @@
           root.setAttribute("data-vnnox-fallback", "true");
           render();
           refresh();
-          setInterval(refresh, 60000);
+          setInterval(refresh, 30000);
           setInterval(render, 60000);
         }
 
-        setTimeout(startFallback, 7000);
+        setTimeout(startFallback, 1500);
       })();
     </script>
   </body>

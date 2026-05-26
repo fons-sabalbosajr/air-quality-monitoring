@@ -68,6 +68,7 @@ function maybeRefreshBackup(province, pollutant, opts = {}) {
     .then((result) => {
       if (result?.updated) {
         _enrichedCache.delete(key);
+        clearNlexLatestBundleCache();
       }
       return result;
     })
@@ -87,6 +88,20 @@ async function refreshBackupForLatest(province, pollutant) {
 // In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
 const _enrichedCache = new Map();
 const ENRICHED_CACHE_TTL_MS = 30_000; // near-real-time for dashboard/NLEX
+const NLEX_DATASETS = [
+  { province: "clark", pollutant: "pm10" },
+  { province: "san-fernando", pollutant: "pm10" },
+  { province: "meycauayan", pollutant: "pm10" },
+  { province: "meycauayan", pollutant: "pm25" },
+  { province: "zambales", pollutant: "pm10" },
+  { province: "zambales", pollutant: "pm25" },
+];
+const NLEX_BUNDLE_TTL_MS = Number(process.env.NLEX_BUNDLE_TTL_MS || 5000);
+let _nlexLatestBundleCache = null;
+
+function clearNlexLatestBundleCache() {
+  _nlexLatestBundleCache = null;
+}
 
 function isValidLatestAqiRow(row) {
   if (!row) return false;
@@ -401,6 +416,115 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
   }
 });
 
+async function latestForNlex(province, pollutant, { refresh = true } = {}) {
+  const cacheKey = `${province}:${pollutant}`;
+  if (refresh) {
+    maybeRefreshBackup(province, pollutant, {
+      debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
+    });
+  }
+
+  const cachedJson = getCachedEnriched(cacheKey);
+  if (cachedJson) {
+    const parsed = JSON.parse(cachedJson);
+    const latest = selectLatestAqiRow(parsed.rows, parsed.dateKey);
+    return {
+      province,
+      pollutant,
+      row: latest.row,
+      time: latest.time,
+      displayTime: latest.displayTime,
+      dateKey: parsed.dateKey || null,
+      fetchedAt: parsed.fetchedAt,
+      source: parsed.source,
+      sheetSyncing: isSyncing(cacheKey),
+      latestAqiVerified: parsed.latestAqiVerified ?? false,
+    };
+  }
+
+  const backup = await getBackupData(province, pollutant);
+  if (!backup || !backup.rows || backup.rows.length === 0) {
+    return { province, pollutant, row: null, error: "No data available yet" };
+  }
+
+  const enriched = enrichWithAqi(
+    {
+      columns: backup.columns,
+      rows: backup.rows,
+      dateKey: backup.dateKey,
+      concKey: backup.concKey,
+    },
+    pollutant,
+    { logsPerHour: 1 },
+  );
+  const fullBody = {
+    province: backup.province,
+    pollutant: backup.pollutant,
+    columns: enriched.columns,
+    rows: enriched.rows,
+    totalRows: enriched.rows.length,
+    fetchedAt: backup.fetchedAt,
+    source: backup.source,
+    backupMeta: backup.backupMeta,
+    dateKey: enriched.dateKey || null,
+    concKey: enriched.concKey || null,
+    latestAqiVerified: enriched.latestAqiVerified ?? false,
+  };
+  setCachedEnriched(cacheKey, fullBody);
+  const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
+  return {
+    province,
+    pollutant,
+    row: latest.row,
+    time: latest.time,
+    displayTime: latest.displayTime,
+    dateKey: enriched.dateKey || null,
+    fetchedAt: backup.fetchedAt,
+    source: backup.source,
+    backupMeta: backup.backupMeta,
+    sheetSyncing: isSyncing(cacheKey),
+    latestAqiVerified: enriched.latestAqiVerified ?? false,
+  };
+}
+
+async function buildNlexLatestBundle({ refresh = true, force = false } = {}) {
+  const now = Date.now();
+  if (
+    !force &&
+    _nlexLatestBundleCache &&
+    now - _nlexLatestBundleCache.generatedAt < NLEX_BUNDLE_TTL_MS
+  ) {
+    return _nlexLatestBundleCache.body;
+  }
+
+  const entries = await Promise.all(
+    NLEX_DATASETS.map(async (item) => {
+      const key = `${item.province}:${item.pollutant}`;
+      try {
+        return [key, await latestForNlex(item.province, item.pollutant, { refresh })];
+      } catch (error) {
+        return [
+          key,
+          {
+            province: item.province,
+            pollutant: item.pollutant,
+            row: null,
+            error: error?.message || "Failed to read latest row",
+          },
+        ];
+      }
+    }),
+  );
+  const data = Object.fromEntries(entries);
+  const body = { ok: true, generatedAt: now, data };
+  _nlexLatestBundleCache = { generatedAt: now, body };
+  return body;
+}
+
+async function warmNlexLatestCache() {
+  return buildNlexLatestBundle({ refresh: false, force: true });
+}
+
 // JSONP bundle for legacy signage webviews. Script-tag loading avoids CORS
 // issues in VNNOX-style preview/player environments.
 router.get("/api/nlex-latest.js", async (req, res) => {
@@ -408,100 +532,8 @@ router.get("/api/nlex-latest.js", async (req, res) => {
   const callback = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(rawCallback)
     ? rawCallback
     : "__aqmNlexLatest";
-  const datasets = [
-    { province: "clark", pollutant: "pm10" },
-    { province: "san-fernando", pollutant: "pm10" },
-    { province: "meycauayan", pollutant: "pm10" },
-    { province: "meycauayan", pollutant: "pm25" },
-    { province: "zambales", pollutant: "pm10" },
-    { province: "zambales", pollutant: "pm25" },
-  ];
-  const data = {};
+  const body = await buildNlexLatestBundle();
 
-  async function latestFor(province, pollutant) {
-    const cacheKey = `${province}:${pollutant}`;
-    maybeRefreshBackup(province, pollutant, {
-      debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
-    });
-
-    const cachedJson = getCachedEnriched(cacheKey);
-    if (cachedJson) {
-      const parsed = JSON.parse(cachedJson);
-      const latest = selectLatestAqiRow(parsed.rows, parsed.dateKey);
-      return {
-        province,
-        pollutant,
-        row: latest.row,
-        time: latest.time,
-        displayTime: latest.displayTime,
-        dateKey: parsed.dateKey || null,
-        fetchedAt: parsed.fetchedAt,
-        source: parsed.source,
-        sheetSyncing: isSyncing(cacheKey),
-        latestAqiVerified: parsed.latestAqiVerified ?? false,
-      };
-    }
-
-    const backup = await getBackupData(province, pollutant);
-    if (!backup || !backup.rows || backup.rows.length === 0) {
-      return { province, pollutant, row: null, error: "No data available yet" };
-    }
-
-    const enriched = enrichWithAqi(
-      {
-        columns: backup.columns,
-        rows: backup.rows,
-        dateKey: backup.dateKey,
-        concKey: backup.concKey,
-      },
-      pollutant,
-      { logsPerHour: 1 },
-    );
-    const fullBody = {
-      province: backup.province,
-      pollutant: backup.pollutant,
-      columns: enriched.columns,
-      rows: enriched.rows,
-      totalRows: enriched.rows.length,
-      fetchedAt: backup.fetchedAt,
-      source: backup.source,
-      backupMeta: backup.backupMeta,
-      dateKey: enriched.dateKey || null,
-      concKey: enriched.concKey || null,
-      latestAqiVerified: enriched.latestAqiVerified ?? false,
-    };
-    setCachedEnriched(cacheKey, fullBody);
-    const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
-    return {
-      province,
-      pollutant,
-      row: latest.row,
-      time: latest.time,
-      displayTime: latest.displayTime,
-      dateKey: enriched.dateKey || null,
-      fetchedAt: backup.fetchedAt,
-      source: backup.source,
-      backupMeta: backup.backupMeta,
-      sheetSyncing: isSyncing(cacheKey),
-      latestAqiVerified: enriched.latestAqiVerified ?? false,
-    };
-  }
-
-  for (const item of datasets) {
-    const key = `${item.province}:${item.pollutant}`;
-    try {
-      data[key] = await latestFor(item.province, item.pollutant);
-    } catch (error) {
-      data[key] = {
-        province: item.province,
-        pollutant: item.pollutant,
-        row: null,
-        error: error?.message || "Failed to read latest row",
-      };
-    }
-  }
-
-  const body = { ok: true, generatedAt: Date.now(), data };
   res.setHeader("Cache-Control", API_CACHE_CONTROL);
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
@@ -538,7 +570,9 @@ router.post("/api/backup/sync", requireAdminToken, async (_req, res) => {
     clearSheetCache();
     // Also clear enriched tabular cache so next request re-enriches from new data
     _enrichedCache.clear();
+    clearNlexLatestBundleCache();
     const results = await runBackupCycle("manual", { force: true });
+    await warmNlexLatestCache().catch(() => {});
     res.json({ ok: true, results });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -562,6 +596,7 @@ router.post("/api/tabular/:province/:pollutant/force-sync", requireAdminToken, a
 
     // 1) Evict all in-memory caches for this station
     _enrichedCache.delete(cacheKey);
+    clearNlexLatestBundleCache();
     clearSheetCacheForKey(`raw-tabular:${cacheKey}`);
     clearSheetCacheForKey(`tabular:${cacheKey}`);
 
@@ -699,6 +734,7 @@ async function warmEnrichedCache() {
 
 module.exports = router;
 module.exports.warmEnrichedCache = warmEnrichedCache;
+module.exports.warmNlexLatestCache = warmNlexLatestCache;
 
 /* ═══════════════════════════════════════════════════════════════
    ADMIN CRUD + CSV EXPORT  (require X-Admin-Token)
@@ -762,6 +798,7 @@ router.post("/api/tabular/:province/:pollutant/rows", requireAdminToken, async (
     );
     // Invalidate enriched cache
     _enrichedCache.delete(`${province}:${pollutant}`);
+    clearNlexLatestBundleCache();
     res.json({ ok: true, row: newRow });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -789,6 +826,7 @@ router.put("/api/tabular/:province/:pollutant/rows/:id", requireAdminToken, asyn
       return res.status(404).json({ error: "Row not found" });
     }
     _enrichedCache.delete(`${province}:${pollutant}`);
+    clearNlexLatestBundleCache();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -812,6 +850,7 @@ router.delete("/api/tabular/:province/:pollutant/rows/:id", requireAdminToken, a
       return res.status(404).json({ error: "Dataset not found" });
     }
     _enrichedCache.delete(`${province}:${pollutant}`);
+    clearNlexLatestBundleCache();
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

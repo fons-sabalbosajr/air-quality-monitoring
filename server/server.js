@@ -176,8 +176,9 @@ app.listen(PORT, "0.0.0.0", () => {
     setTimeout(async () => {
       // 1) Pre-warm enriched tabular cache from MongoDB backup (fast, no Google Sheets needed)
       try {
-        const { warmEnrichedCache } = require("./routes/tabular");
+        const { warmEnrichedCache, warmNlexLatestCache } = require("./routes/tabular");
         await warmEnrichedCache();
+        await warmNlexLatestCache();
       } catch (e) {
         console.warn(`[enriched-cache] warm-up error: ${e.message}`);
       }
@@ -188,9 +189,13 @@ app.listen(PORT, "0.0.0.0", () => {
       //    server restart or config change (e.g. date format correction).
       try {
         const { runBackupCycle } = require("./services/tabularBackup");
-        const { warmEnrichedCache: rewarm } = require("./routes/tabular");
+        const {
+          warmEnrichedCache: rewarm,
+          warmNlexLatestCache: rewarmNlex,
+        } = require("./routes/tabular");
         runBackupCycle("startup-sync", { force: true })
           .then(() => rewarm())
+          .then(() => rewarmNlex())
           .then(() => console.log("[cache] startup-sync complete — all pages serve fresh data"))
           .catch((e) => console.warn(`[cache] startup-sync error: ${e?.message}`));
       } catch {}
