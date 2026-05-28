@@ -110,6 +110,32 @@ router.get("/api/nlex-settings", async (req, res) => {
 
 // PUT /api/nlex-settings — admin only
 // Called by /admin when settings change; persists to MongoDB for cross-device sync
+router.get("/api/nlex-settings.js", async (req, res) => {
+  const rawCallback = String(req.query.callback || "__aqmNlexSettings");
+  const callback = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(rawCallback)
+    ? rawCallback
+    : "__aqmNlexSettings";
+  try {
+    const db = await ensureMongo();
+    const col = db.collection(COLLECTION);
+    const doc = await col.findOne({ _id: DOC_ID });
+    const body = doc
+      ? { settings: mergeSettings(doc.settings), persisted: true }
+      : { settings: DEFAULT_SETTINGS, persisted: false };
+
+    res.setHeader("Cache-Control", "private, no-cache, max-age=0, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.type("application/javascript; charset=utf-8");
+    res.send(`${callback}(${JSON.stringify(body)});`);
+  } catch (e) {
+    console.error("[nlex-settings] JSONP error:", e.message);
+    const body = { settings: DEFAULT_SETTINGS, persisted: false };
+    res.type("application/javascript; charset=utf-8");
+    res.send(`${callback}(${JSON.stringify(body)});`);
+  }
+});
+
 router.put("/api/nlex-settings", requireAdminToken, async (req, res) => {
   try {
     const settings = req.body;

@@ -97,7 +97,7 @@ app.use(express.json({ limit: "1mb" }));
 // ── Simple rate limiter (in-memory, per-IP) ──
 const _hits = new Map();
 const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS) || 60_000;
-const RATE_MAX = Number(process.env.RATE_MAX) || 120;
+const RATE_MAX = Number(process.env.RATE_MAX) || 600;
 app.use((req, res, next) => {
   // Skip rate-limit for health checks
   if (req.path === "/" || req.path === "/health") return next();

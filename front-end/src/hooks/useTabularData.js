@@ -55,6 +55,10 @@ function persistLatestRow(province, pollutant, row) {
   } catch { /* best-effort */ }
 }
 
+function findDateKey(row) {
+  return row ? (Object.keys(row).find((k) => /date|time/i.test(k)) ?? null) : null;
+}
+
 const TABULAR_REFRESH_MS = 45_000;                   // frequent background refresh
 const FETCH_TIMEOUT_MS = 10_000;
 const TABULAR_CACHE = new Map();
@@ -229,6 +233,12 @@ export default function useTabularData(province, pollutant) {
     return () => { mountedRef.current = false; };
   }, []);
 
+  useEffect(() => {
+    const persisted = readPersistedLatest(province, pollutant);
+    setCachedLatest(persisted);
+    latestRowRef.current = persisted;
+  }, [province, pollutant]);
+
   const fetchData = useCallback(async ({ force = false, background = false } = {}) => {
     if (!province || !pollutant) {
       setRaw(null);
@@ -296,9 +306,9 @@ export default function useTabularData(province, pollutant) {
   // Fall back to regex-based column detection only when the server key is absent.
   const dateCol = useMemo(() => {
     if (raw?.dateKey) return raw.dateKey;
-    if (!raw?.columns) return null;
-    return raw.columns.find((c) => /date|time/i.test(c)) || null;
-  }, [raw]);
+    if (raw?.columns) return raw.columns.find((c) => /date|time/i.test(c)) || null;
+    return findDateKey(cachedLatest);
+  }, [raw, cachedLatest]);
 
   // Find the concentration column key
   const concCol = useMemo(() => {
@@ -311,7 +321,7 @@ export default function useTabularData(province, pollutant) {
   // Skip erratic rows (AQI = 0 or status = Invalid/For Validation) so the
   // AQI hero card always shows the most recent *valid* reading.
   const latest = useMemo(() => {
-    if (!rows.length) return null;
+    if (!rows.length) return cachedLatest || null;
     const validRow = rows.find((r) => {
       const aqi = r["AQI"] ?? r["aqi"];
       if (aqi == null || Number(aqi) === 0 || Number(aqi) > 500) return false;
@@ -319,8 +329,8 @@ export default function useTabularData(province, pollutant) {
       if (/^(invalid|for\s*validation)$/i.test(String(status || ""))) return false;
       return true;
     });
-    return validRow || null;
-  }, [rows]);
+    return validRow || cachedLatest || null;
+  }, [rows, cachedLatest]);
 
   // Persist latest row to secureStorage whenever it changes so the AQI card
   // can render immediately on the next page load from cache.

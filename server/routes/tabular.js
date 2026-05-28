@@ -54,8 +54,6 @@ function setCacheHeaders(req, res, body) {
 // Debounce background backup refreshes — active displays/admin pages monitor Sheets without overlapping syncs.
 const _lastBackupRefresh = new Map();
 const BACKUP_REFRESH_DEBOUNCE_MS = 30_000;
-const LATEST_REFRESH_DEBOUNCE_MS = 15_000;
-const LATEST_REFRESH_WAIT_MS = Number(process.env.LATEST_REFRESH_WAIT_MS || 8000);
 
 function maybeRefreshBackup(province, pollutant, opts = {}) {
   const key = `${province}:${pollutant}`;
@@ -77,16 +75,6 @@ function maybeRefreshBackup(province, pollutant, opts = {}) {
     .catch((error) => ({ updated: false, error: error?.message || "refresh failed" }));
 }
 
-async function refreshBackupForLatest(province, pollutant) {
-  const refresh = maybeRefreshBackup(province, pollutant, {
-    debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
-  });
-  const timeout = new Promise((resolve) => {
-    setTimeout(() => resolve({ updated: false, timedOut: true }), LATEST_REFRESH_WAIT_MS);
-  });
-  return Promise.race([refresh, timeout]);
-}
-
 // In-memory enriched result cache — avoids re-fetching 5000+ rows from MongoDB every request
 const _enrichedCache = new Map();
 const ENRICHED_CACHE_TTL_MS = 30_000; // near-real-time for dashboard/NLEX
@@ -99,7 +87,9 @@ const NLEX_DATASETS = [
   { province: "zambales", pollutant: "pm25" },
 ];
 const NLEX_BUNDLE_TTL_MS = Number(process.env.NLEX_BUNDLE_TTL_MS || 5000);
+const NLEX_BUNDLE_RESPONSE_TIMEOUT_MS = Number(process.env.NLEX_BUNDLE_RESPONSE_TIMEOUT_MS || 2800);
 let _nlexLatestBundleCache = null;
+let _nlexLatestBundleRefreshPromise = null;
 
 function clearNlexLatestBundleCache() {
   _nlexLatestBundleCache = null;
@@ -205,8 +195,6 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
         pollutant,
         { logsPerHour: 1 },
       );
-      // Kick off a debounced background refresh from Google Sheets
-      maybeRefreshBackup(province, pollutant);
       const body = {
         province: backup.province,
         pollutant: backup.pollutant,
@@ -230,6 +218,10 @@ router.get("/api/tabular/:province/:pollutant", async (req, res) => {
 
     // 2) No backup yet — fall back to Google Sheets (first-time load)
     //    Apply a 45s timeout so the frontend doesn't hang indefinitely.
+    if (!/^(1|true|yes)$/i.test(String(req.query.live || ""))) {
+      return res.status(404).json({ error: "No MongoDB backup available yet" });
+    }
+
     try {
       const sheetPromise = getRawTabularTable(province, pollutant);
       const timeoutPromise = new Promise((_, reject) =>
@@ -294,56 +286,20 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
 
     // 1) Use warm in-memory enriched cache (built by the full tabular route) — instant
     const fullCacheKey = `${province}:${pollutant}`;
-    const waitFresh = /^(1|true|yes)$/i.test(String(req.query.waitFresh || ""));
-    let refreshResult = null;
-    if (waitFresh) {
-      refreshResult = await refreshBackupForLatest(province, pollutant);
-    } else {
-      maybeRefreshBackup(province, pollutant, {
-        debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
-      });
-    }
-    const refreshedBackup = refreshResult?.updated
-      ? await getBackupData(province, pollutant)
-      : null;
-    if (refreshedBackup && refreshedBackup.rows && refreshedBackup.rows.length > 0) {
-      const enriched = enrichWithAqi(
-        {
-          columns: refreshedBackup.columns,
-          rows: refreshedBackup.rows,
-          dateKey: refreshedBackup.dateKey,
-          concKey: refreshedBackup.concKey,
-        },
-        pollutant,
-        { logsPerHour: 1 },
-      );
-      const fullBody = {
-        province: refreshedBackup.province,
-        pollutant: refreshedBackup.pollutant,
-        columns: enriched.columns,
-        rows: enriched.rows,
-        totalRows: enriched.rows.length,
-        fetchedAt: refreshedBackup.fetchedAt,
-        source: refreshedBackup.source,
-        backupMeta: refreshedBackup.backupMeta,
-        dateKey: enriched.dateKey || null,
-        concKey: enriched.concKey || null,
-        latestAqiVerified: enriched.latestAqiVerified ?? false,
-      };
-      setCachedEnriched(fullCacheKey, fullBody);
-      const latest = selectLatestAqiRow(enriched.rows, enriched.dateKey);
+    const snapshot = await getLatestAqiSnapshot(province, pollutant);
+    if (snapshot?.row) {
       const body = {
         province,
         pollutant,
-        row: latest.row,
-        time: latest.time,
-        displayTime: latest.displayTime,
-        dateKey: enriched.dateKey || null,
-        fetchedAt: refreshedBackup.fetchedAt,
-        source: refreshedBackup.source,
-        backupMeta: refreshedBackup.backupMeta,
+        row: snapshot.row,
+        time: snapshot.time,
+        displayTime: snapshot.displayTime,
+        dateKey: snapshot.dateKey || null,
+        fetchedAt: snapshot.fetchedAt,
+        source: snapshot.source,
+        backupMeta: snapshot.backupMeta || null,
         sheetSyncing: isSyncing(fullCacheKey),
-        latestAqiVerified: enriched.latestAqiVerified ?? false,
+        latestAqiVerified: snapshot.latestAqiVerified ?? false,
       };
       if (setCacheHeaders(req, res, body)) return;
       return res.json(body);
@@ -374,7 +330,6 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
     //    cache the enriched result so the next full tabular call is also instant.
     const backup = await getBackupData(province, pollutant);
     if (backup && backup.rows && backup.rows.length > 0) {
-      maybeRefreshBackup(province, pollutant);
       const enriched = enrichWithAqi(
         { columns: backup.columns, rows: backup.rows, dateKey: backup.dateKey, concKey: backup.concKey },
         pollutant,
@@ -418,13 +373,8 @@ router.get("/api/tabular/:province/:pollutant/latest", async (req, res) => {
   }
 });
 
-async function latestForNlex(province, pollutant, { refresh = false } = {}) {
+async function latestForNlex(province, pollutant) {
   const cacheKey = `${province}:${pollutant}`;
-  if (refresh) {
-    maybeRefreshBackup(province, pollutant, {
-      debounceMs: LATEST_REFRESH_DEBOUNCE_MS,
-    });
-  }
 
   const snapshot = await getLatestAqiSnapshot(province, pollutant);
   if (snapshot?.row) {
@@ -499,21 +449,18 @@ async function latestForNlex(province, pollutant, { refresh = false } = {}) {
   };
 }
 
-async function buildNlexLatestBundle({ refresh = false, force = false } = {}) {
-  const now = Date.now();
+async function refreshNlexLatestBundle() {
   if (
-    !force &&
-    _nlexLatestBundleCache &&
-    now - _nlexLatestBundleCache.generatedAt < NLEX_BUNDLE_TTL_MS
+    _nlexLatestBundleRefreshPromise
   ) {
-    return _nlexLatestBundleCache.body;
+    return _nlexLatestBundleRefreshPromise;
   }
 
-  const entries = await Promise.all(
+  _nlexLatestBundleRefreshPromise = Promise.all(
     NLEX_DATASETS.map(async (item) => {
       const key = `${item.province}:${item.pollutant}`;
       try {
-        return [key, await latestForNlex(item.province, item.pollutant, { refresh })];
+        return [key, await latestForNlex(item.province, item.pollutant)];
       } catch (error) {
         return [
           key,
@@ -526,25 +473,72 @@ async function buildNlexLatestBundle({ refresh = false, force = false } = {}) {
         ];
       }
     }),
-  );
-  const data = Object.fromEntries(entries);
-  const body = { ok: true, generatedAt: now, data };
-  _nlexLatestBundleCache = { generatedAt: now, body };
-  return body;
+  ).then((entries) => {
+    const generatedAt = Date.now();
+    const data = Object.fromEntries(entries);
+    const body = { ok: true, generatedAt, data };
+    _nlexLatestBundleCache = { generatedAt, body };
+    return body;
+  }).finally(() => {
+    _nlexLatestBundleRefreshPromise = null;
+  });
+
+  return _nlexLatestBundleRefreshPromise;
+}
+
+async function buildNlexLatestBundle({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && _nlexLatestBundleCache) {
+    if (now - _nlexLatestBundleCache.generatedAt >= NLEX_BUNDLE_TTL_MS) {
+      refreshNlexLatestBundle().catch(() => {});
+    }
+    return _nlexLatestBundleCache.body;
+  }
+
+  return refreshNlexLatestBundle();
+}
+
+async function buildNlexLatestBundleFast({ force = false } = {}) {
+  if (!force && _nlexLatestBundleCache) {
+    return buildNlexLatestBundle({ force });
+  }
+
+  const timeoutBody = new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(
+        _nlexLatestBundleCache?.body || {
+          ok: false,
+          generatedAt: Date.now(),
+          data: {},
+          error: "NLEX latest bundle is still warming",
+        },
+      );
+    }, NLEX_BUNDLE_RESPONSE_TIMEOUT_MS);
+  });
+
+  return Promise.race([buildNlexLatestBundle({ force }), timeoutBody]);
 }
 
 async function warmNlexLatestCache() {
-  return buildNlexLatestBundle({ refresh: false, force: true });
+  return buildNlexLatestBundle({ force: true });
 }
 
 // JSONP bundle for legacy signage webviews. Script-tag loading avoids CORS
 // issues in VNNOX-style preview/player environments.
+router.get("/api/nlex-latest", async (req, res) => {
+  const force = /^(1|true|yes)$/i.test(String(req.query.force || ""));
+  const body = await buildNlexLatestBundleFast({ force });
+
+  if (setCacheHeaders(req, res, body)) return;
+  res.json(body);
+});
+
 router.get("/api/nlex-latest.js", async (req, res) => {
   const rawCallback = String(req.query.callback || "__aqmNlexLatest");
   const callback = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(rawCallback)
     ? rawCallback
     : "__aqmNlexLatest";
-  const body = await buildNlexLatestBundle();
+  const body = await buildNlexLatestBundleFast();
 
   res.setHeader("Cache-Control", API_CACHE_CONTROL);
   res.setHeader("Pragma", "no-cache");

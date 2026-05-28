@@ -23,8 +23,8 @@ import { secureStorage } from "../utils/secureStorage";
 
 const POLL_MS        = 60_000;                  // signage-friendly re-fetch cadence
 const CACHE_TTL_MS   = 12 * 60 * 60 * 1000;    // 12 h — evict stale secureStorage
-const FETCH_TIMEOUT_MS = 6_000;
-const FETCH_RETRIES = 1;
+const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_RETRIES = 2;
 const CACHE_SCHEMA_VERSION = 3;
 
 function storageKey(province, pollutant) {
@@ -160,14 +160,10 @@ export default function useLatestAqi(province, pollutant) {
           if (attempt >= FETCH_RETRIES) return;
         }
       }
-      if (!mountedRef.current || !json?.row || !isValidLatestRow(json.row)) {
+      if (!mountedRef.current) return;
+
+      if (!json?.row || !isValidLatestRow(json.row)) {
         if (mountedRef.current) {
-          latestRef.current = null;
-          secureStorage.removeItem(storageKey(province, pollutant));
-          setLatest(null);
-          setTime(null);
-          setDateColState(null);
-          setFetchedAt(null);
           setLoading(false);
         }
         return;

@@ -328,6 +328,23 @@ Bypass or revalidate CDN cache for `/air-quality-monitoring/nlex*` and
 `/air-quality-monitoring/api/*`; the AQI APIs already send no-cache headers and
 ETags, so browser/CDN revalidation stays accurate without serving stale LED data.
 
+### Browser preview for NLEX LED wall
+
+For checking improvements in a normal browser, use:
+
+```text
+https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex?fallback=1
+https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex?mode=native
+https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex?mode=browser
+https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex-preview
+```
+
+Use `fallback=1` or `mode=native` to inspect the same native HTML fallback that
+appears if the React NLEX display cannot boot.
+Use `mode=browser` or `/nlex-preview` for the full React/browser preview with
+animations and the richer weather background. Keep the plain `/nlex` URL for the
+actual VNNOX/LED wall player because it stays on the React compatibility profile.
+
 > **Where exactly?** After the `location /ocsm/socket.io/ { ... }` block and its blank line, before the line `listen 443 ssl; # managed by Certbot`.
 
 ### Enable geolocation (important!)

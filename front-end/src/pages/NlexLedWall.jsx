@@ -26,18 +26,35 @@ import {
   TbMail,
   TbCircleCheckFilled,
 } from "react-icons/tb";
-import useLatestAqi from "../hooks/useLatestAqi";
 import embLogo from "../assets/emblogo.svg";
 import bpLogo from "../assets/bplogo.svg";
 import {
   NlexSettingsProvider,
   useNlexSettings,
 } from "../context/NlexSettingsContext";
+import { getApiBase } from "../util/apiBase";
+import { readJsonResponse } from "../util/jsonResponse";
 import { AQI_COLORS } from "../utils/aqiPalette";
 import "./NlexLedWall.css";
 
-const VNNOX_COMPAT_MODE = true;
-const NLEX_CLOCK_REFRESH_MS = VNNOX_COMPAT_MODE ? 60_000 : 1_000;
+const VNNOX_COMPAT_DEFAULT = true;
+
+function isNlexBrowserPreview() {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path.endsWith("/nlex-preview")) return true;
+  const params = new URLSearchParams(window.location.search);
+  const mode = String(params.get("mode") || params.get("preview") || "");
+  return /^(browser|full|test|1|true)$/i.test(mode);
+}
+
+function getNlexCompatMode() {
+  return VNNOX_COMPAT_DEFAULT && !isNlexBrowserPreview();
+}
+
+function getNlexClockRefreshMs() {
+  return getNlexCompatMode() ? 60_000 : 1_000;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    AQI BANDS
@@ -929,7 +946,7 @@ function useAnimatedAqi(targetAqi, duration = 1000) {
   const rafRef = useRef(null);
   const prevRef = useRef(targetAqi);
   useEffect(() => {
-    if (VNNOX_COMPAT_MODE) {
+    if (getNlexCompatMode()) {
       setVal(targetAqi);
       prevRef.current = targetAqi;
       return;
@@ -1233,6 +1250,97 @@ function extractAqi(latest) {
   return isFinite(v) && v > 0 ? v : null;
 }
 
+const NLEX_BUNDLE_STORAGE_KEY = "aqm_nlex_latest_bundle";
+const NLEX_BUNDLE_POLL_MS = 60_000;
+const NLEX_BUNDLE_TIMEOUT_MS = 8_000;
+
+function readStoredNlexBundle() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(NLEX_BUNDLE_STORAGE_KEY) || "null");
+    if (!stored?.data || Date.now() - Number(stored.savedAt || 0) > 12 * 60 * 60 * 1000) {
+      return null;
+    }
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredNlexBundle(bundle) {
+  try {
+    localStorage.setItem(
+      NLEX_BUNDLE_STORAGE_KEY,
+      JSON.stringify({ ...bundle, savedAt: Date.now() }),
+    );
+  } catch {
+    /* best effort */
+  }
+}
+
+function useNlexLatestBundle() {
+  const stored = readStoredNlexBundle();
+  const [bundle, setBundle] = useState(stored);
+  const [loading, setLoading] = useState(!stored);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), NLEX_BUNDLE_TIMEOUT_MS);
+      try {
+        const res = await fetch(`${getApiBase()}/api/nlex-latest`, {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok || cancelled) return;
+        const json = await readJsonResponse(res, "NLEX latest bundle");
+        if (!cancelled && json?.data) {
+          setBundle(json);
+          writeStoredNlexBundle(json);
+        }
+      } catch {
+        clearTimeout(timeoutId);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    const intervalId = setInterval(load, NLEX_BUNDLE_POLL_MS);
+    window.addEventListener("focus", load);
+    window.addEventListener("online", load);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      window.removeEventListener("focus", load);
+      window.removeEventListener("online", load);
+    };
+  }, []);
+
+  return { bundle, loading };
+}
+
+function bundleEntryToPollutant(entry, key, label, bundleLoading) {
+  const row = entry?.row ?? null;
+  return {
+    key,
+    label,
+    aqi: extractAqi(row),
+    loading: bundleLoading && !row,
+    latest: row,
+    dateCol: entry?.dateKey ?? null,
+    fetchedAt: entry?.fetchedAt ?? null,
+    time: entry?.time ?? null,
+  };
+}
+
 function extractTimestamp(latest, dateCol, fetchedAt) {
   if (latest && dateCol && latest[dateCol]) {
     const d = new Date(latest[dateCol]);
@@ -1339,6 +1447,7 @@ function StationTile({
   gridStyle,
   hideGauge,
   isCarousel,
+  expandedGrid = false,
   aqiDescriptions,
 }) {
   const lastGoodPollutantsRef = useRef(new Map());
@@ -1374,13 +1483,14 @@ function StationTile({
     : null;
 
   // Dual tiles keep 200; solo (or dual with one pollutant hidden) gets a larger gauge
-  const gaugeSize = isDual ? 200 : 320;
+  const gaugeSize = expandedGrid ? (isDual ? 330 : 380) : (isDual ? 200 : 320);
 
   const tileClass = [
     "nlex-tile",
     isCarousel ? "nlex-tile-carousel" : "",
     isCarousel && isDual ? "nlex-carousel-tile-dual" : "",
     isCarousel && !isDual ? "nlex-carousel-tile-solo" : "",
+    expandedGrid ? "nlex-tile-expanded" : "",
     isNight ? "nlex-tile-night" : "nlex-tile-day",
     spotlit ? "nlex-tile-spotlit" : "",
     dimmed ? "nlex-tile-dimmed" : "",
@@ -1486,7 +1596,7 @@ function StationTile({
                     className="nlex-category-dot"
                     style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                   />
-                  {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
+                  {p.loading || !band ? "Updating" : `${band.emoji} ${band.legendLabel ?? band.short}`}
                 </div>
 
                 {/* Per-pollutant as-of date */}
@@ -1570,7 +1680,7 @@ function StationTile({
       {isDual ? (
         /* ── DUAL layout: each parameter is a self-contained centered column ── */
         <>
-          <div className="nlex-dual-params">
+          <div className={`nlex-dual-params${expandedGrid ? " nlex-dual-params-expanded" : ""}`}>
             {displayPollutants.map((p, pIdx) => {
               const band = p.aqi != null ? getBand(p.aqi) : null;
               return (
@@ -1626,7 +1736,7 @@ function StationTile({
                       className="nlex-category-dot"
                       style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                     />
-                    {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
+                    {p.loading || !band ? "Updating" : `${band.emoji} ${band.legendLabel ?? band.short}`}
                   </div>
                   )}
                   {isCarousel && hideGauge && (
@@ -1709,7 +1819,7 @@ function StationTile({
                         className="nlex-category-dot"
                         style={{ background: band ? getBandDotColor(band) : "#d1d5db" }}
                       />
-                      {p.loading || !band ? "Updating" : `${band.emoji} ${band.short}`}
+                      {p.loading || !band ? "Updating" : `${band.emoji} ${band.legendLabel ?? band.short}`}
                     </div>
                   );
                 })}
@@ -1919,7 +2029,7 @@ function useSpotlight(count, ms = 5000) {
 function useLiveClock() {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), NLEX_CLOCK_REFRESH_MS);
+    const id = setInterval(() => setNow(new Date()), getNlexClockRefreshMs());
     return () => clearInterval(id);
   }, []);
   return now;
@@ -1954,6 +2064,7 @@ export default function NlexLedWall() {
 function NlexLedWallInner() {
   const { settings } = useNlexSettings();
   const clock = useLiveClock();
+  const compatMode = getNlexCompatMode();
 
   // ── Maintenance-done notification ──
   const prevMaintenanceRef = useRef(settings.nlexMaintenance);
@@ -2037,12 +2148,9 @@ function NlexLedWallInner() {
     carouselDurationMs,
   );
 
-  const clarkPm10 = useLatestAqi("clark", "pm10");
-  const sfPm10    = useLatestAqi("san-fernando", "pm10");
-  const meycPm10  = useLatestAqi("meycauayan", "pm10");
-  const meycPm25  = useLatestAqi("meycauayan", "pm25");
-  const zamPm10   = useLatestAqi("zambales", "pm10");
-  const zamPm25   = useLatestAqi("zambales", "pm25");
+  const { bundle: latestBundle, loading: latestBundleLoading } =
+    useNlexLatestBundle();
+  const latestData = latestBundle?.data ?? {};
 
   const textColor = isNight ? "rgba(225,235,255,0.92)" : "#1a2340";
   const subColor = isNight ? "rgba(190,215,255,0.82)" : "rgba(30,50,100,0.55)";
@@ -2079,10 +2187,10 @@ function NlexLedWallInner() {
   }, []);
 
   return (
-      <div className={`nlex-page-root${VNNOX_COMPAT_MODE ? " nlex-vnnox-compat" : ""}`}>
-        <WeatherBackground weatherData={weatherData} lightweight={VNNOX_COMPAT_MODE} />
+      <div className={`nlex-page-root${compatMode ? " nlex-vnnox-compat" : " nlex-browser-preview"}`}>
+        <WeatherBackground weatherData={weatherData} lightweight={compatMode} />
         {/* Persistent animated background clouds */}
-        {!VNNOX_COMPAT_MODE && (
+        {!compatMode && (
           <div className="nlex-bg-clouds" aria-hidden="true">
             <div className="nlex-bg-cloud nlex-bg-cloud-1" />
             <div className="nlex-bg-cloud nlex-bg-cloud-2" />
@@ -2192,81 +2300,63 @@ function NlexLedWallInner() {
                 function getPollutants(key) {
                   if (key === "clark") {
                     const all = [
-                      pollVisible["clark_pm10"] !== false && {
-                        key: "clark-pm10",
-                        label: "PM10",
-                        aqi: extractAqi(clarkPm10.latest),
-                        loading: clarkPm10.loading && !clarkPm10.latest,
-                        latest: clarkPm10.latest,
-                        dateCol: clarkPm10.dateCol,
-                        fetchedAt: clarkPm10.fetchedAt,
-                        time: clarkPm10.time,
-                      },
+                      pollVisible["clark_pm10"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["clark:pm10"],
+                          "clark-pm10",
+                          "PM10",
+                          latestBundleLoading,
+                        ),
                     ];
                     return all.filter(Boolean);
                   }
                   if (key === "san-fernando") {
                     const all = [
-                      pollVisible["san-fernando_pm10"] !== false && {
-                        key: "sf-pm10",
-                        label: "PM10",
-                        aqi: extractAqi(sfPm10.latest),
-                        loading: sfPm10.loading && !sfPm10.latest,
-                        latest: sfPm10.latest,
-                        dateCol: sfPm10.dateCol,
-                        fetchedAt: sfPm10.fetchedAt,
-                        time: sfPm10.time,
-                      },
+                      pollVisible["san-fernando_pm10"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["san-fernando:pm10"],
+                          "sf-pm10",
+                          "PM10",
+                          latestBundleLoading,
+                        ),
                     ];
                     return all.filter(Boolean);
                   }
                   if (key === "meycauayan") {
                     const all = [
-                      pollVisible["meycauayan_pm10"] !== false && {
-                        key: "meyc-pm10",
-                        label: "PM10",
-                        aqi: extractAqi(meycPm10.latest),
-                        loading: meycPm10.loading && !meycPm10.latest,
-                        latest: meycPm10.latest,
-                        dateCol: meycPm10.dateCol,
-                        fetchedAt: meycPm10.fetchedAt,
-                        time: meycPm10.time,
-                      },
-                      pollVisible["meycauayan_pm25"] !== false && {
-                        key: "meyc-pm25",
-                        label: "PM2.5",
-                        aqi: extractAqi(meycPm25.latest),
-                        loading: meycPm25.loading && !meycPm25.latest,
-                        latest: meycPm25.latest,
-                        dateCol: meycPm25.dateCol,
-                        fetchedAt: meycPm25.fetchedAt,
-                        time: meycPm25.time,
-                      },
+                      pollVisible["meycauayan_pm10"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["meycauayan:pm10"],
+                          "meyc-pm10",
+                          "PM10",
+                          latestBundleLoading,
+                        ),
+                      pollVisible["meycauayan_pm25"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["meycauayan:pm25"],
+                          "meyc-pm25",
+                          "PM2.5",
+                          latestBundleLoading,
+                        ),
                     ];
                     return all.filter(Boolean);
                   }
                   if (key === "zambales") {
                     const all = [
-                      pollVisible["zambales_pm10"] !== false && {
-                        key: "zam-pm10",
-                        label: "PM10",
-                        aqi: extractAqi(zamPm10.latest),
-                        loading: zamPm10.loading && !zamPm10.latest,
-                        latest: zamPm10.latest,
-                        dateCol: zamPm10.dateCol,
-                        fetchedAt: zamPm10.fetchedAt,
-                        time: zamPm10.time,
-                      },
-                      pollVisible["zambales_pm25"] !== false && {
-                        key: "zam-pm25",
-                        label: "PM2.5",
-                        aqi: extractAqi(zamPm25.latest),
-                        loading: zamPm25.loading && !zamPm25.latest,
-                        latest: zamPm25.latest,
-                        dateCol: zamPm25.dateCol,
-                        fetchedAt: zamPm25.fetchedAt,
-                        time: zamPm25.time,
-                      },
+                      pollVisible["zambales_pm10"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["zambales:pm10"],
+                          "zam-pm10",
+                          "PM10",
+                          latestBundleLoading,
+                        ),
+                      pollVisible["zambales_pm25"] !== false &&
+                        bundleEntryToPollutant(
+                          latestData["zambales:pm25"],
+                          "zam-pm25",
+                          "PM2.5",
+                          latestBundleLoading,
+                        ),
                     ];
                     return all.filter(Boolean);
                   }
@@ -2317,10 +2407,11 @@ function NlexLedWallInner() {
                 // Default: grid mode
                 const gridStyle = {
                   gridTemplateColumns: visibleCount === 1 ? "1fr" : "1fr 1fr",
+                  gridTemplateRows: visibleCount <= 2 ? "1fr" : "1fr 1fr",
                 };
                 return (
                   <div
-                    className="nlex-grid"
+                    className={`nlex-grid nlex-grid-count-${visibleCount}`}
                     key={`mode-grid-${hideGauge ? 1 : 0}`}
                     style={gridStyle}
                   >
@@ -2337,6 +2428,7 @@ function NlexLedWallInner() {
                           solo={spotlight === i}
                           pollutants={getPollutants(st.key)}
                           hideGauge={hideGauge}
+                          expandedGrid={visibleCount <= 2}
                           aqiDescriptions={settings.aqiDescriptions}
                           gridStyle={
                             isLast3
@@ -2419,7 +2511,7 @@ function NlexLedWallInner() {
                         })()}
                     </div>
                     <div className="nlex-footer-clock">
-                      {fmtClock(clock, !VNNOX_COMPAT_MODE)}
+                      {fmtClock(clock, !compatMode)}
                     </div>
                   </div>
                 </footer>
