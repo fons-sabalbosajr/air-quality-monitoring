@@ -61,6 +61,10 @@ function findDateKey(row) {
 
 const TABULAR_REFRESH_MS = 45_000;                   // frequent background refresh
 const FETCH_TIMEOUT_MS = 10_000;
+// Show the connection-error UI only after this many consecutive failures.
+// Single transient timeouts (common on shared hosting / VNNOX players) no
+// longer flicker the overlay back-and-forth on /admin and /kiosk.
+const ERROR_FAILURE_THRESHOLD = 2;
 const TABULAR_CACHE = new Map();
 const ETAG_STORE = new Map(); // province:pollutant -> etag string
 
@@ -216,6 +220,10 @@ export default function useTabularData(province, pollutant) {
 
   // Ref to track the current latest row for fast-poll comparison
   const latestRowRef = useRef(null);
+  // Tracks consecutive fetch failures so we only surface the connection-error
+  // overlay after multiple back-to-back failures (avoids flicker on transient
+  // network blips while cached data is still on screen).
+  const failureCountRef = useRef(0);
 
   const applyPayload = useCallback((payload) => {
     if (!payload) return;
@@ -225,6 +233,7 @@ export default function useTabularData(province, pollutant) {
     setBackupMeta(payload.backupMeta);
     setSheetSyncing(payload.raw?.sheetSyncing ?? false);
     setLatestAqiVerified(payload.raw?.latestAqiVerified ?? true);
+    failureCountRef.current = 0;
     setError(null);
   }, []);
 
@@ -265,7 +274,13 @@ export default function useTabularData(province, pollutant) {
       applyPayload(payload);
     } catch (e) {
       if (!mountedRef.current) return;
-      setError(e.message || "Failed to fetch data");
+      // Debounce error surfacing — only flip into "error" state after several
+      // consecutive failures so a single timeout doesn't briefly hide content
+      // and pop the ConnectionErrorCard overlay.
+      failureCountRef.current += 1;
+      if (failureCountRef.current >= ERROR_FAILURE_THRESHOLD) {
+        setError(e.message || "Failed to fetch data");
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }

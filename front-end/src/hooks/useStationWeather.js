@@ -6,10 +6,14 @@
  *   weatherCode, apparentTemperature, uvIndex, visibility,
  *   loading, error
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 const WEATHER_REFRESH_MS = 600_000;
 const WEATHER_CACHE = new Map();
+// Surface weather errors only after multiple consecutive failures so a single
+// transient hiccup (Open-Meteo timeout, brief offline blip) doesn't toggle
+// the connection overlay on /admin and /kiosk.
+const WEATHER_ERROR_FAILURE_THRESHOLD = 2;
 
 function getWeatherCacheKey(lat, lon) {
   return `${lat}:${lon}`;
@@ -108,6 +112,7 @@ export default function useStationWeather(lat, lon) {
   const [data, setData] = useState(initialCache?.data || null);
   const [loading, setLoading] = useState(Boolean(Number.isFinite(lat) && Number.isFinite(lon) && !initialCache?.data));
   const [error, setError] = useState(null);
+  const failureCountRef = useRef(0);
 
   const fetchWeather = useCallback(async ({ force = false, background = false } = {}) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -130,9 +135,13 @@ export default function useStationWeather(lat, lon) {
     try {
       const nextData = await requestWeather(lat, lon, force);
       setData(nextData);
+      failureCountRef.current = 0;
       setError(null);
     } catch (e) {
-      setError(e.message || "Weather unavailable");
+      failureCountRef.current += 1;
+      if (failureCountRef.current >= WEATHER_ERROR_FAILURE_THRESHOLD) {
+        setError(e.message || "Weather unavailable");
+      }
     } finally {
       setLoading(false);
     }
@@ -144,10 +153,12 @@ export default function useStationWeather(lat, lon) {
       setData(cached.data);
       setLoading(false);
       setError(null);
+      failureCountRef.current = 0;
     } else {
       setData(null);
       setLoading(Boolean(Number.isFinite(lat) && Number.isFinite(lon)));
       setError(null);
+      failureCountRef.current = 0;
     }
 
     if (!cached?.fresh) {
