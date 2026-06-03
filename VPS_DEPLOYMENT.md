@@ -430,7 +430,7 @@ curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring-admin
 cd /var/www/air-quality-monitoring
 git pull origin main
 
-# Rebuild frontendcd 
+# Rebuild frontendcd
 cd front-end && npm ci && npm run build
 
 # Restart API

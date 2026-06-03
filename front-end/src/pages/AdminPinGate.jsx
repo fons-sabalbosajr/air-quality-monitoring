@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Swal from "sweetalert2";
 import { getApiBase } from "../util/apiBase";
+import { secureSession } from "../utils/secureStorage";
 
 const SESSION_KEY = "admin-pin-token";
 
@@ -149,7 +150,7 @@ export default function AdminPinGate({ children }) {
 
   /* ── On mount: check status + session ───────────────────────── */
   useEffect(() => {
-    const existing = sessionStorage.getItem(SESSION_KEY);
+    const existing = secureSession.getItem(SESSION_KEY);
     if (existing) { setStatus("authenticated"); return; }
 
     api("/api/admin/auth/status")
@@ -160,7 +161,7 @@ export default function AdminPinGate({ children }) {
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const storeToken = (token) => {
-    sessionStorage.setItem(SESSION_KEY, token);
+    secureSession.setItem(SESSION_KEY, token);
     setStatus("authenticated");
   };
 

@@ -17,6 +17,7 @@ import HistoricalAqiGraph from "../components/HistoricalAqiGraph";
 import AqiCalendar from "../components/AqiCalendar";
 import WindMapCard from "../components/WindMapCard";
 import { getAqiColor, hexToRgba } from "../utils/aqiPalette";
+import { secureSession } from "../utils/secureStorage";
 import "./Dashboard.css";
 
 /* ── Dashboard Page ────────────────────────────────────────────────── */
@@ -28,7 +29,7 @@ export default function DashboardPage() {
 
   // Station selector – persisted in sessionStorage
   const [stationKey, setStationKey] = useState(() => {
-    const saved = sessionStorage.getItem("aqm_station");
+    const saved = secureSession.getItem("aqm_station");
     // Map old individual keys to merged key
     if (saved) {
       const found = DASH_STATIONS.find((s) => s.key === saved);
@@ -44,7 +45,7 @@ export default function DashboardPage() {
   const station = DASH_STATIONS.find((s) => s.key === stationKey) || DASH_STATIONS[0];
 
   useEffect(() => {
-    sessionStorage.setItem("aqm_station", stationKey);
+    secureSession.setItem("aqm_station", stationKey);
   }, [stationKey]);
 
   // Primary tabular data

@@ -35,6 +35,7 @@ import {
 import { getApiBase } from "../util/apiBase";
 import { readJsonResponse } from "../util/jsonResponse";
 import { AQI_COLORS } from "../utils/aqiPalette";
+import { secureStorage } from "../utils/secureStorage";
 import "./NlexLedWall.css";
 
 const VNNOX_COMPAT_DEFAULT = true;
@@ -1256,7 +1257,7 @@ const NLEX_BUNDLE_TIMEOUT_MS = 8_000;
 
 function readStoredNlexBundle() {
   try {
-    const stored = JSON.parse(localStorage.getItem(NLEX_BUNDLE_STORAGE_KEY) || "null");
+    const stored = secureStorage.getJSON(NLEX_BUNDLE_STORAGE_KEY);
     if (!stored?.data || Date.now() - Number(stored.savedAt || 0) > 12 * 60 * 60 * 1000) {
       return null;
     }
@@ -1268,10 +1269,7 @@ function readStoredNlexBundle() {
 
 function writeStoredNlexBundle(bundle) {
   try {
-    localStorage.setItem(
-      NLEX_BUNDLE_STORAGE_KEY,
-      JSON.stringify({ ...bundle, savedAt: Date.now() }),
-    );
+    secureStorage.setJSON(NLEX_BUNDLE_STORAGE_KEY, { ...bundle, savedAt: Date.now() });
   } catch {
     /* best effort */
   }

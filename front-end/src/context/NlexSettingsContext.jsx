@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
 import { readJsonResponse } from "../util/jsonResponse";
+import { secureSession, secureStorage } from "../utils/secureStorage";
 
 const BC_CHANNEL = "nlex-settings-sync";
 const SERVER_POLL_MS = 30000;
@@ -84,7 +85,7 @@ function mergeSettings(source) {
 
 function parseStored() {
   try {
-    const stored = JSON.parse(localStorage.getItem("nlex-settings") ?? "{}");
+    const stored = secureStorage.getJSON("nlex-settings") ?? {};
     return mergeSettings(stored);
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -93,7 +94,7 @@ function parseStored() {
 
 /** Read the _ts timestamp saved alongside settings in localStorage (0 if absent). */
 function readLocalTs() {
-  try { return JSON.parse(localStorage.getItem("nlex-settings") ?? "{}")._ts ?? 0; }
+  try { return (secureStorage.getJSON("nlex-settings") ?? {})._ts ?? 0; }
   catch { return 0; }
 }
 
@@ -106,7 +107,7 @@ function readLocalTs() {
 export function saveNlexSettings(newSettings) {
   const ts = Date.now();
   const stamped = { ...newSettings, _ts: ts };
-  try { localStorage.setItem("nlex-settings", JSON.stringify(stamped)); } catch {}
+  try { secureStorage.setJSON("nlex-settings", stamped); } catch {}
   try {
     const bc = new BroadcastChannel(BC_CHANNEL);
     bc.postMessage({ type: "settings-updated", settings: stamped });
@@ -114,7 +115,7 @@ export function saveNlexSettings(newSettings) {
   } catch {}
   // Server persist: fire-and-forget so cross-device sync works (other devices poll the server)
   try {
-    const token = sessionStorage.getItem("admin-pin-token");
+    const token = secureSession.getItem("admin-pin-token");
     if (token) {
       fetch(`${getApiBase()}/api/nlex-settings`, {
         method: "PUT",
@@ -143,7 +144,7 @@ export function NlexSettingsProvider({ children }) {
     localTsRef.current = serverTs;
     setSettings(merged);
     // Keep localStorage in sync so same-device tabs also see the update
-    try { localStorage.setItem("nlex-settings", JSON.stringify({ ...merged, _ts: serverTs })); } catch {}
+    try { secureStorage.setJSON("nlex-settings", { ...merged, _ts: serverTs }); } catch {}
   }
 
   useEffect(() => {
@@ -163,7 +164,7 @@ export function NlexSettingsProvider({ children }) {
           // Server has never been written to yet. DO NOT overwrite local settings.
           // If we are the admin, push our current localStorage settings up to the server
           // so all other devices pick them up on their next poll.
-          const token = sessionStorage.getItem("admin-pin-token");
+          const token = secureSession.getItem("admin-pin-token");
           if (token) {
             const local = parseStored();
             fetch(`${getApiBase()}/api/nlex-settings`, {
@@ -191,7 +192,7 @@ export function NlexSettingsProvider({ children }) {
           const merged = mergeSettings(e.data.settings);
           setSettings(merged);
           // Keep localStorage in sync so visibilitychange/pageshow reads fresh data
-          try { localStorage.setItem("nlex-settings", JSON.stringify({ ...merged, _ts: incomingTs })); } catch {}
+          try { secureStorage.setJSON("nlex-settings", { ...merged, _ts: incomingTs }); } catch {}
         }
       };
     } catch {}

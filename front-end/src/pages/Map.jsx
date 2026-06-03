@@ -46,21 +46,24 @@ function useMultiWeather(stations) {
   const [wx, setWx] = useState({});
   useEffect(() => {
     let cancelled = false;
+    // Lazy, sequential warm-up: fetch one station's weather at a time and update
+    // the map progressively. Firing every request in parallel to the external
+    // weather API caused "unreachable" bursts on constrained networks.
     async function fetchAll() {
-      const results = {};
-      await Promise.allSettled(
-        stations.filter(hasValidCoordinates).map(async (s) => {
-          try {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}&current_weather=true&forecast_days=1&timezone=auto`;
-            const r = await fetch(url);
-            const j = await r.json();
-            results[s.key] = { data: j, error: null };
-          } catch {
-            results[s.key] = { data: null, error: "Unavailable" };
-          }
-        }),
-      );
-      if (!cancelled) setWx(results);
+      const valid = stations.filter(hasValidCoordinates);
+      for (const s of valid) {
+        if (cancelled) return;
+        try {
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}&current_weather=true&forecast_days=1&timezone=auto`;
+          const r = await fetch(url);
+          const j = await r.json();
+          if (cancelled) return;
+          setWx((prev) => ({ ...prev, [s.key]: { data: j, error: null } }));
+        } catch {
+          if (cancelled) return;
+          setWx((prev) => ({ ...prev, [s.key]: { data: null, error: "Unavailable" } }));
+        }
+      }
     }
     fetchAll();
     const id = setInterval(fetchAll, 300_000);

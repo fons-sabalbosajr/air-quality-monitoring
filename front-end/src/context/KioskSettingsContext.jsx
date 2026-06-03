@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
 import { readJsonResponse } from "../util/jsonResponse";
+import { secureSession, secureStorage } from "../utils/secureStorage";
 
 const BC_CHANNEL = "kiosk-settings-sync";
 
@@ -44,7 +45,7 @@ export const KioskSettingsContext = createContext({
 
 function parseStored() {
   try {
-    const stored = JSON.parse(localStorage.getItem("kiosk-settings") ?? "{}");
+    const stored = secureStorage.getJSON("kiosk-settings") ?? {};
     return {
       ...DEFAULT_KIOSK_SETTINGS,
       ...stored,
@@ -64,14 +65,14 @@ function parseStored() {
 
 /** Write settings to localStorage, broadcast to all same-origin contexts, and persist to server. */
 export function saveKioskSettings(newSettings) {
-  try { localStorage.setItem("kiosk-settings", JSON.stringify(newSettings)); } catch {}
+  try { secureStorage.setJSON("kiosk-settings", newSettings); } catch {}
   try {
     const bc = new BroadcastChannel(BC_CHANNEL);
     bc.postMessage({ type: "settings-updated", settings: newSettings });
     bc.close();
   } catch {}
   try {
-    const token = sessionStorage.getItem("admin-pin-token");
+    const token = secureSession.getItem("admin-pin-token");
     if (token) {
       fetch(`${getApiBase()}/api/kiosk-settings`, {
         method: "PUT",
@@ -101,7 +102,7 @@ export function KioskSettingsProvider({ children }) {
       },
     };
     setSettings(merged);
-    try { localStorage.setItem("kiosk-settings", JSON.stringify(merged)); } catch {}
+    try { secureStorage.setJSON("kiosk-settings", merged); } catch {}
   }
 
   useEffect(() => {
@@ -114,7 +115,7 @@ export function KioskSettingsProvider({ children }) {
           applyServerSettings(data.settings);
           lastServerTs.current = Date.now();
         } else {
-          const token = sessionStorage.getItem("admin-pin-token");
+          const token = secureSession.getItem("admin-pin-token");
           if (token) {
             const local = parseStored();
             fetch(`${getApiBase()}/api/kiosk-settings`, {
@@ -147,7 +148,7 @@ export function KioskSettingsProvider({ children }) {
             },
           };
           setSettings(merged);
-          try { localStorage.setItem("kiosk-settings", JSON.stringify(merged)); } catch {}
+          try { secureStorage.setJSON("kiosk-settings", merged); } catch {}
         }
       };
     } catch {}

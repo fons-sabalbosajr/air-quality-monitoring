@@ -7,15 +7,12 @@ function getNormalizedPath() {
   return window.location.pathname.replace(/\/+$/, '')
 }
 
-function isNlexFallbackPreview() {
+function isNlexBrowserPreview() {
   const path = getNormalizedPath()
+  if (path.endsWith('/nlex-preview')) return true
   const params = new URLSearchParams(window.location.search)
-  const mode = String(params.get('mode') || '')
-  const fallback = String(params.get('fallback') || '')
-  return (
-    path.endsWith('/nlex') &&
-    (/^(fallback|native)$/i.test(mode) || /^(1|true|yes)$/i.test(fallback))
-  )
+  const mode = String(params.get('mode') || params.get('preview') || '')
+  return /^(browser|full|test|1|true)$/i.test(mode)
 }
 
 function isNlexDisplayPath() {
@@ -196,11 +193,7 @@ function renderNlexNativeFallback() {
     }
   }
   function readStoredSettings() {
-    try {
-      return mergeSettings(JSON.parse(localStorage.getItem('nlex-settings') || '{}'))
-    } catch {
-      return defaultSettings
-    }
+    return defaultSettings
   }
   function isVisible(item) {
     const stationsVisible = currentSettings.stationsVisible || defaultSettings.stationsVisible
@@ -208,20 +201,14 @@ function renderNlexNativeFallback() {
     return stationsVisible[item.stationKey] !== false && pollutantsVisible[item.pollutantKey] !== false
   }
   function readStoredBundle() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(bundleStorageKey) || 'null')
-      if (!stored?.data || Date.now() - Number(stored.savedAt || 0) > 12 * 60 * 60 * 1000) return null
-      return stored
-    } catch {
-      return null
-    }
+    return null
   }
   function writeStoredBundle(payload) {
-    try {
-      if (payload?.data) localStorage.setItem(bundleStorageKey, JSON.stringify({ ...payload, savedAt: Date.now() }))
-    } catch {
-      /* best effort */
-    }
+    void payload
+  }
+  function clearLegacyStorage() {
+    try { localStorage.removeItem(bundleStorageKey) } catch {}
+    try { localStorage.removeItem('nlex-settings') } catch {}
   }
   function renderCards(payload) {
     if (payload?.data) {
@@ -302,6 +289,7 @@ function renderNlexNativeFallback() {
   function loadSettings() {
     loadJsonp('nf-settings-script', '__aqmNlexFallbackSettings', `${base}/api/nlex-settings.js`)
   }
+  clearLegacyStorage()
   latestPayload = readStoredBundle()
   currentSettings = readStoredSettings()
   applySettings(null)
@@ -316,8 +304,13 @@ function renderNlexNativeFallback() {
 }
 
 async function bootstrap() {
-  if (isNlexFallbackPreview()) {
-    renderNlexNativeFallback()
+  // The actual VNNOX / LED wall display (plain /nlex and /nlex?fallback=1) is
+  // rendered by the lightweight ES5 fallback inlined in index.html. That keeps the
+  // LED wall working even when this modern ES-module bundle cannot execute on the
+  // signage browser, and guarantees the wall always shows the current UI. Only the
+  // explicit browser preview (?mode=browser or /nlex-preview) loads the richer
+  // React display below.
+  if (isNlexDisplayPath() && !isNlexBrowserPreview()) {
     return
   }
 
@@ -326,7 +319,8 @@ async function bootstrap() {
   // VNNOX and similar signage editors often preview web pages inside a
   // sandboxed cross-origin iframe where Web Storage may be blocked. Keep the
   // /nlex boot path as small and storage-tolerant as possible.
-  if (isNlexDisplayPath()) {
+  if (isNlexBrowserPreview()) {
+    await import('./utils/secureStorage')
     const { default: NlexLedWall } = await import('./pages/NlexLedWall.jsx')
     root.render(
       <StrictMode>

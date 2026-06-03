@@ -51,7 +51,7 @@ const ADMIN_TABULAR_CACHE = new Map();
 const ADMIN_TABULAR_ETAGS = new Map();
 
 function getToken() {
-  return sessionStorage.getItem(SESSION_KEY) || "";
+  return secureSession.getItem(SESSION_KEY) || "";
 }
 
 function adminFetch(path, opts = {}) {

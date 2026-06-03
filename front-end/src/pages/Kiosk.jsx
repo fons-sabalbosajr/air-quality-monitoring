@@ -202,16 +202,52 @@ function KioskContent({ withArta = false, fixedProvince = null }) {
   useEffect(() => () => window.clearTimeout(transitionRef.current), []);
 
   useEffect(() => {
-    for (const kioskStation of KIOSK_STATIONS) {
-      prefetchLatestAqi(kioskStation.province, kioskStation.pollutant);
-      kioskStation.pollutants?.forEach((pollutant) => {
-        if (pollutant !== kioskStation.pollutant) {
-          prefetchLatestAqi(kioskStation.province, pollutant);
+    let cancelled = false;
+
+    // Lazy, staggered warm-up. Firing every station + weather request at once
+    // floods shared LED-wall / kiosk networks and triggers "unreachable" errors,
+    // so we prioritize the currently visible station and then warm the rest one
+    // at a time. Each prefetch helper already dedupes and caches, so the visible
+    // cards stay instant while background warming never bottlenecks the link.
+    const queue = [];
+    const seen = new Set();
+    const enqueue = (kioskStation) => {
+      if (!kioskStation || seen.has(kioskStation.key)) return;
+      seen.add(kioskStation.key);
+      queue.push(kioskStation);
+    };
+    enqueue(station); // active station first
+    KIOSK_STATIONS.forEach(enqueue);
+
+    const warmStation = async (kioskStation) => {
+      await prefetchLatestAqi(kioskStation.province, kioskStation.pollutant);
+      if (cancelled) return;
+      if (kioskStation.pollutants) {
+        for (const pollutant of kioskStation.pollutants) {
+          if (cancelled) return;
+          if (pollutant !== kioskStation.pollutant) {
+            await prefetchLatestAqi(kioskStation.province, pollutant);
+          }
         }
-      });
-      prefetchStationWeather(kioskStation.lat, kioskStation.lon);
-      prefetchHourlyWeather(kioskStation.lat, kioskStation.lon);
-    }
+      }
+      if (cancelled) return;
+      await prefetchStationWeather(kioskStation.lat, kioskStation.lon);
+      if (cancelled) return;
+      await prefetchHourlyWeather(kioskStation.lat, kioskStation.lon);
+    };
+
+    (async () => {
+      for (const kioskStation of queue) {
+        if (cancelled) return;
+        await warmStation(kioskStation);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount; `station` is only used to pick the initial priority.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-cycle effect (disabled when fixedProvince is set)
