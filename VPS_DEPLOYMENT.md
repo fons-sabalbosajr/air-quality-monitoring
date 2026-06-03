@@ -255,21 +255,28 @@ nano /etc/nginx/sites-available/embr3-hr-pms
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
         add_header Content-Security-Policy "frame-ancestors 'self' https: http:" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
-        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+      add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+      add_header Pragma "no-cache" always;
+      add_header Expires "0" always;
     }
 
     # Optional but useful for VNNOX players that normalize URLs with a
-    # trailing slash before loading the web-display iframe.
+    # trailing slash before loading the web-display iframe. Redirect it to the
+    # canonical /nlex URL so the request inherits the exact LED-wall headers
+    # from the block above and avoids duplicate-location drift.
     location = /air-quality-monitoring/nlex/ {
-        alias /var/www/air-quality-monitoring/front-end/dist/index.html;
-        default_type text/html;
+      return 301 /air-quality-monitoring/nlex;
+    }
 
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
-        add_header Content-Security-Policy "frame-ancestors 'self' https: http:" always;
-        add_header Cross-Origin-Resource-Policy "cross-origin" always;
-        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+    # Keep SPA index.html fresh so newly deployed bundles are not pinned by
+    # intermediate caches while the LED-wall route stays on its own headers.
+    location = /air-quality-monitoring/index.html {
+      alias /var/www/air-quality-monitoring/front-end/dist/index.html;
+      default_type text/html;
+
+      add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+      add_header Pragma "no-cache" always;
+      add_header Expires "0" always;
     }
 
     location /air-quality-monitoring/ {
@@ -313,20 +320,34 @@ After deployment and CDN purge, test the exact display URL:
 ```bash
 curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex
 curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex/
+curl -L -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex/
 ```
 
-Expected for both `/nlex` URLs:
+Expected results:
 
-- `HTTP/2 200`
-- no `X-Frame-Options` header
-- `Content-Security-Policy: frame-ancestors 'self' https: http:`
-- `Cache-Control: no-cache, max-age=0, must-revalidate`
+- `/air-quality-monitoring/nlex` returns `HTTP/2 200`
+- `/air-quality-monitoring/nlex/` returns `HTTP/2 301` pointing to `/air-quality-monitoring/nlex`
+- `curl -L -I` for `/nlex/` ends at `HTTP/2 200`
+- the final `/nlex` response has no `X-Frame-Options` header
+- the final `/nlex` response includes `Content-Security-Policy: frame-ancestors 'self' https: http:`
+- the final `/nlex` response includes `Cache-Control: no-cache, no-store, must-revalidate`
 
 If a CDN is in front of NGINX, make sure it does not inject `X-Frame-Options`
 or replace `Content-Security-Policy` for `/air-quality-monitoring/nlex*`.
 Bypass or revalidate CDN cache for `/air-quality-monitoring/nlex*` and
 `/air-quality-monitoring/api/*`; the AQI APIs already send no-cache headers and
 ETags, so browser/CDN revalidation stays accurate without serving stale LED data.
+
+### Verified production result
+
+The June 3, 2026 production rollout on `embr3-onlinesystems.cloud` was verified
+with the sequence above and produced the expected behavior behind Cloudflare:
+
+- `/air-quality-monitoring/nlex` returned `200` with `server: cloudflare`
+- `/air-quality-monitoring/nlex/` returned `301` to the canonical `/nlex`
+- `curl -L -I /air-quality-monitoring/nlex/` resolved to the fresh HTML response
+- the final `/nlex` response carried `cf-cache-status: DYNAMIC`
+- the final `/nlex` response included `last-modified` from the new build
 
 ### Browser preview for NLEX LED wall
 

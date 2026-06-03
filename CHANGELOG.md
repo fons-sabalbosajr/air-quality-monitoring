@@ -4,6 +4,43 @@ All notable changes to the EMBR3 Air Quality Monitoring app are documented here.
 
 ---
 
+## [June 3, 2026] — NLEX Fallback Rollout, Storage Encryption, and VPS Verification
+
+### ✨ New Features
+
+#### NLEX native fallback rollout
+- Plain `/nlex` now serves the lightweight native fallback as the primary LED-wall experience for VNNOX and other older signage browsers.
+- The inline fallback in `front-end/index.html` was upgraded to the newer `nf-` visual design so the LED wall and browser fallback preview show the same UI language.
+- Added `front-end/public/bplogo.svg` so the inline `/nlex` fallback can load the Bases and Posts logo from a stable public asset path.
+
+#### Browser storage hardening
+- Direct browser settings/session values that previously used raw `localStorage` or `sessionStorage` now flow through the AES/HMAC secure storage layer.
+- NLEX settings, kiosk settings, admin token persistence, dashboard station selection, and NLEX bundle caching now use the secure store explicitly.
+
+### 🔄 Updated
+
+#### NLEX route boot behavior
+- `front-end/src/main.jsx` now leaves plain `/nlex` to the inline ES5 fallback and only loads the heavier React wall for browser preview routes such as `/nlex-preview` or `?mode=browser`.
+- The emergency native fallback path in `main.jsx` was aligned with the inline fallback so it no longer creates plaintext local storage entries.
+
+#### Lazy-loading for admin and kiosk data
+- `Kiosk.jsx` now warms station data sequentially instead of prefetching all stations in parallel at mount.
+- `Map.jsx` now loads multi-station weather progressively rather than issuing one large parallel weather burst.
+
+#### VPS / Nginx deployment path
+- Production Nginx guidance now treats `/air-quality-monitoring/nlex` as the canonical LED-wall URL.
+- `/air-quality-monitoring/nlex/` now redirects to `/air-quality-monitoring/nlex` instead of duplicating the alias block.
+- `/air-quality-monitoring/index.html` now has explicit no-store headers to keep SPA HTML fresh after deploys.
+
+### ✅ Verified
+
+- Front-end production build completed successfully on the VPS on June 3, 2026.
+- PM2 restart for `aqm-api` completed successfully after deployment.
+- `nginx -t` passed and Nginx reloaded successfully.
+- `curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex` returned `200` with the expected frame/CSP/no-cache headers.
+- `curl -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex/` returned `301` to the canonical `/nlex` URL.
+- `curl -L -I https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex/` resolved to the updated `/nlex` HTML with `cf-cache-status: DYNAMIC`.
+
 ## [May 5, 2026] — NLEX LED Wall & Kiosk Settings System
 
 ### ✨ New Features

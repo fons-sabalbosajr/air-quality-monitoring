@@ -9,6 +9,7 @@ Real-time air quality monitoring dashboard for **EMB Region 3** (Central Luzon, 
 | **Live AQI Dashboard** | Real-time Air Quality Index with animated sky, weather data, and dual-pollutant gauges |
 | **Kiosk Mode** | Full-screen auto-cycling display with station carousel (alphabetically sorted) |
 | **Kiosk + ARTA** | Kiosk with ARTA commercial break interstitial via `/with-arta` route |
+| **NLEX LED-wall Fallback** | Lightweight `/nlex` fallback for VNNOX/older signage browsers, with `/nlex-preview` and `?mode=browser` for full browser preview |
 | **Encrypted Storage** | Browser localStorage/sessionStorage are AES-encrypted and HMAC-hashed automatically |
 | **3D Globe + Flat Map** | Interactive station visualisation with globe.gl and Google Maps |
 | **Historical Data** | Calendar heatmap, bar charts, and tabular results with CSV/email export |
@@ -96,6 +97,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full system architecture and data flo
 | Backend | Express 5, ExcelJS, MongoDB driver, Nodemailer |
 | Data Sources | Google Sheets, Excel workbooks, Open-Meteo API |
 | Deployment | Hostinger KVM2 VPS, Nginx, PM2 |
+
+## Deployment Note
+
+The production `/nlex` route is deployed as a lightweight LED-wall endpoint behind Nginx and Cloudflare. The canonical player URL is `https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex`; `/nlex/` should redirect to it, and fresh deploys should be followed by CDN revalidation for `/air-quality-monitoring/nlex*` and `/air-quality-monitoring/api/*`.
 
 ## Philippine AQI Standard (NAAQGV)
 
