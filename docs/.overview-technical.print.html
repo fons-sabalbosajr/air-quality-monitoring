@@ -1,0 +1,562 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Technical Overview</title><style>@page{size:A4;margin:18mm 16mm}body{font-family:"Segoe UI",Arial,sans-serif;color:#18212b;line-height:1.55;font-size:11pt;margin:0}main{max-width:920px;margin:0 auto}h1,h2,h3,h4{color:#0f4c5c;line-height:1.2;page-break-after:avoid}h1{font-size:24pt;margin:0 0 10pt}h2{font-size:16pt;margin:22pt 0 10pt;border-bottom:1px solid #d7e1e8;padding-bottom:4pt}h3{font-size:13pt;margin:16pt 0 8pt}p{margin:0 0 10pt}ul,ol{margin:0 0 12pt 18pt}li{margin:0 0 6pt}hr{border:0;border-top:2px solid #d7e1e8;margin:18pt 0}table{width:100%;border-collapse:collapse;margin:10pt 0 16pt;font-size:10pt}th,td{border:1px solid #c7d2da;padding:6pt 7pt;text-align:left;vertical-align:top}th{background:#edf5f7}code{font-family:Consolas,monospace;font-size:9.5pt;background:#f3f6f8;padding:1pt 3pt;border-radius:3px}pre{background:#f3f6f8;padding:10pt;border-radius:6px;white-space:pre-wrap;word-break:break-word}blockquote{margin:12pt 0;padding-left:12pt;border-left:4px solid #c7d2da;color:#41505d}</style></head><body><main><h1>EMBR3 Air Quality Monitoring System</h1>
+<h2>Technical Overview — Developer &amp; Operator Reference</h2>
+<hr>
+<h2>Background</h2>
+<p>The <strong>EMBR3 Air Quality Monitoring System</strong> is a full-stack web application built for <strong>EMB Region 3 (Environmental Management Bureau – Central Luzon, Philippines)</strong>. It ingests hourly particulate matter readings from four <strong>Continuous Ambient Air Quality Monitoring Stations (AQMS)</strong>, computes Philippine-standard AQI scores, and exposes that data through a REST API consumed by a React front-end.</p>
+<p>The system serves three rendering contexts: a general-public interactive dashboard, a full-screen kiosk carousel, and a portrait-format LED wall display purpose-built for NLEX signage hardware. Each context is independently configurable via a PIN-gated admin panel with server-side settings persistence.</p>
+<h3>Monitoring Stations</h3>
+<table>
+<thead>
+<tr>
+<th>Station</th>
+<th>Province</th>
+<th>Coordinates</th>
+<th>Pollutants</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Clark AQMS</td>
+<td>Clark Freeport Zone, Pampanga</td>
+<td>15.177°N, 120.536°E</td>
+<td>PM10</td>
+</tr>
+<tr>
+<td>San Fernando AQMS</td>
+<td>San Fernando, Pampanga</td>
+<td>15.056°N, 120.644°E</td>
+<td>PM10</td>
+</tr>
+<tr>
+<td>Meycauayan AQMS</td>
+<td>Meycauayan, Bulacan</td>
+<td>14.728°N, 120.958°E</td>
+<td>PM10, PM2.5</td>
+</tr>
+<tr>
+<td>Zambales AQMS</td>
+<td>Santa Cruz, Zambales</td>
+<td>15.775°N, 119.915°E</td>
+<td>PM10, PM2.5</td>
+</tr>
+</tbody></table>
+<h3>Tech Stack Summary</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technologies</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Frontend</strong></td>
+<td>React 19, Vite 7, Ant Design 5, Recharts 3, Tailwind CSS, globe.gl, Three.js</td>
+</tr>
+<tr>
+<td><strong>Backend</strong></td>
+<td>Node.js 18+, Express 5, MongoDB Atlas, ExcelJS, Nodemailer</td>
+</tr>
+<tr>
+<td><strong>External APIs</strong></td>
+<td>Open-Meteo, OpenWeatherMap (tile proxy), Nominatim, Google Sheets CSV, Windy.com, IQEarth</td>
+</tr>
+<tr>
+<td><strong>Infrastructure</strong></td>
+<td>Hostinger KVM2 VPS, Nginx, PM2, Cloudflare CDN</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Features</h2>
+<h3>1. Live AQI Dashboard (<code>/</code>)</h3>
+<ul>
+<li><strong>AQI Hero Card</strong> — animated sky background driven by real-time Open-Meteo weather code and cloud cover; day/night aware; supports 7+ weather scenarios (clear, clouds, rain, thunder, snow, fog, overcast).</li>
+<li><strong>Station selector</strong> — dropdown persists station selection via AES/HMAC-encrypted <code>localStorage</code>.</li>
+<li><strong>Dual-pollutant rendering</strong> — merged stations (Meycauayan, Zambales) render two side-by-side gauges and two <code>AqiHeroCard</code> instances from a single API response.</li>
+<li><strong>AqiCategoryMeter</strong> — SVG arc gauge with gradient fill, animated on value change.</li>
+<li><strong>HistoricalAqiGraph</strong> — Recharts line/bar chart showing 24-hour rolling averages and daily AQI trends.</li>
+<li><strong>AqiCalendar</strong> — Day-level heatmap with click-through modal for hourly breakdown.</li>
+<li><strong>WindMapCard</strong> — Windy.com iframe embed pinned to station coordinates.</li>
+<li><strong>Stale-data watermark</strong> — Overlay rendered if latest reading timestamp is &gt;7 days old.</li>
+</ul>
+<h3>2. Kiosk Mode (<code>/embr3-latestaqi</code>, <code>/</code>)</h3>
+<ul>
+<li><strong>Auto-cycling carousel</strong> — alphabetically sorted station list; configurable dwell time (default 25 sec).</li>
+<li><strong>Warmup prefetch</strong> — sequential <code>useEffect</code> chain fetches all station data on mount to pre-warm caches; uses time-gated promises to prevent network flooding.</li>
+<li><strong>YouTube embed section</strong> — agency messaging loop via <code>&lt;iframe&gt;</code> with <code>autoplay=1&amp;mute=1&amp;loop=1</code>.</li>
+<li><strong>Maintenance overlay</strong> — <code>MaintenanceOverlay</code> component injected when <code>kioskSettings.maintenance.enabled</code> is <code>true</code>.</li>
+</ul>
+<h3>3. Kiosk + ARTA Variant (<code>/with-arta</code>)</h3>
+<ul>
+<li>Same carousel logic as standard kiosk with an interstitial <code>ARTA</code> video loop injected every N station rotations.</li>
+<li>Route-gated — <code>App.jsx</code> uses <code>React.lazy()</code> for code splitting; ARTA variant is a separate lazy chunk.</li>
+</ul>
+<h3>4. NLEX LED Wall (<code>/nlex</code>, <code>/nlex-preview</code>)</h3>
+<ul>
+<li><strong>Native fallback</strong> — <code>GET /nlex</code> serves a lightweight ES5 inline HTML response (<code>NlexLedWall</code> native route in Express) for VNNOX signage browser compatibility; no React bundle.</li>
+<li><strong>Browser preview</strong> — <code>/nlex-preview</code> or <code>?mode=browser</code> loads the full React <code>NlexLedWall</code> component.</li>
+<li><strong>Dimensions</strong> — 960×1536 px portrait viewport.</li>
+<li><strong>Grid mode</strong> — 2×2 CSS Grid, all four stations simultaneously.</li>
+<li><strong>Carousel mode</strong> — absolute-positioned fullscreen card per station, <code>z-index</code> cycling driven by <code>setInterval</code>.</li>
+<li><strong>SVG Gauge</strong> — custom gauge: 270° arc, gradient stroke, animated pointer, configurable size (330 px dual / 560 px solo).</li>
+<li><strong>Spotlight mode</strong> — featured station rendered with expanded description overlay and distinct background treatment.</li>
+<li><strong>BroadcastChannel sync</strong> — <code>NlexLedWall</code> subscribes to <code>nlex-settings-update</code> channel; settings changes in <code>/admin/nlex-settings</code> propagate instantly via <code>postMessage</code> without page reload.</li>
+<li><strong>Clock granularity</strong> — 1-sec interval in browser preview; 60-sec interval in native mode for VNNOX compat.</li>
+</ul>
+<h3>5. NLEX Admin Settings (<code>/admin/nlex-settings</code>)</h3>
+<ul>
+<li>Tabs-based UI using Ant Design <code>&lt;Tabs&gt;</code> and <code>&lt;Form&gt;</code>.</li>
+<li><strong>Settings schema</strong> — persisted to MongoDB <code>nlex_settings</code> collection; served via <code>GET /api/nlex-settings</code>.</li>
+<li><strong>Draft/save pattern</strong> — local React state mirrors server state; mutations staged until user confirms with &quot;Save Changes&quot; (<code>PUT /api/nlex-settings</code>).</li>
+<li><strong>Cross-tab propagation</strong> — on save, broadcasts <code>nlex-settings-update</code> event to all open tabs via <code>BroadcastChannel</code>.</li>
+<li>Configurable: station visibility, display mode, per-station carousel duration, gauge visibility, spotlight station, theme override (auto/light/dark), AQI description text per band, component visibility (header, subtitle, legend, footer).</li>
+</ul>
+<h3>6. Kiosk Settings (<code>/admin/kiosk-settings</code>)</h3>
+<ul>
+<li>Same draft/save/broadcast pattern as NLEX settings.</li>
+<li>Persisted to MongoDB <code>kiosk_settings</code> collection.</li>
+<li>Configurable: per-station AQI value/timestamp visibility, section toggles (weather, hourly, wind map, carousel, YouTube, contact), cycle interval, maintenance mode (enabled + custom message).</li>
+</ul>
+<h3>7. Map Page (<code>/admin/map</code>)</h3>
+<ul>
+<li><strong>globe.gl</strong> 3D globe with <code>GlobeGL</code> component; basemap toggle (satellite/streets/dark) via tile URL swap.</li>
+<li><strong>Google Maps embed</strong> flat map fallback.</li>
+<li><strong>Sequential weather fetch</strong> — one station per tick (500 ms gap) using a recursive <code>setTimeout</code> chain; 5-min refresh interval.</li>
+<li><strong>Station detail modals</strong> — photo, coordinates, current conditions from <code>useStationWeather</code> hook.</li>
+</ul>
+<h3>8. Charts &amp; Tabular Data (<code>/admin/charts</code>, <code>/admin/tabular/:province</code>)</h3>
+<ul>
+<li><strong>Recharts</strong> bar and line charts rendered from <code>/api/viz-data</code> and <code>/api/pm10-data</code>.</li>
+<li><strong>Ant Design <code>&lt;Table&gt;</code></strong> with server-side filtered dataset from <code>/api/tabular/:province/:pollutant</code>.</li>
+<li><strong>CSV export</strong> and <strong>email share</strong> (<code>POST /api/share-email</code>).</li>
+<li><strong>Export logging</strong> — every download/email writes to MongoDB <code>export_logs</code> collection.</li>
+</ul>
+<h3>9. Admin Auth (<code>AdminPinGate</code>)</h3>
+<ul>
+<li>Wraps all <code>/admin/*</code> routes in a PIN challenge component.</li>
+<li>On success, <code>POST /api/admin/verify-pin</code> returns a signed JWT; stored in AES-encrypted <code>sessionStorage</code>.</li>
+<li>Subsequent admin API calls include <code>Authorization: Bearer &lt;token&gt;</code> header.</li>
+</ul>
+<hr>
+<h2>Functions</h2>
+<h3>AQI Calculation (<code>server/services/aqiCalculator.js</code>)</h3>
+<ul>
+<li>Implements <strong>DENR DAO 2000-81 / NAAQGV breakpoints</strong> for PM10 and PM2.5.</li>
+<li>Uses linear interpolation: <code>AQI = ((AQIHigh - AQILow) / (BPHigh - BPLow)) * (Cp - BPLow) + AQILow</code></li>
+<li>Separate breakpoint tables for PM10 (µg/m³ 24h avg) and PM2.5 (µg/m³ 24h avg).</li>
+<li>Returns <code>{ aqi, status, category, color }</code> per reading.</li>
+<li><strong>24-hour rolling average</strong> — sliding window computed from hourly rows before calling the breakpoint function.</li>
+</ul>
+<h3>Data Ingestion Pipeline</h3>
+<ol>
+<li><strong>Google Sheets CSV</strong> — <code>server/services/googleSheets.js</code> fetches CSV exports from published Google Sheets (one URL per station/pollutant, configured in <code>server/config/sheets.js</code>).</li>
+<li><strong>CSV Parsing</strong> — auto-detects date, concentration, and pollutant columns; maps to normalized row schema.</li>
+<li><strong>AQI Enrichment</strong> — parsed rows passed through <code>aqiCalculator</code>; rolling averages attached.</li>
+<li><strong>MongoDB Upsert</strong> — enriched rows upserted into per-collection documents keyed by <code>province + pollutant</code>.</li>
+<li><strong>Scheduled refresh</strong> — <code>setInterval</code> at 15-min cadence; startup sync on server boot forces full refresh.</li>
+<li><strong>Fallback chain</strong> — MongoDB cache → Google Sheets live fetch → Excel workbook (ExcelJS).</li>
+</ol>
+<h3>Weather Integration (<code>server/routes/station.js</code>, <code>front-end/src/hooks/useStationWeather.js</code>)</h3>
+<ul>
+<li><strong>Open-Meteo API</strong> (free, no auth) — <code>GET https://api.open-meteo.com/v1/forecast?latitude=X&amp;longitude=Y&amp;...</code></li>
+<li>Fetches: <code>temperature_2m</code>, <code>relative_humidity_2m</code>, <code>surface_pressure</code>, <code>wind_speed_10m</code>, <code>wind_direction_10m</code>, <code>weathercode</code>, <code>uv_index</code>, <code>cloudcover</code>, <code>apparent_temperature</code>, plus 24h hourly forecast.</li>
+<li>Weather codes mapped to human-readable labels and background gradient keys.</li>
+<li><strong>Reverse geocoding</strong> — Nominatim <code>GET https://nominatim.openstreetmap.org/reverse?lat=X&amp;lon=Y</code> for place name display.</li>
+</ul>
+<h3>Encrypted Storage (<code>front-end/src/util/secureStorage.js</code>)</h3>
+<ul>
+<li>All <code>localStorage</code> / <code>sessionStorage</code> writes pass through AES-256-CBC encryption.</li>
+<li><strong>HMAC-SHA256</strong> integrity tag appended; read operations verify tag before decrypting.</li>
+<li>Encryption key derived from a deployment-time secret (<code>VITE_STORAGE_SECRET</code>); fallback to a deterministic app-scoped key.</li>
+<li>Used for: admin token, station selection, NLEX settings cache, kiosk settings cache, NLEX bundle cache.</li>
+</ul>
+<h3>Email Service (<code>server/services/emailService.js</code>, <code>server/routes/email.js</code>)</h3>
+<ul>
+<li><strong>Nodemailer + Gmail SMTP</strong> — transporter configured via <code>GMAIL_USER</code> / <code>GMAIL_APP_PASSWORD</code> env vars.</li>
+<li><code>POST /api/share-email</code> accepts: <code>{ to, province, pollutant, data[], filters }</code>.</li>
+<li>Builds HTML table from filtered dataset rows; sends via <code>transporter.sendMail()</code>.</li>
+<li>Export event logged to MongoDB after successful send.</li>
+</ul>
+<h3>Excel Workbook Fallback (<code>server/services/workbook.js</code>)</h3>
+<ul>
+<li><strong>ExcelJS</strong> reads <code>.xlsm</code> workbook from local path or SharePoint URL.</li>
+<li>Provides <code>GET /api/viz-data</code> and <code>GET /api/pm10-data</code> endpoints as offline data sources.</li>
+<li><code>GET /api/viz-data/diagnostics</code> returns row count, column headers, and sheet names for debugging.</li>
+</ul>
+<h3>Proxy &amp; Caching (<code>server/routes/proxy.js</code>)</h3>
+<ul>
+<li><strong>OWM tile proxy</strong> — <code>GET /api/tiles/owm/:layer/:z/:x/:y.png</code> fetches OpenWeatherMap tile, buffers response, returns with <code>Cache-Control: max-age=300</code>.</li>
+<li>Shields the client-side map from direct API key exposure; key stored server-side in <code>OWM_API_KEY</code> env var.</li>
+</ul>
+<hr>
+<h2>Advantages</h2>
+<h3>Multi-Tier Data Resilience</h3>
+<ul>
+<li>Three-layer fallback (MongoDB → Google Sheets → Excel) ensures the API never returns empty-handed; each layer is independently refreshable.</li>
+<li>Startup sync guarantees post-deploy freshness without manual cache invalidation.</li>
+</ul>
+<h3>Encrypted Browser Storage</h3>
+<ul>
+<li>AES/HMAC-hardened <code>localStorage</code> prevents client-side tampering with admin tokens and display configuration.</li>
+<li>Automatic transparent encryption/decryption means no component code needs to handle raw keys.</li>
+</ul>
+<h3>Independent Display Mode Architecture</h3>
+<ul>
+<li>Dashboard, Kiosk, and NLEX LED wall share a single REST API but maintain completely independent settings schemas, persistence keys, and rendering logic.</li>
+<li>New display modes can be added as new React page components and a new MongoDB settings collection without modifying existing modes.</li>
+</ul>
+<h3>Real-Time Admin-to-Display Sync</h3>
+<ul>
+<li><code>BroadcastChannel</code> pattern propagates settings changes to all open display tabs/windows in the same browser session instantaneously — no polling required.</li>
+<li>MongoDB persistence ensures changes survive across sessions and devices.</li>
+</ul>
+<h3>Dual-Pollutant Abstraction</h3>
+<ul>
+<li>Meycauayan and Zambales stations report both PM10 and PM2.5. The API serves these as separate records; the front-end <code>stations.js</code> config defines a <code>merged</code> flag that triggers dual-gauge rendering in all display modes transparently.</li>
+<li>Existing single-pollutant display components require zero modification.</li>
+</ul>
+<h3>Security Posture</h3>
+<ul>
+<li><strong>JWT admin auth</strong> — short-lived tokens; no persistent session cookies.</li>
+<li><strong>CORS whitelist</strong> — origins restricted per environment via <code>CORS_ORIGIN</code> env var.</li>
+<li><strong>Rate limiting</strong> — per-IP in-memory rate limiter (default 600 req / 60 sec) on all API routes.</li>
+<li><strong>Security headers</strong> — <code>helmet</code>-equivalent headers: CSP, X-Frame-Options (with NLEX iframe carve-out), HSTS, X-Content-Type-Options, Referrer-Policy.</li>
+<li><strong>No API key exposure</strong> — OWM tiles proxied server-side; Google Sheets accessed via published CSV (no OAuth token in client).</li>
+</ul>
+<h3>Lazy Loading &amp; Code Splitting</h3>
+<ul>
+<li><code>React.lazy()</code> + <code>Suspense</code> for all route-level components; Vite generates per-route chunks.</li>
+<li>Admin routes, NLEX LED wall, and ARTA variant are separate bundles not loaded on initial dashboard paint.</li>
+</ul>
+<hr>
+<h2>NLEX Featured Overview</h2>
+<h3>Purpose</h3>
+<p>The NLEX integration delivers live air quality data from EMB Region 3 onto large-format LED signage boards operated by NLEX along the North Luzon Expressway. The goal is to give motorists ambient awareness of regional air quality without requiring them to interact with a device.</p>
+<h3>Architecture</h3>
+<pre><code>Admin Panel (/admin/nlex-settings)
+       │
+       │  PUT /api/nlex-settings  ──────────►  MongoDB nlex_settings
+       │                                              │
+       │  BroadcastChannel &quot;nlex-settings-update&quot;     │
+       ▼                                              │
+/nlex-preview (React NlexLedWall)          GET /api/nlex-settings
+       │                                              │
+       │  (same React component)                      ▼
+/nlex  │  (VNNOX: served as ES5 inline HTML)   /nlex auto-reload
+</code></pre>
+<h3>Native Fallback (<code>/nlex</code> route)</h3>
+<p>The VNNOX LED wall browser is a Chromium-based embedded browser with limited ES6+ support. The Express server&#39;s <code>/nlex</code> route handler detects the native request and responds with a hand-crafted ES5 HTML string (<code>NlexLedWall</code> in <code>server/routes/station.js</code> or dedicated route) that:</p>
+<ul>
+<li>Embeds all CSS inline (no external stylesheets)</li>
+<li>Uses <code>XMLHttpRequest</code> instead of <code>fetch</code></li>
+<li>Avoids ES6 modules, arrow functions in outer scope, and <code>const</code>/<code>let</code> block declarations where not supported</li>
+<li>Polls <code>/api/aqi/latest</code> and <code>/api/nlex-settings</code> on a 60-second interval</li>
+<li>Renders station cards with inline SVG gauges</li>
+</ul>
+<h3>React Component (<code>NlexLedWall.jsx</code>)</h3>
+<p>Used on <code>/nlex-preview</code> and for desktop testing:</p>
+<ul>
+<li>Reads settings from <code>NlexSettingsContext</code> (hydrated from <code>GET /api/nlex-settings</code> on mount)</li>
+<li>Subscribes to <code>BroadcastChannel</code> for real-time config updates</li>
+<li>Manages carousel <code>activeIndex</code> state via <code>useRef</code>-tracked <code>setInterval</code></li>
+<li>Per-station duration from <code>settings.carousel.durations[stationKey]</code> (seconds → ms)</li>
+<li>Animated weather backgrounds resolved from Open-Meteo <code>weathercode</code> + <code>is_day</code> flag</li>
+</ul>
+<h3>Settings Schema (MongoDB <code>nlex_settings</code>)</h3>
+<pre><code class="language-json">{
+  &quot;displayMode&quot;: &quot;grid | carousel&quot;,
+  &quot;stations&quot;: {
+    &quot;clark&quot;:       { &quot;visible&quot;: true },
+    &quot;sanFernando&quot;: { &quot;visible&quot;: true },
+    &quot;meycauayan&quot;:  { &quot;visible&quot;: true },
+    &quot;zambales&quot;:    { &quot;visible&quot;: true }
+  },
+  &quot;carousel&quot;: {
+    &quot;durations&quot;: {
+      &quot;clark&quot;: 10,
+      &quot;sanFernando&quot;: 10,
+      &quot;meycauayan&quot;: 10,
+      &quot;zambales&quot;: 10
+    }
+  },
+  &quot;gauge&quot;: { &quot;visible&quot;: true },
+  &quot;spotlight&quot;: { &quot;enabled&quot;: false, &quot;station&quot;: &quot;clark&quot; },
+  &quot;theme&quot;: &quot;auto | light | dark&quot;,
+  &quot;aqiDescriptions&quot;: {
+    &quot;good&quot;:                   &quot;...&quot;,
+    &quot;fair&quot;:                   &quot;...&quot;,
+    &quot;unhealthySensitive&quot;:     &quot;...&quot;,
+    &quot;veryUnhealthy&quot;:          &quot;...&quot;,
+    &quot;acutelyUnhealthy&quot;:       &quot;...&quot;,
+    &quot;emergency&quot;:              &quot;...&quot;
+  },
+  &quot;components&quot;: {
+    &quot;header&quot;:    true,
+    &quot;datetime&quot;:  true,
+    &quot;subtitle&quot;:  true,
+    &quot;legend&quot;:    true,
+    &quot;footer&quot;:    true
+  }
+}
+</code></pre>
+<h3>LED Wall Rendering Specifics</h3>
+<ul>
+<li><strong>Viewport</strong> — forced to 960×1536 px via CSS <code>width</code>/<code>height</code> on root container; no viewport meta scaling.</li>
+<li><strong>Font sizes</strong> — station name: 34 px; AQI value: 96 px; category label: 28 px; all sizes set in <code>px</code> (not <code>rem</code>) for predictable LED rendering.</li>
+<li><strong>Gauge dimensions</strong> — 330 px (dual-pollutant layout) / 560 px (single-pollutant layout).</li>
+<li><strong>Dual-pollutant layout</strong> — Meycauayan and Zambales render a two-column flex row with PM10 on the left and PM2.5 on the right inside a single station card.</li>
+<li><strong>AQI scale legend</strong> — horizontal color bar pinned to card bottom showing all 6 categories with current value indicator.</li>
+<li><strong>Clock update</strong> — 60-second <code>setInterval</code> in native mode (VNNOX compat); 1-second in React preview.</li>
+</ul>
+<h3>API Endpoints Used by NLEX Display</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET</code></td>
+<td><code>/api/aqi/latest</code></td>
+<td>Fetch latest readings for all stations</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/nlex-settings</code></td>
+<td>Fetch current display configuration</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/nlex-settings</code></td>
+<td>Update configuration (admin, JWT-protected)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/station/current</code></td>
+<td>Fetch current weather (for background)</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>API Reference (All Endpoints)</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Auth</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET</code></td>
+<td><code>/</code></td>
+<td>—</td>
+<td>Service status</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/health</code></td>
+<td>—</td>
+<td>Health check + timestamp</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/aqi/latest</code></td>
+<td>—</td>
+<td>Latest AQI for all stations</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/aqi/last-days</code></td>
+<td>—</td>
+<td>Rolling N-day AQI history</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/tabular/:province/:pollutant</code></td>
+<td>—</td>
+<td>Full tabular dataset with rolling averages</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/backup/status</code></td>
+<td>—</td>
+<td>Dataset freshness info</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/backup/check/:province/:pollutant</code></td>
+<td>—</td>
+<td>Check if updates available</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/backup/sync</code></td>
+<td>JWT</td>
+<td>Force manual backup cycle</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/export-log</code></td>
+<td>—</td>
+<td>Log export event</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/export-logs</code></td>
+<td>JWT</td>
+<td>Recent export log entries</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/station/meta</code></td>
+<td>—</td>
+<td>Station metadata (name, coords)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/station/current</code></td>
+<td>—</td>
+<td>Current weather conditions</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/station/forecast</code></td>
+<td>—</td>
+<td>N-day daily forecast</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/viz-data</code></td>
+<td>—</td>
+<td>Viz time-series from workbook</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/pm10-data</code></td>
+<td>—</td>
+<td>PM10 time-series from workbook</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/viz-data/diagnostics</code></td>
+<td>—</td>
+<td>Workbook diagnostics</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/share-email</code></td>
+<td>—</td>
+<td>Send HTML report by email</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/tiles/owm/:layer/:z/:x/:y.png</code></td>
+<td>—</td>
+<td>Proxied OWM map tile</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/reverse-geocode</code></td>
+<td>—</td>
+<td>Nominatim reverse geocode</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/admin/verify-pin</code></td>
+<td>—</td>
+<td>Verify PIN, return JWT</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/nlex-settings</code></td>
+<td>—</td>
+<td>Public NLEX settings</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/nlex-settings</code></td>
+<td>JWT</td>
+<td>Update NLEX settings</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/kiosk-settings</code></td>
+<td>—</td>
+<td>Public kiosk settings</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/kiosk-settings</code></td>
+<td>JWT</td>
+<td>Update kiosk settings</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Environment Variables</h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Location</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>MONGO_URI</code></td>
+<td>server</td>
+<td>MongoDB Atlas connection string</td>
+</tr>
+<tr>
+<td><code>GMAIL_USER</code></td>
+<td>server</td>
+<td>Gmail account for email sending</td>
+</tr>
+<tr>
+<td><code>GMAIL_APP_PASSWORD</code></td>
+<td>server</td>
+<td>Gmail app password</td>
+</tr>
+<tr>
+<td><code>ADMIN_PIN</code></td>
+<td>server</td>
+<td>Hashed admin PIN for JWT issuance</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET</code></td>
+<td>server</td>
+<td>Secret for signing admin JWTs</td>
+</tr>
+<tr>
+<td><code>OWM_API_KEY</code></td>
+<td>server</td>
+<td>OpenWeatherMap API key (tile proxy)</td>
+</tr>
+<tr>
+<td><code>CORS_ORIGIN</code></td>
+<td>server</td>
+<td>Allowed CORS origin(s)</td>
+</tr>
+<tr>
+<td><code>PORT</code></td>
+<td>server</td>
+<td>Express server port (default 3000)</td>
+</tr>
+<tr>
+<td><code>VITE_API_BASE_URL</code></td>
+<td>front-end</td>
+<td>Backend API base URL</td>
+</tr>
+<tr>
+<td><code>VITE_STORAGE_SECRET</code></td>
+<td>front-end</td>
+<td>Key for AES-encrypted localStorage</td>
+</tr>
+<tr>
+<td><code>VITE_STATION_*_LAT/LON</code></td>
+<td>front-end</td>
+<td>Per-station coordinate overrides</td>
+</tr>
+</tbody></table>
+
+</main></body></html>

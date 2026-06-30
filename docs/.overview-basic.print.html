@@ -1,0 +1,146 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Basic Overview</title><style>@page{size:A4;margin:18mm 16mm}body{font-family:"Segoe UI",Arial,sans-serif;color:#18212b;line-height:1.55;font-size:11pt;margin:0}main{max-width:920px;margin:0 auto}h1,h2,h3,h4{color:#0f4c5c;line-height:1.2;page-break-after:avoid}h1{font-size:24pt;margin:0 0 10pt}h2{font-size:16pt;margin:22pt 0 10pt;border-bottom:1px solid #d7e1e8;padding-bottom:4pt}h3{font-size:13pt;margin:16pt 0 8pt}p{margin:0 0 10pt}ul,ol{margin:0 0 12pt 18pt}li{margin:0 0 6pt}hr{border:0;border-top:2px solid #d7e1e8;margin:18pt 0}table{width:100%;border-collapse:collapse;margin:10pt 0 16pt;font-size:10pt}th,td{border:1px solid #c7d2da;padding:6pt 7pt;text-align:left;vertical-align:top}th{background:#edf5f7}code{font-family:Consolas,monospace;font-size:9.5pt;background:#f3f6f8;padding:1pt 3pt;border-radius:3px}pre{background:#f3f6f8;padding:10pt;border-radius:6px;white-space:pre-wrap;word-break:break-word}blockquote{margin:12pt 0;padding-left:12pt;border-left:4px solid #c7d2da;color:#41505d}</style></head><body><main><h1>EMBR3 Air Quality Monitoring System</h1>
+<h2>Overview — General Audience</h2>
+<hr>
+<h2>Background</h2>
+<p>The <strong>EMBR3 Air Quality Monitoring System</strong> is a public-facing digital platform developed for the <strong>Environmental Management Bureau – Region 3 (EMB Region 3)</strong>, the Philippine government agency responsible for environmental protection in <strong>Central Luzon</strong>.</p>
+<p>Central Luzon is one of the most populated and industrialized regions in the Philippines, encompassing the provinces of Aurora, Bataan, Bulacan, Nueva Ecija, Pampanga, Tarlac, and Zambales. Rapid urban and industrial growth in the region has made continuous monitoring of air quality a critical public health concern.</p>
+<p>EMB Region 3 operates <strong>Continuous Ambient Air Quality Monitoring Stations (AQMS)</strong> — automated devices placed at strategic locations around the region that measure pollutant concentrations in the air around the clock. This system provides a digital window into those readings, making the data accessible and understandable for everyone — from ordinary citizens to local government officials and health professionals.</p>
+<p>The platform uses the <strong>Philippine National Ambient Air Quality Guideline Values (NAAQGV)</strong>, set by the Department of Environment and Natural Resources (DENR), as the standard for interpreting pollutant levels and producing <strong>Air Quality Index (AQI)</strong> values.</p>
+<hr>
+<h2>Features</h2>
+<p>The system provides the following main features:</p>
+<ul>
+<li><p><strong>Live Air Quality Dashboard</strong>
+A real-time display of the current AQI reading for each monitoring station, updated continuously throughout the day.</p>
+</li>
+<li><p><strong>Kiosk Mode</strong>
+A full-screen, auto-cycling presentation designed for public display screens in malls, government offices, and similar venues. It rotates through all active stations automatically.</p>
+</li>
+<li><p><strong>NLEX LED Wall Display</strong>
+A purpose-built layout for the <strong>North Luzon Expressway (NLEX)</strong> large-format LED signage boards, showing live air quality data to motorists and commuters in a bold, readable format.</p>
+</li>
+<li><p><strong>Interactive Map</strong>
+A visual map showing where each monitoring station is located, with current weather conditions and station details accessible with a click.</p>
+</li>
+<li><p><strong>Historical Trends &amp; Calendar</strong>
+Charts and a calendar heatmap showing how air quality has changed over days, weeks, and months — allowing users to spot patterns and track improvements or deteriorations.</p>
+</li>
+<li><p><strong>Weather Integration</strong>
+Alongside AQI data, the platform displays current weather conditions (temperature, humidity, wind speed, UV index, cloud cover, and hourly forecasts) for each station location.</p>
+</li>
+<li><p><strong>Admin Panel</strong>
+A secure, PIN-protected control panel for agency staff to configure display settings, manage data, view system logs, and export reports.</p>
+</li>
+</ul>
+<hr>
+<h2>Functions</h2>
+<p>The platform performs the following functions to deliver the above features:</p>
+<ul>
+<li><p><strong>Air Quality Index Calculation</strong>
+Automatically converts raw particulate matter readings (PM10 and PM2.5 concentrations in µg/m³) into standardized AQI scores and color-coded categories using Philippine DENR breakpoints.</p>
+</li>
+<li><p><strong>AQI Categories</strong></p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>AQI Range</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Good</td>
+<td>0 – 50</td>
+<td>Air quality poses little or no risk</td>
+</tr>
+<tr>
+<td>Fair</td>
+<td>51 – 100</td>
+<td>Acceptable; some pollutants may affect sensitive individuals</td>
+</tr>
+<tr>
+<td>Unhealthy for Sensitive Groups</td>
+<td>101 – 150</td>
+<td>Children, elderly, and those with respiratory conditions should limit prolonged outdoor activity</td>
+</tr>
+<tr>
+<td>Very Unhealthy</td>
+<td>151 – 200</td>
+<td>Everyone may begin to experience health effects</td>
+</tr>
+<tr>
+<td>Acutely Unhealthy</td>
+<td>201 – 300</td>
+<td>Health alert; serious effects for everyone</td>
+</tr>
+<tr>
+<td>Emergency</td>
+<td>301+</td>
+<td>Emergency conditions; entire population likely affected</td>
+</tr>
+</tbody></table>
+</li>
+<li><p><strong>Real-Time Data Retrieval</strong>
+Automatically fetches the latest readings from the monitoring stations on a regular schedule so the displayed data is always current.</p>
+</li>
+<li><p><strong>Weather Forecasting</strong>
+Pulls weather data for each station&#39;s location, providing a 24-hour outlook and daily forecast alongside the air quality reading.</p>
+</li>
+<li><p><strong>Automated Report Sharing</strong>
+Allows authorized staff to send formatted air quality reports by email directly from the platform.</p>
+</li>
+<li><p><strong>Data Export</strong>
+Station data can be downloaded as spreadsheet files for analysis, record-keeping, or submission to regulatory bodies.</p>
+</li>
+<li><p><strong>Maintenance Notifications</strong>
+When a monitoring station is temporarily offline or under maintenance, the system displays a clear notice so users are not misled by missing data.</p>
+</li>
+</ul>
+<hr>
+<h2>Advantages</h2>
+<ul>
+<li><p><strong>Always Up-to-Date</strong>
+Data is refreshed automatically every 15 minutes from source. If one data source is unavailable, the system falls back to backups automatically — meaning the site stays live even during data interruptions.</p>
+</li>
+<li><p><strong>Multi-Format Display</strong>
+The same underlying data is presented in three distinct modes (public dashboard, kiosk, and NLEX LED wall) — each optimized for its intended audience and screen size.</p>
+</li>
+<li><p><strong>No Technical Knowledge Required</strong>
+The public-facing dashboard uses plain language, color coding, and simple visual gauges to communicate air quality status — no scientific background needed.</p>
+</li>
+<li><p><strong>Weather Context</strong>
+Pairing AQI data with live weather makes it easier for users to understand air quality in context (e.g., heavy rain typically improves air quality; high winds can disperse or carry pollutants).</p>
+</li>
+<li><p><strong>Free &amp; Open Weather Data</strong>
+Weather information is sourced from Open-Meteo, a free and reliable weather service, keeping operational costs minimal.</p>
+</li>
+<li><p><strong>Designed for Philippine Standards</strong>
+The platform is built specifically around the Philippine NAAQGV standards and DENR DAO 2000-81 thresholds — not foreign standards that may not reflect local conditions.</p>
+</li>
+<li><p><strong>Accessible on Any Device</strong>
+The dashboard is fully responsive, adapting its layout automatically for mobile phones, tablets, and desktop computers.</p>
+</li>
+</ul>
+<hr>
+<h2>NLEX Featured Overview</h2>
+<p>The <strong>North Luzon Expressway (NLEX)</strong> is one of the Philippines&#39; most heavily trafficked toll roads, connecting Metro Manila to Central Luzon and serving millions of motorists every year. As part of NLEX&#39;s commitment to motorist safety and environmental awareness, air quality information from EMB Region 3 is displayed on <strong>large-format LED signage boards</strong> along the expressway.</p>
+<h3>What the NLEX Display Shows</h3>
+<p>The NLEX LED wall display is a dedicated view of the monitoring system, designed to be visible and legible from a distance on a portrait-orientation signage board. It displays:</p>
+<ul>
+<li><strong>Station Name &amp; Location</strong> — which monitoring station&#39;s data is being shown</li>
+<li><strong>Current AQI Value</strong> — the numerical index score</li>
+<li><strong>AQI Category</strong> — the color-coded health label (e.g., &quot;Good&quot;, &quot;Fair&quot;, &quot;Very Unhealthy&quot;)</li>
+<li><strong>Gauge Chart</strong> — a visual arc indicator showing where the AQI value falls on the scale</li>
+<li><strong>Date &amp; Time</strong> — when the reading was last updated</li>
+<li><strong>Animated Background</strong> — weather-aware background that changes based on current sky conditions (sunny, cloudy, rainy, etc.) to give viewers immediate visual context</li>
+</ul>
+<h3>Display Modes</h3>
+<ul>
+<li><strong>Grid Mode</strong> — Shows all four monitoring stations simultaneously in a 2×2 layout, giving motorists a quick overview of air quality across the region.</li>
+<li><strong>Carousel Mode</strong> — Rotates through each station one at a time on a configurable timer, allowing each station&#39;s data to be displayed prominently in full resolution.</li>
+</ul>
+<h3>How It Is Managed</h3>
+<p>EMB Region 3 staff can configure the NLEX display remotely through the Admin Settings panel without needing physical access to the signage board. Settings such as which stations to show, how long each station is displayed, and whether the gauge chart appears can all be adjusted and take effect in real time.</p>
+<p>The display is purpose-built for NLEX&#39;s LED wall hardware and optimized to be readable even at high vehicle speeds, with large fonts, bold colors, and high-contrast category labels.</p>
+
+</main></body></html>
