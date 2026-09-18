@@ -67,6 +67,18 @@ async function ensureMongo() {
   return _mongoDb;
 }
 
+/** Close the shared client (used by one-shot CLI scripts before exiting). */
+async function closeMongo() {
+  if (!_mongoClient) return;
+  const client = _mongoClient;
+  _mongoClient = null;
+  _mongoDb = null;
+  _seriesCollection = null;
+  _metaCollection = null;
+  _stationCollection = null;
+  await client.close().catch(() => {});
+}
+
 async function getSeriesCollection() {
   await ensureMongo();
   return _seriesCollection;
@@ -347,6 +359,7 @@ function scheduleIngestion({ readVizData, readSheetSeries, readGoogleSheetAsSeri
 
 module.exports = {
   ensureMongo,
+  closeMongo,
   getSeriesCollection,
   getMetaCollection,
   getStationCollection,

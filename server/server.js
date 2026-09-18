@@ -41,6 +41,7 @@ const nlexSettingsRoutes = require("./routes/nlexSettings");
 const kioskSettingsRoutes = require("./routes/kioskSettings");
 const externalApiRoutes = require("./routes/externalApi");
 const { ensureApiKeyIndexes, REQUIRE_HTTPS: EXTERNAL_API_REQUIRE_HTTPS } = require("./services/apiKeys");
+const { schedulePush } = require("./services/apiPush");
 
 // ── Express setup ──
 const app = express();
@@ -166,6 +167,7 @@ if (MONGO_URI) {
     console.log(
       `[external-api] /api/v1 enabled (HTTPS ${EXTERNAL_API_REQUIRE_HTTPS ? "required" : "not enforced"}, trust proxy: ${app.get("trust proxy") ? "on" : "off"})`,
     );
+    schedulePush();
   }).catch((err) => {
     console.warn(`[backup] MongoDB init deferred: ${err.message}`);
   });

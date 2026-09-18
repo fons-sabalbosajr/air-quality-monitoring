@@ -18,9 +18,12 @@
 | `EXTERNAL_API_REQUIRE_HTTPS` | No | `1` in production | Reject partner API calls not made over HTTPS (detected via `req.secure` / `X-Forwarded-Proto`). Set `0` for local testing only. |
 | `EXTERNAL_API_DEFAULT_RATE_LIMIT` | No | `60` | Default requests/minute per API key (overridable per key at issue time) |
 | `EXTERNAL_API_LOG_TTL_DAYS` | No | `30` | Retention of `api_access_logs` audit entries |
-| `EXTERNAL_API_CACHE_TTL_MS` | No | `60000` | In-memory cache of enriched datasets served by `/readings` |
+| `EXTERNAL_API_CACHE_TTL_MS` | No | `60000` | In-memory cache of enriched datasets served by `/recent` |
+| `EXTERNAL_API_RECENT_WINDOW_HOURS` | No | `48` | How far back `/recent` may reach. Partners never get data older than this (or than their key's issue date). |
+| `EXTERNAL_API_PUSH_CRON` | No | `15 * * * *` | Hourly webhook push schedule (uses `INGEST_TZ`). `:15` lets the new hour's reading be ingested first. |
+| `EXTERNAL_API_PUSH_TIMEOUT_MS` | No | `15000` | Per-attempt timeout when POSTing to a partner endpoint |
 
-Keys are issued with `node scripts/apiKeys.js create --name "Partner"`. Endpoint reference: `docs/external-api/` (confidential, not in repo).
+Keys are issued with `node scripts/apiKeys.js create --name "Partner"`; webhooks with `node scripts/apiKeys.js webhook <id> --url …`. Endpoint reference: `docs/external-api/` (confidential, not in repo).
 
 ### Google Sheets (AQI Data Source)
 

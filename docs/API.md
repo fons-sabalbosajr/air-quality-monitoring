@@ -14,26 +14,53 @@ All endpoints return JSON unless otherwise noted. CORS is enabled globally.
 ## Partner API (`/api/v1`) — API key required
 
 Read-only, versioned, HTTPS-only. Authenticate with `Authorization: Bearer <key>`.
-Full reference and partner onboarding guide: `docs/external-api/` (not in repo).
+Partners receive **present and incoming data only** — the latest reading plus a
+rolling 48-hour catch-up window (`EXTERNAL_API_RECENT_WINDOW_HOURS`). No
+historical export exists. Full reference, integration guide, Power BI guide
+and OpenAPI spec: `docs/external-api/` (not in repo).
 
 | Endpoint | Scope | Description |
 | --- | --- | --- |
-| `GET /api/v1/ping` | any | Connection test, returns client info |
+| `GET /api/v1/ping` | any | Connection test, returns client info + webhook status |
 | `GET /api/v1/stations` | `read:stations` | Station registry + freshness |
-| `GET /api/v1/latest` | `read:latest` | Latest reading for all datasets |
+| `GET /api/v1/latest` | `read:latest` | Latest reading for all datasets (same payload as the hourly push) |
 | `GET /api/v1/stations/:station/latest` | `read:latest` | Latest per pollutant at a station |
 | `GET /api/v1/stations/:station/:pollutant/latest` | `read:latest` | Latest for one dataset |
-| `GET /api/v1/stations/:station/:pollutant/readings` | `read:readings` | Paginated history (`from`, `to`, `limit`, `page`, `order`, `validOnly`) |
+| `GET /api/v1/stations/:station/:pollutant/recent` | `read:recent` | Rolling 48 h window (`from`, `to`, `limit`≤500, `order`, `validOnly`). `from` is clipped to the window start / key issue date |
+| `GET /api/v1/stations/:station/:pollutant/readings` | — | Always `404 not_available` (historical data intentionally not exposed) |
 
-### Key management (admin — `X-Admin-Token` required)
+### Hourly push (webhook)
+
+`services/apiPush.js` POSTs the `/latest` payload to every active client with
+an enabled webhook on `EXTERNAL_API_PUSH_CRON` (default `15 * * * *`, `INGEST_TZ`).
+Formats: `json` (signed envelope — `X-AQM-Signature: sha256=HMAC(secret, ts + "." + body)`)
+or `powerbi` (bare row array for a Power BI streaming dataset push URL).
+3 attempts with 5 s / 30 s backoff on timeout / 5xx / 429; every attempt is
+logged to `api_push_logs` (30-day TTL) and the client's `webhook.lastStatus`
+/ `consecutiveFailures` are updated.
+
+### Key & webhook management (admin — `X-Admin-Token` required)
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/admin/api-keys` | List issued keys (never returns secrets) |
-| `POST /api/admin/api-keys` | Issue a key. Body: `{ name, organization?, contactEmail?, scopes?, rateLimitPerMin?, expiresAt? }`. Response includes the plaintext `key` **once**. |
+| `GET /api/admin/api-keys` | List issued keys (never returns secrets), plus scopes / formats / push schedule |
+| `POST /api/admin/api-keys` | Issue a key. Body: `{ name, organization?, contactEmail?, scopes?, rateLimitPerMin?, expiresAt?, webhook?: { url, secret?, format? } }`. Response includes the plaintext `key` **once**. |
 | `DELETE /api/admin/api-keys/:id` | Revoke a key |
+| `PUT /api/admin/api-keys/:id/webhook` | Set/replace webhook. Body: `{ url, secret?, format?: "json"\|"powerbi", enabled? }` |
+| `DELETE /api/admin/api-keys/:id/webhook` | Remove webhook |
+| `POST /api/admin/api-keys/:id/webhook/test` | Deliver the latest readings now; 502 if the partner endpoint fails |
+| `GET /api/admin/api-keys/:id/deliveries?limit=` | Recent push attempts for a key |
 
-CLI equivalent: `node scripts/apiKeys.js create|list|revoke` (run from `server/`).
+CLI equivalent (run from `server/`):
+
+```
+node scripts/apiKeys.js create --name "Partner" [--webhook-url … --webhook-secret … --webhook-format json|powerbi]
+node scripts/apiKeys.js list
+node scripts/apiKeys.js revoke <id>
+node scripts/apiKeys.js webhook <id> --url https://… [--secret …] [--format json|powerbi] [--disable] | --remove
+node scripts/apiKeys.js push [<id>]          # manual / test delivery
+node scripts/apiKeys.js deliveries <id>
+```
 
 ---
 

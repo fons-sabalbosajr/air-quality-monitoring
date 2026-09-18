@@ -18,6 +18,7 @@ const { ensureMongo } = require("./mongo");
 
 const CLIENTS_COLLECTION = "api_clients";
 const ACCESS_LOG_COLLECTION = "api_access_logs";
+const PUSH_LOG_COLLECTION = "api_push_logs";
 const KEY_PREFIX = "aqm_live_";
 const KEY_BYTES = 32;
 const DEFAULT_RATE_LIMIT_PER_MIN = Number(process.env.EXTERNAL_API_DEFAULT_RATE_LIMIT || 60);
@@ -27,7 +28,10 @@ const REQUIRE_HTTPS =
     ? process.env.EXTERNAL_API_REQUIRE_HTTPS === "1" || process.env.EXTERNAL_API_REQUIRE_HTTPS === "true"
     : process.env.NODE_ENV === "production";
 
-const SCOPES = ["read:stations", "read:latest", "read:readings"];
+// read:recent — the rolling recent-readings window only; historical data is
+// deliberately not exposed to partners.
+const SCOPES = ["read:stations", "read:latest", "read:recent"];
+const WEBHOOK_FORMATS = ["json", "powerbi"];
 
 /* ── Key helpers ───────────────────────────────────────────────── */
 
@@ -61,6 +65,44 @@ function toPublicClient(doc) {
     revokedAt: doc.revokedAt || null,
     lastUsedAt: doc.lastUsedAt || null,
     requestCount: doc.requestCount || 0,
+    webhook: doc.webhook
+      ? {
+          enabled: doc.webhook.enabled !== false,
+          url: doc.webhook.url,
+          format: doc.webhook.format || "json",
+          hasSecret: !!doc.webhook.secret,
+          lastDeliveryAt: doc.webhook.lastDeliveryAt || null,
+          lastStatus: doc.webhook.lastStatus ?? null,
+          lastError: doc.webhook.lastError || null,
+          consecutiveFailures: doc.webhook.consecutiveFailures || 0,
+        }
+      : null,
+  };
+}
+
+/** Validate and normalise a webhook config. Throws on bad input. */
+function normalizeWebhook({ url, secret = null, format = "json", enabled = true } = {}) {
+  const cleanUrl = String(url || "").trim();
+  let parsed;
+  try {
+    parsed = new URL(cleanUrl);
+  } catch {
+    throw new Error("webhook url must be a valid absolute URL");
+  }
+  if (parsed.protocol !== "https:" && process.env.NODE_ENV === "production") {
+    throw new Error("webhook url must use https://");
+  }
+  if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("webhook url must be http(s)");
+  const cleanFormat = String(format || "json").toLowerCase();
+  if (!WEBHOOK_FORMATS.includes(cleanFormat)) {
+    throw new Error(`webhook format must be one of: ${WEBHOOK_FORMATS.join(", ")}`);
+  }
+  return {
+    url: cleanUrl,
+    secret: secret ? String(secret) : null,
+    format: cleanFormat,
+    enabled: enabled !== false,
+    updatedAt: new Date(),
   };
 }
 
@@ -75,6 +117,11 @@ async function ensureApiKeyIndexes(db) {
       db.collection(CLIENTS_COLLECTION).createIndex({ keyHash: 1 }, { unique: true }),
       db.collection(ACCESS_LOG_COLLECTION).createIndex({ clientId: 1, at: -1 }),
       db.collection(ACCESS_LOG_COLLECTION).createIndex(
+        { at: 1 },
+        { expireAfterSeconds: ACCESS_LOG_TTL_DAYS * 24 * 60 * 60 },
+      ),
+      db.collection(PUSH_LOG_COLLECTION).createIndex({ clientId: 1, at: -1 }),
+      db.collection(PUSH_LOG_COLLECTION).createIndex(
         { at: 1 },
         { expireAfterSeconds: ACCESS_LOG_TTL_DAYS * 24 * 60 * 60 },
       ),
@@ -98,6 +145,7 @@ async function createApiKey({
   rateLimitPerMin = DEFAULT_RATE_LIMIT_PER_MIN,
   expiresAt = null,
   createdBy = null,
+  webhook = null,
 } = {}) {
   const cleanName = String(name || "").trim();
   if (!cleanName) throw new Error("name is required");
@@ -129,10 +177,59 @@ async function createApiKey({
     revokedAt: null,
     lastUsedAt: null,
     requestCount: 0,
+    webhook: webhook && webhook.url ? normalizeWebhook(webhook) : null,
   };
   const col = await getClientsCollection();
   const { insertedId } = await col.insertOne(doc);
   return { key, client: toPublicClient({ ...doc, _id: insertedId }) };
+}
+
+/** Set, update or remove (config = null) a client's push webhook. */
+async function setWebhook(id, config) {
+  const { ObjectId } = require("mongodb");
+  if (!ObjectId.isValid(id)) return null;
+  const col = await getClientsCollection();
+  const update = config
+    ? { $set: { webhook: normalizeWebhook(config) } }
+    : { $unset: { webhook: "" } };
+  const result = await col.findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    update,
+    { returnDocument: "after", projection: { keyHash: 0 } },
+  );
+  return toPublicClient(result);
+}
+
+/** Active, unexpired clients with an enabled webhook (raw docs — includes secret). */
+async function listWebhookClients() {
+  const col = await getClientsCollection();
+  const now = new Date();
+  return col
+    .find({
+      active: { $ne: false },
+      "webhook.url": { $exists: true, $ne: "" },
+      "webhook.enabled": { $ne: false },
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+    })
+    .project({ keyHash: 0 })
+    .toArray();
+}
+
+async function getClientById(id) {
+  const { ObjectId } = require("mongodb");
+  if (!ObjectId.isValid(id)) return null;
+  const col = await getClientsCollection();
+  return col.findOne({ _id: new ObjectId(id) }, { projection: { keyHash: 0 } });
+}
+
+async function recordWebhookResult(id, { ok, status, error }) {
+  const col = await getClientsCollection();
+  await col.updateOne(
+    { _id: id },
+    ok
+      ? { $set: { "webhook.lastDeliveryAt": new Date(), "webhook.lastStatus": status, "webhook.lastError": null, "webhook.consecutiveFailures": 0 } }
+      : { $set: { "webhook.lastDeliveryAt": new Date(), "webhook.lastStatus": status ?? null, "webhook.lastError": error || null }, $inc: { "webhook.consecutiveFailures": 1 } },
+  );
 }
 
 async function listApiClients() {
@@ -303,12 +400,18 @@ function requireApiKey(requiredScopes = []) {
 
 module.exports = {
   SCOPES,
+  WEBHOOK_FORMATS,
+  PUSH_LOG_COLLECTION,
   KEY_PREFIX,
   REQUIRE_HTTPS,
   createApiKey,
   listApiClients,
   revokeApiKey,
   findClientByKey,
+  getClientById,
+  setWebhook,
+  listWebhookClients,
+  recordWebhookResult,
   ensureApiKeyIndexes,
   requireApiKey,
   toPublicClient,
