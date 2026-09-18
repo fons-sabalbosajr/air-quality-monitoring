@@ -22,6 +22,9 @@ pm25_response.json
 .env.*
 !.env.example
 
+# ── Confidential: partner API docs are handed to partners directly, never via the repo ──
+docs/external-api/
+
 # ── Dependencies ──
 node_modules/
 

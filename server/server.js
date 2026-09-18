@@ -39,9 +39,26 @@ const proxyRoutes = require("./routes/proxy");
 const { router: adminAuthRoutes } = require("./routes/admin-auth");
 const nlexSettingsRoutes = require("./routes/nlexSettings");
 const kioskSettingsRoutes = require("./routes/kioskSettings");
+const externalApiRoutes = require("./routes/externalApi");
+const { ensureApiKeyIndexes, REQUIRE_HTTPS: EXTERNAL_API_REQUIRE_HTTPS } = require("./services/apiKeys");
 
 // ── Express setup ──
 const app = express();
+
+// ── Reverse proxy trust ──
+// Behind Nginx (VPS) the real client IP and scheme arrive in X-Forwarded-*.
+// Trusting the first hop makes req.ip / req.secure correct for the per-IP
+// rate limiter and the external API's HTTPS enforcement.
+// TRUST_PROXY: "0" disables, a number sets hop count, anything else is passed
+// through to Express (e.g. "loopback"). Defaults on in production.
+const TRUST_PROXY = process.env.TRUST_PROXY;
+if (TRUST_PROXY != null && TRUST_PROXY !== "") {
+  if (TRUST_PROXY !== "0" && TRUST_PROXY !== "false") {
+    app.set("trust proxy", /^\d+$/.test(TRUST_PROXY) ? Number(TRUST_PROXY) : TRUST_PROXY);
+  }
+} else if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
 // ── Security headers ──
 // Lightweight helmet-style headers without adding a dependency.
@@ -134,6 +151,7 @@ app.use(aqiRoutes);
 app.use(stationRoutes);
 app.use(workbookRoutes);
 app.use(proxyRoutes);
+app.use(externalApiRoutes);
 
 // ── MongoDB ingestion, backup & station meta ──
 if (MONGO_URI) {
@@ -143,7 +161,11 @@ if (MONGO_URI) {
   ensureMongo().then((db) => {
     setBackupDb(db);
     ensureBackupIndexes(db).catch(() => {});
+    ensureApiKeyIndexes(db).catch(() => {});
     scheduleBackup();
+    console.log(
+      `[external-api] /api/v1 enabled (HTTPS ${EXTERNAL_API_REQUIRE_HTTPS ? "required" : "not enforced"}, trust proxy: ${app.get("trust proxy") ? "on" : "off"})`,
+    );
   }).catch((err) => {
     console.warn(`[backup] MongoDB init deferred: ${err.message}`);
   });

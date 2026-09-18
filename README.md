@@ -92,6 +92,7 @@ All documentation lives in [docs/](docs/).
 | [docs/STATIONS.md](docs/STATIONS.md) | Developers | Station configuration and management |
 | [docs/VPS_DEPLOYMENT.md](docs/VPS_DEPLOYMENT.md) | Operators | Hostinger KVM2 VPS deployment guide |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Everyone | Release history |
+| `docs/external-api/` | External partners | Partner API guide and reference — **confidential, git-ignored**; distributed to partners directly by EMB R3 |
 
 ## Tech Stack
 

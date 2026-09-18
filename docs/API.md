@@ -4,6 +4,37 @@ Base URL: `http://localhost:3001` (development) or the deployed server URL.
 
 All endpoints return JSON unless otherwise noted. CORS is enabled globally.
 
+> **External partners:** the endpoints below are internal to the kiosk/admin
+> front-end. Third-party systems must use the API-key-protected, read-only
+> **Partner API** under `/api/v1`. Its reference and integration guide live in
+> `docs/external-api/` (confidential, git-ignored — obtain from EMB R3).
+
+---
+
+## Partner API (`/api/v1`) — API key required
+
+Read-only, versioned, HTTPS-only. Authenticate with `Authorization: Bearer <key>`.
+Full reference and partner onboarding guide: `docs/external-api/` (not in repo).
+
+| Endpoint | Scope | Description |
+| --- | --- | --- |
+| `GET /api/v1/ping` | any | Connection test, returns client info |
+| `GET /api/v1/stations` | `read:stations` | Station registry + freshness |
+| `GET /api/v1/latest` | `read:latest` | Latest reading for all datasets |
+| `GET /api/v1/stations/:station/latest` | `read:latest` | Latest per pollutant at a station |
+| `GET /api/v1/stations/:station/:pollutant/latest` | `read:latest` | Latest for one dataset |
+| `GET /api/v1/stations/:station/:pollutant/readings` | `read:readings` | Paginated history (`from`, `to`, `limit`, `page`, `order`, `validOnly`) |
+
+### Key management (admin — `X-Admin-Token` required)
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/admin/api-keys` | List issued keys (never returns secrets) |
+| `POST /api/admin/api-keys` | Issue a key. Body: `{ name, organization?, contactEmail?, scopes?, rateLimitPerMin?, expiresAt? }`. Response includes the plaintext `key` **once**. |
+| `DELETE /api/admin/api-keys/:id` | Revoke a key |
+
+CLI equivalent: `node scripts/apiKeys.js create|list|revoke` (run from `server/`).
+
 ---
 
 ## Health

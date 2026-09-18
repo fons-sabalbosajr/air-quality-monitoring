@@ -8,6 +8,19 @@
 |----------|----------|---------|-------------|
 | `PORT` | No | `3001` | HTTP server port |
 | `EXCEL_FILE_PATH` | No | `server/data/aqi.xlsm` | Path or URL to the AQI Excel workbook |
+| `DNS_SERVERS` | No | system | Comma-separated resolvers forced onto Node's DNS (e.g. `8.8.8.8,8.8.4.4`). Only needed where `mongodb+srv://` fails with `querySrv ECONNREFUSED`. |
+| `TRUST_PROXY` | No | `1` in production | Express `trust proxy` setting so `X-Forwarded-*` from Nginx yields the real client IP / scheme. `0` disables. |
+
+### External Partner API (`/api/v1`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `EXTERNAL_API_REQUIRE_HTTPS` | No | `1` in production | Reject partner API calls not made over HTTPS (detected via `req.secure` / `X-Forwarded-Proto`). Set `0` for local testing only. |
+| `EXTERNAL_API_DEFAULT_RATE_LIMIT` | No | `60` | Default requests/minute per API key (overridable per key at issue time) |
+| `EXTERNAL_API_LOG_TTL_DAYS` | No | `30` | Retention of `api_access_logs` audit entries |
+| `EXTERNAL_API_CACHE_TTL_MS` | No | `60000` | In-memory cache of enriched datasets served by `/readings` |
+
+Keys are issued with `node scripts/apiKeys.js create --name "Partner"`. Endpoint reference: `docs/external-api/` (confidential, not in repo).
 
 ### Google Sheets (AQI Data Source)
 
