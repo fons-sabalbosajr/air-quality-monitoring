@@ -41,7 +41,7 @@ npm install
 
 ### 2. Configure Environment
 
-See [ENVIRONMENT.md](ENVIRONMENT.md) for all environment variables.
+See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for all environment variables.
 
 ### 3. Run Development
 
@@ -64,7 +64,7 @@ cd server && npm start           # production server
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full system architecture and data flow.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full system architecture and data flow.
 
 ```
 ┌─────────────────────┐        ┌──────────────────────────────┐
@@ -81,13 +81,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full system architecture and data flo
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, component hierarchy |
-| [API.md](API.md) | API endpoint reference (18 endpoints) |
-| [ENVIRONMENT.md](ENVIRONMENT.md) | Environment variable reference |
-| [STATIONS.md](STATIONS.md) | Station configuration and management |
-| [VPS_DEPLOYMENT.md](VPS_DEPLOYMENT.md) | Hostinger KVM2 VPS deployment guide |
+All documentation lives in [docs/](docs/).
+
+| Document | Audience | Description |
+|----------|----------|-------------|
+| [docs/OVERVIEW.md](docs/OVERVIEW.md) | General public / management | Non-technical overview of the system and the NLEX display |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Developers | System architecture, data flow, component hierarchy |
+| [docs/API.md](docs/API.md) | Developers | Internal API endpoint reference |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Developers / operators | Environment variable reference |
+| [docs/STATIONS.md](docs/STATIONS.md) | Developers | Station configuration and management |
+| [docs/VPS_DEPLOYMENT.md](docs/VPS_DEPLOYMENT.md) | Operators | Hostinger KVM2 VPS deployment guide |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Everyone | Release history |
 
 ## Tech Stack
 
