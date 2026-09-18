@@ -6,6 +6,25 @@
 require("dotenv").config();
 const path = require("path");
 
+// ── DNS override ──
+// Node's built-in resolver (c-ares) can fail to detect the system DNS servers
+// on some Windows setups (e.g. VPN/virtual adapters) and falls back to
+// 127.0.0.1, which breaks the SRV lookup required by mongodb+srv:// URIs.
+// Set DNS_SERVERS=8.8.8.8,8.8.4.4 to force specific resolvers. Leave unset
+// on hosts where system DNS works normally.
+const DNS_SERVERS = (process.env.DNS_SERVERS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (DNS_SERVERS.length) {
+  try {
+    require("dns").setServers(DNS_SERVERS);
+    console.log(`[dns] using resolvers: ${DNS_SERVERS.join(", ")}`);
+  } catch (err) {
+    console.warn(`[dns] failed to set resolvers (${DNS_SERVERS.join(", ")}): ${err.message}`);
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 const DEFAULT_RELATIVE = path.join(__dirname, "..", "data", "aqi.xlsm");
 
