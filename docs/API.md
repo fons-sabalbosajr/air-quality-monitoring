@@ -19,20 +19,30 @@ rolling 48-hour catch-up window (`EXTERNAL_API_RECENT_WINDOW_HOURS`). No
 historical export exists. Full reference, integration guide, Power BI guide
 and OpenAPI spec: `docs/external-api/` (not in repo).
 
+**Keys are issued per station.** Every key carries an approved-station list
+(`api_clients.stations`, required on create). `/stations`, `/latest` and the
+hourly push are filtered to that list; calling a per-station endpoint for any
+other station returns `403 station_not_allowed`. Issue one key per station
+(or per approved set) so access can be granted and revoked station by
+station. Keys created before this existed have no `stations` field and are
+treated as unrestricted (legacy) — `apiKeys.js list` flags them; restrict
+with `apiKeys.js stations <id> --stations …` or revoke and reissue.
+
 | Endpoint | Scope | Description |
 | --- | --- | --- |
-| `GET /api/v1/ping` | any | Connection test, returns client info + webhook status |
-| `GET /api/v1/stations` | `read:stations` | Station registry + freshness |
-| `GET /api/v1/latest` | `read:latest` | Latest reading for all datasets (same payload as the hourly push) |
-| `GET /api/v1/stations/:station/latest` | `read:latest` | Latest per pollutant at a station |
+| `GET /api/v1/ping` | any | Connection test, returns client info, approved `stations` + webhook status |
+| `GET /api/v1/stations` | `read:stations` | Approved stations only + freshness |
+| `GET /api/v1/latest` | `read:latest` | Latest reading for the key's approved stations (same payload as the hourly push) |
+| `GET /api/v1/stations/:station/latest` | `read:latest` | Latest per pollutant at a station (`403 station_not_allowed` if not approved) |
 | `GET /api/v1/stations/:station/:pollutant/latest` | `read:latest` | Latest for one dataset |
 | `GET /api/v1/stations/:station/:pollutant/recent` | `read:recent` | Rolling 48 h window (`from`, `to`, `limit`≤500, `order`, `validOnly`). `from` is clipped to the window start / key issue date |
 | `GET /api/v1/stations/:station/:pollutant/readings` | — | Always `404 not_available` (historical data intentionally not exposed) |
 
 ### Hourly push (webhook)
 
-`services/apiPush.js` POSTs the `/latest` payload to every active client with
-an enabled webhook on `EXTERNAL_API_PUSH_CRON` (default `15 * * * *`, `INGEST_TZ`).
+`services/apiPush.js` POSTs the `/latest` payload — narrowed to each client's
+approved stations — to every active client with an enabled webhook on
+`EXTERNAL_API_PUSH_CRON` (default `15 * * * *`, `INGEST_TZ`).
 Formats: `json` (signed envelope — `X-AQM-Signature: sha256=HMAC(secret, ts + "." + body)`)
 or `powerbi` (bare row array for a Power BI streaming dataset push URL).
 3 attempts with 5 s / 30 s backoff on timeout / 5xx / 429; every attempt is
@@ -43,9 +53,10 @@ logged to `api_push_logs` (30-day TTL) and the client's `webhook.lastStatus`
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/admin/api-keys` | List issued keys (never returns secrets), plus scopes / formats / push schedule |
-| `POST /api/admin/api-keys` | Issue a key. Body: `{ name, organization?, contactEmail?, scopes?, rateLimitPerMin?, expiresAt?, webhook?: { url, secret?, format? } }`. Response includes the plaintext `key` **once**. |
+| `GET /api/admin/api-keys` | List issued keys (never returns secrets), plus valid `stations` / scopes / formats / push schedule |
+| `POST /api/admin/api-keys` | Issue a key. Body: `{ name, stations: ["clark"], organization?, contactEmail?, scopes?, rateLimitPerMin?, expiresAt?, webhook?: { url, secret?, format? } }`. `stations` is required. Response includes the plaintext `key` **once**. |
 | `DELETE /api/admin/api-keys/:id` | Revoke a key |
+| `PUT /api/admin/api-keys/:id/stations` | Replace the approved-station list. Body: `{ stations: ["clark", "zambales"] }` |
 | `PUT /api/admin/api-keys/:id/webhook` | Set/replace webhook. Body: `{ url, secret?, format?: "json"\|"powerbi", enabled? }` |
 | `DELETE /api/admin/api-keys/:id/webhook` | Remove webhook |
 | `POST /api/admin/api-keys/:id/webhook/test` | Deliver the latest readings now; 502 if the partner endpoint fails |
@@ -54,9 +65,10 @@ logged to `api_push_logs` (30-day TTL) and the client's `webhook.lastStatus`
 CLI equivalent (run from `server/`):
 
 ```
-node scripts/apiKeys.js create --name "Partner" [--webhook-url … --webhook-secret … --webhook-format json|powerbi]
+node scripts/apiKeys.js create --name "Partner — Clark" --stations clark [--webhook-url … --webhook-secret … --webhook-format json|powerbi]
 node scripts/apiKeys.js list
 node scripts/apiKeys.js revoke <id>
+node scripts/apiKeys.js stations <id> --stations clark,zambales   # replace approved stations
 node scripts/apiKeys.js webhook <id> --url https://… [--secret …] [--format json|powerbi] [--disable] | --remove
 node scripts/apiKeys.js push [<id>]          # manual / test delivery
 node scripts/apiKeys.js deliveries <id>

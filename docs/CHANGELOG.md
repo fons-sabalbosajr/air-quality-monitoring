@@ -4,6 +4,20 @@ All notable changes to the EMBR3 Air Quality Monitoring app are documented here.
 
 ---
 
+## [September 21, 2026] — Partner API: station-scoped keys
+
+### 🔄 Updated
+
+#### Partner API keys are now issued per station
+- Every partner API key carries an approved-station list (`api_clients.stations`), required when the key is created (`--stations clark` on the CLI, `stations: [...]` on `POST /api/admin/api-keys`).
+- `GET /api/v1/stations` and `GET /api/v1/latest` return only the key's approved stations; `GET /api/v1/stations/:station/...` for any other station answers `403 station_not_allowed`. `GET /api/v1/ping` now reports `client.stations`.
+- The hourly push reads the data once per cycle and delivers each webhook client only its approved stations; `api_push_logs` entries record the `stations` delivered.
+- New management: `PUT /api/admin/api-keys/:id/stations` and `node scripts/apiKeys.js stations <id> --stations …` replace a key's approved list without reissuing it.
+- Keys issued before this change have no station list and remain unrestricted (legacy); `apiKeys.js list` flags them so they can be restricted or revoked and reissued per station.
+- Partner docs (`docs/external-api/`, handover zip and messages) updated to describe per-station access.
+
+---
+
 ## [June 3, 2026] — NLEX Fallback Rollout, Storage Encryption, and VPS Verification
 
 ### ✨ New Features

@@ -6,18 +6,23 @@
  * poller that was down can catch up). Historical data is not exposed.
  * Partners can additionally receive an hourly push — see services/apiPush.js.
  *
+ * Every key is STATION-SCOPED (services/apiKeys.js): the list, latest and
+ * per-station endpoints only ever return the stations approved for that
+ * key; any other station answers 403 station_not_allowed.
+ *
  * Public (key required):
- *   GET /api/v1/ping                                   — connection test / key info
- *   GET /api/v1/stations                               — station registry + data freshness
- *   GET /api/v1/latest                                 — latest reading for every station/pollutant
+ *   GET /api/v1/ping                                   — connection test / key info (incl. approved stations)
+ *   GET /api/v1/stations                               — approved stations + data freshness
+ *   GET /api/v1/latest                                 — latest reading for every approved station/pollutant
  *   GET /api/v1/stations/:station/latest               — latest reading(s) for one station
  *   GET /api/v1/stations/:station/:pollutant/latest    — latest reading for one dataset
  *   GET /api/v1/stations/:station/:pollutant/recent    — readings in the rolling recent window
  *
- * Admin (X-Admin-Token required — issue/list/revoke partner keys, webhooks):
+ * Admin (X-Admin-Token required — issue/list/revoke partner keys, stations, webhooks):
  *   GET    /api/admin/api-keys
  *   POST   /api/admin/api-keys
  *   DELETE /api/admin/api-keys/:id
+ *   PUT    /api/admin/api-keys/:id/stations
  *   PUT    /api/admin/api-keys/:id/webhook
  *   DELETE /api/admin/api-keys/:id/webhook
  *   POST   /api/admin/api-keys/:id/webhook/test
@@ -32,8 +37,11 @@ const {
   createApiKey,
   listApiClients,
   revokeApiKey,
+  setStations,
   setWebhook,
+  isStationAllowed,
   SCOPES,
+  STATION_IDS,
   WEBHOOK_FORMATS,
 } = require("../services/apiKeys");
 const { pushToClientNow, listDeliveries, PUSH_CRON } = require("../services/apiPush");
@@ -72,6 +80,26 @@ function maintenanceGuard(req, res, next) {
   next();
 }
 
+/**
+ * Resolve `:station` and enforce the key's station scope. Returns the
+ * station, or null after having already sent the 404 / 403 response.
+ */
+function resolveAllowedStation(req, res) {
+  const station = getStation(req.params.station);
+  if (!station || !station.pollutants.length) {
+    res.status(404).json({ error: "unknown_station", message: `Unknown station '${req.params.station}'.` });
+    return null;
+  }
+  if (!isStationAllowed(req.apiClient, station.id)) {
+    res.status(403).json({
+      error: "station_not_allowed",
+      message: `This API key is not approved for station '${station.id}'. Approved: ${req.apiClient.stations.join(", ")}.`,
+    });
+    return null;
+  }
+  return station;
+}
+
 /* ── Public v1 routes ──────────────────────────────────────────── */
 
 const v1 = Router();
@@ -86,6 +114,7 @@ v1.get("/ping", requireApiKey(), (req, res) => {
       name: req.apiClient.name,
       organization: req.apiClient.organization,
       scopes: req.apiClient.scopes,
+      stations: req.apiClient.stations,
       webhook: req.apiClient.webhook
         ? { enabled: req.apiClient.webhook.enabled, format: req.apiClient.webhook.format, schedule: PUSH_CRON, lastDeliveryAt: req.apiClient.webhook.lastDeliveryAt }
         : null,
@@ -96,7 +125,8 @@ v1.get("/ping", requireApiKey(), (req, res) => {
 
 v1.get("/stations", requireApiKey(["read:stations"]), async (req, res) => {
   try {
-    const stations = getAvailableStations();
+    // Only the stations this key was approved for
+    const stations = getAvailableStations().filter((s) => isStationAllowed(req.apiClient, s.id));
     const data = await Promise.all(
       stations.map(async (s) => {
         const freshness = {};
@@ -116,7 +146,7 @@ v1.get("/stations", requireApiKey(["read:stations"]), async (req, res) => {
 
 v1.get("/latest", requireApiKey(["read:latest"]), async (req, res) => {
   try {
-    res.json(await buildLatestPayload());
+    res.json(await buildLatestPayload(req.apiClient.stations));
   } catch (e) {
     console.error(`[external-api] /latest failed: ${e.message}`);
     res.status(500).json({ error: "server_error", message: "Failed to load latest readings." });
@@ -124,10 +154,8 @@ v1.get("/latest", requireApiKey(["read:latest"]), async (req, res) => {
 });
 
 v1.get("/stations/:station/latest", requireApiKey(["read:latest"]), async (req, res) => {
-  const station = getStation(req.params.station);
-  if (!station || !station.pollutants.length) {
-    return res.status(404).json({ error: "unknown_station", message: `Unknown station '${req.params.station}'.` });
-  }
+  const station = resolveAllowedStation(req, res);
+  if (!station) return;
   try {
     const readings = [];
     for (const p of station.pollutants) {
@@ -142,9 +170,10 @@ v1.get("/stations/:station/latest", requireApiKey(["read:latest"]), async (req, 
 });
 
 v1.get("/stations/:station/:pollutant/latest", requireApiKey(["read:latest"]), async (req, res) => {
-  const station = getStation(req.params.station);
+  const station = resolveAllowedStation(req, res);
+  if (!station) return;
   const pollutant = String(req.params.pollutant || "").toLowerCase();
-  if (!station || !isPollutantAvailable(station.id, pollutant)) {
+  if (!isPollutantAvailable(station.id, pollutant)) {
     return res.status(404).json({ error: "unknown_dataset", message: `No dataset for '${req.params.station}/${req.params.pollutant}'.` });
   }
   try {
@@ -163,9 +192,10 @@ v1.get("/stations/:station/:pollutant/latest", requireApiKey(["read:latest"]), a
  * the window start (or the key's issue date) is silently clipped.
  */
 v1.get("/stations/:station/:pollutant/recent", requireApiKey(["read:recent"]), async (req, res) => {
-  const station = getStation(req.params.station);
+  const station = resolveAllowedStation(req, res);
+  if (!station) return;
   const pollutant = String(req.params.pollutant || "").toLowerCase();
-  if (!station || !isPollutantAvailable(station.id, pollutant)) {
+  if (!isPollutantAvailable(station.id, pollutant)) {
     return res.status(404).json({ error: "unknown_dataset", message: `No dataset for '${req.params.station}/${req.params.pollutant}'.` });
   }
 
@@ -241,7 +271,7 @@ router.use("/api/v1", v1);
 /* ── Admin: partner key & webhook management ───────────────────── */
 
 function adminError(res, e) {
-  const status = /required|must be|scope|valid|one of|not found|no webhook/i.test(e.message) ? 400 : 500;
+  const status = /required|must be|scope|station|valid|one of|not found|no webhook/i.test(e.message) ? 400 : 500;
   res.status(status).json({ error: status === 400 ? e.message : "Server error" });
 }
 
@@ -250,6 +280,7 @@ router.get("/api/admin/api-keys", requireAdminToken, async (req, res) => {
     res.json({
       ok: true,
       scopes: SCOPES,
+      stations: STATION_IDS,
       webhookFormats: WEBHOOK_FORMATS,
       pushSchedule: PUSH_CRON,
       recentWindowHours: RECENT_WINDOW_HOURS,
@@ -262,11 +293,12 @@ router.get("/api/admin/api-keys", requireAdminToken, async (req, res) => {
 
 router.post("/api/admin/api-keys", requireAdminToken, async (req, res) => {
   try {
-    const { name, organization, contactEmail, scopes, rateLimitPerMin, expiresAt, webhook } = req.body || {};
+    const { name, organization, contactEmail, stations, scopes, rateLimitPerMin, expiresAt, webhook } = req.body || {};
     const { key, client } = await createApiKey({
       name,
       organization,
       contactEmail,
+      stations,
       scopes,
       rateLimitPerMin,
       expiresAt,
@@ -287,6 +319,17 @@ router.delete("/api/admin/api-keys/:id", requireAdminToken, async (req, res) => 
     res.json({ ok: true, client });
   } catch (e) {
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Replace the approved-station list for a key (takes effect on the next request / push)
+router.put("/api/admin/api-keys/:id/stations", requireAdminToken, async (req, res) => {
+  try {
+    const client = await setStations(req.params.id, (req.body || {}).stations);
+    if (!client) return res.status(404).json({ error: "Key not found" });
+    res.json({ ok: true, client });
+  } catch (e) {
+    adminError(res, e);
   }
 });
 

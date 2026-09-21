@@ -109,10 +109,17 @@ async function loadLatest(station, pollutant) {
   return latest ? { station, ...latest, verified: false, updatedAt: ds.meta.lastBackupAt, source: "dataset" } : null;
 }
 
-/** Latest reading for every configured station/pollutant — the /latest and push payload. */
-async function buildLatestPayload() {
+/**
+ * Latest reading for every configured station/pollutant — the /latest and
+ * push payload. Pass `stationIds` to restrict it to a client's approved
+ * stations (null = every configured station).
+ */
+async function buildLatestPayload(stationIds = null) {
   const results = [];
-  for (const s of getAvailableStations()) {
+  const stations = stationIds
+    ? getAvailableStations().filter((s) => stationIds.includes(s.id))
+    : getAvailableStations();
+  for (const s of stations) {
     for (const p of s.pollutants) {
       const latest = await loadLatest(s.id, p).catch(() => null);
       results.push(
@@ -128,6 +135,16 @@ async function buildLatestPayload() {
     count: results.length,
     readings: results,
   };
+}
+
+/**
+ * Narrow an already-built latest payload to a client's approved stations.
+ * Lets the push job read the data once per cycle and still deliver each
+ * client only the stations it was granted.
+ */
+function filterLatestPayload(payload, stationIds) {
+  const readings = payload.readings.filter((r) => stationIds.includes(r.station));
+  return { ...payload, count: readings.length, readings };
 }
 
 /**
@@ -162,5 +179,6 @@ module.exports = {
   loadDataset,
   loadLatest,
   buildLatestPayload,
+  filterLatestPayload,
   toPowerBiRows,
 };

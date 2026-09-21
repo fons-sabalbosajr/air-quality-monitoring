@@ -12,9 +12,15 @@
  *   - Each key has its own per-minute rate limit, independent of the global
  *     per-IP limiter in server.js.
  *   - Every request is written to `api_access_logs` (30-day TTL) for auditing.
+ *   - Keys are STATION-SCOPED: each key names the stations it is approved
+ *     for (`stations: ["clark"]`). Every endpoint and every push delivery is
+ *     filtered to that list, so a partner is only ever given the stations
+ *     that were approved for them. Issue one key per approved station (or a
+ *     small list) — never an "all stations" key.
  */
 const crypto = require("crypto");
 const { ensureMongo } = require("./mongo");
+const { STATIONS } = require("../config/stations");
 
 const CLIENTS_COLLECTION = "api_clients";
 const ACCESS_LOG_COLLECTION = "api_access_logs";
@@ -32,6 +38,40 @@ const REQUIRE_HTTPS =
 // deliberately not exposed to partners.
 const SCOPES = ["read:stations", "read:latest", "read:recent"];
 const WEBHOOK_FORMATS = ["json", "powerbi"];
+const STATION_IDS = STATIONS.map((s) => s.id);
+
+/* ── Station scoping ───────────────────────────────────────────── */
+
+/**
+ * Validate and normalise a station allow-list. Accepts an array or a
+ * comma-separated string of station ids. Throws on empty / unknown ids.
+ */
+function normalizeStations(input) {
+  const raw = Array.isArray(input) ? input : String(input ?? "").split(",");
+  const ids = [...new Set(raw.map((s) => String(s || "").trim().toLowerCase()).filter(Boolean))];
+  if (!ids.length) {
+    throw new Error(`stations is required — list the approved station id(s): ${STATION_IDS.join(", ")}`);
+  }
+  const unknown = ids.filter((id) => !STATION_IDS.includes(id));
+  if (unknown.length) {
+    throw new Error(`unknown station(s): ${unknown.join(", ")}. Valid stations: ${STATION_IDS.join(", ")}`);
+  }
+  return ids;
+}
+
+/**
+ * Station ids a client may access. Keys issued before station scoping
+ * existed carry no `stations` field and are treated as unrestricted
+ * (legacy) — restrict or revoke them with `apiKeys.js stations|revoke`.
+ * Works on both raw docs and public client views.
+ */
+function allowedStationIds(client) {
+  return Array.isArray(client?.stations) ? client.stations : STATION_IDS;
+}
+
+function isStationAllowed(client, stationId) {
+  return allowedStationIds(client).includes(String(stationId || "").toLowerCase());
+}
 
 /* ── Key helpers ───────────────────────────────────────────────── */
 
@@ -57,6 +97,10 @@ function toPublicClient(doc) {
     contactEmail: doc.contactEmail || null,
     keyPrefix: doc.keyPrefix,
     scopes: doc.scopes || [],
+    // Approved stations. `stationsRestricted: false` marks a legacy
+    // (pre-scoping) key that still sees every station.
+    stations: allowedStationIds(doc),
+    stationsRestricted: Array.isArray(doc.stations),
     rateLimitPerMin: doc.rateLimitPerMin || DEFAULT_RATE_LIMIT_PER_MIN,
     active: doc.active !== false,
     createdAt: doc.createdAt || null,
@@ -136,11 +180,14 @@ async function ensureApiKeyIndexes(db) {
 /**
  * Issue a new API key. Returns { key, client } — `key` is the plaintext
  * secret and is NOT stored anywhere; hand it to the partner once.
+ *
+ * `stations` is mandatory: the approved station id(s) this key may access.
  */
 async function createApiKey({
   name,
   organization = null,
   contactEmail = null,
+  stations,
   scopes = SCOPES,
   rateLimitPerMin = DEFAULT_RATE_LIMIT_PER_MIN,
   expiresAt = null,
@@ -149,6 +196,7 @@ async function createApiKey({
 } = {}) {
   const cleanName = String(name || "").trim();
   if (!cleanName) throw new Error("name is required");
+  const cleanStations = normalizeStations(stations);
   const cleanScopes = (Array.isArray(scopes) ? scopes : SCOPES).filter((s) => SCOPES.includes(s));
   if (!cleanScopes.length) throw new Error("at least one valid scope is required");
   const limit = Number(rateLimitPerMin);
@@ -168,6 +216,7 @@ async function createApiKey({
     contactEmail: contactEmail ? String(contactEmail).trim() : null,
     keyHash: hashKey(key),
     keyPrefix: key.slice(0, KEY_PREFIX.length + 8), // "aqm_live_1a2b3c4d" — for identification only
+    stations: cleanStations,
     scopes: cleanScopes,
     rateLimitPerMin: limit,
     active: true,
@@ -182,6 +231,19 @@ async function createApiKey({
   const col = await getClientsCollection();
   const { insertedId } = await col.insertOne(doc);
   return { key, client: toPublicClient({ ...doc, _id: insertedId }) };
+}
+
+/** Replace a client's approved-station list (applies to pulls and pushes immediately). */
+async function setStations(id, stations) {
+  const { ObjectId } = require("mongodb");
+  if (!ObjectId.isValid(id)) return null;
+  const col = await getClientsCollection();
+  const result = await col.findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    { $set: { stations: normalizeStations(stations), stationsUpdatedAt: new Date() } },
+    { returnDocument: "after", projection: { keyHash: 0 } },
+  );
+  return toPublicClient(result);
 }
 
 /** Set, update or remove (config = null) a client's push webhook. */
@@ -400,6 +462,7 @@ function requireApiKey(requiredScopes = []) {
 
 module.exports = {
   SCOPES,
+  STATION_IDS,
   WEBHOOK_FORMATS,
   PUSH_LOG_COLLECTION,
   KEY_PREFIX,
@@ -409,6 +472,9 @@ module.exports = {
   revokeApiKey,
   findClientByKey,
   getClientById,
+  setStations,
+  allowedStationIds,
+  isStationAllowed,
   setWebhook,
   listWebhookClients,
   recordWebhookResult,

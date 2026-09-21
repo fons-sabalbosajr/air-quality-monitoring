@@ -2,13 +2,19 @@
  * Manage partner API keys and hourly push webhooks for the external API
  * (/api/v1) from the CLI.
  *
+ * Keys are issued PER STATION: --stations names the approved station id(s)
+ * and is required. Issue a separate key for each station a partner is
+ * approved for; the key only ever sees (and is pushed) those stations.
+ *
  * Usage:
- *   node scripts/apiKeys.js create --name "Partner System" [--org "Org"] [--email a@b.c]
+ *   node scripts/apiKeys.js create --name "Partner System — Clark" --stations clark
+ *                                  [--org "Org"] [--email a@b.c]
  *                                  [--scopes read:stations,read:latest,read:recent]
  *                                  [--rate 60] [--expires 2027-12-31]
  *                                  [--webhook-url https://... --webhook-secret S --webhook-format json|powerbi]
  *   node scripts/apiKeys.js list
  *   node scripts/apiKeys.js revoke <id>
+ *   node scripts/apiKeys.js stations <id> --stations clark,zambales   — replace a key's approved stations
  *   node scripts/apiKeys.js webhook <id> --url https://... [--secret S] [--format json|powerbi] [--disable]
  *   node scripts/apiKeys.js webhook <id> --remove
  *   node scripts/apiKeys.js push [<id>]          — deliver the latest readings now (all clients, or one)
@@ -25,14 +31,16 @@ const {
   createApiKey,
   listApiClients,
   revokeApiKey,
+  setStations,
   setWebhook,
   ensureApiKeyIndexes,
   SCOPES,
+  STATION_IDS,
   WEBHOOK_FORMATS,
 } = require("../services/apiKeys");
 const { runPushCycle, pushToClientNow, listDeliveries, PUSH_CRON } = require("../services/apiPush");
 
-const COMMANDS = ["create", "list", "revoke", "webhook", "push", "deliveries"];
+const COMMANDS = ["create", "list", "revoke", "stations", "webhook", "push", "deliveries"];
 
 function parseArgs(argv) {
   const out = { _: [] };
@@ -55,9 +63,14 @@ function fmt(d) {
 
 function usage() {
   console.log(`Usage: node scripts/apiKeys.js <${COMMANDS.join("|")}> [options]`);
+  console.log(`Stations (--stations, required on create): ${STATION_IDS.join(", ")}`);
   console.log(`Valid scopes: ${SCOPES.join(", ")}`);
   console.log(`Webhook formats: ${WEBHOOK_FORMATS.join(", ")}   (push schedule: ${PUSH_CRON})`);
   process.exit(1);
+}
+
+function printStations(c) {
+  return c.stationsRestricted ? c.stations.join(", ") : `ALL (${c.stations.join(", ")}) — UNRESTRICTED legacy key, run: stations ${c.id} --stations <id>`;
 }
 
 function printWebhook(c) {
@@ -88,6 +101,7 @@ function printWebhook(c) {
       name: args.name,
       organization: args.org || null,
       contactEmail: args.email || null,
+      stations: args.stations,
       scopes: args.scopes ? String(args.scopes).split(",").map((s) => s.trim()) : SCOPES,
       rateLimitPerMin: args.rate ? Number(args.rate) : undefined,
       expiresAt: args.expires || null,
@@ -97,6 +111,7 @@ function printWebhook(c) {
     console.log("\nAPI key created. Copy it now — it will NOT be shown again.\n");
     console.log(`  Client : ${client.name}${client.organization ? ` (${client.organization})` : ""}`);
     console.log(`  ID     : ${client.id}`);
+    console.log(`  Stations: ${client.stations.join(", ")}`);
     console.log(`  Scopes : ${client.scopes.join(", ")}`);
     console.log(`  Rate   : ${client.rateLimitPerMin} requests/minute`);
     console.log(`  Expires: ${fmt(client.expiresAt)}`);
@@ -114,9 +129,23 @@ function printWebhook(c) {
             `  scopes=[${c.scopes.join(",")}]  rate=${c.rateLimitPerMin}/min  requests=${c.requestCount}` +
             `  lastUsed=${fmt(c.lastUsedAt)}  expires=${fmt(c.expiresAt)}`,
         );
+        console.log(`  Stations: ${printStations(c)}`);
         console.log(printWebhook(c));
       }
     }
+  } else if (cmd === "stations") {
+    const id = args._[1];
+    if (!id || !args.stations || args.stations === "true") {
+      console.error("Usage: stations <id> --stations clark[,zambales,...]");
+      process.exit(1);
+    }
+    const client = await setStations(id, args.stations);
+    if (!client) {
+      console.error("Key not found.");
+      process.exit(1);
+    }
+    console.log(`${client.name} (${client.keyPrefix}…)`);
+    console.log(`  Stations: ${client.stations.join(", ")}`);
   } else if (cmd === "revoke") {
     const id = args._[1];
     if (!id) usage();
@@ -155,7 +184,7 @@ function printWebhook(c) {
     const results = id ? [await pushToClientNow(id, "manual")] : await runPushCycle("manual");
     if (!results.length) console.log("No clients with an enabled webhook.");
     for (const r of results) {
-      console.log(`${r.ok ? "✓" : "✗"} ${r.clientName}  ${r.format}  HTTP ${r.status}  attempts=${r.attempts}  ${r.readings} readings  ${r.durationMs}ms${r.error ? `  ${r.error}` : ""}`);
+      console.log(`${r.ok ? "✓" : "✗"} ${r.clientName}  ${r.format}  HTTP ${r.status}  attempts=${r.attempts}  ${r.readings} readings [${(r.stations || []).join(",")}]  ${r.durationMs}ms${r.error ? `  ${r.error}` : ""}`);
     }
     if (results.some((r) => !r.ok)) {
       await closeMongo();

@@ -4,7 +4,8 @@
  * Every hour (EXTERNAL_API_PUSH_CRON, default 15 minutes past the hour so the
  * new hourly reading has been ingested), the latest reading for every
  * station/pollutant is POSTed to each active client that has a webhook
- * configured.
+ * configured. Each client receives ONLY the stations its key is approved
+ * for (services/apiKeys.js station scoping).
  *
  * Formats:
  *   json    — signed envelope { event, deliveryId, sentAt, data: <same as GET /api/v1/latest> }
@@ -19,8 +20,8 @@ const crypto = require("crypto");
 const cron = require("node-cron");
 const { MONGO_URI, INGEST_TZ } = require("../config/env");
 const { ensureMongo } = require("./mongo");
-const { buildLatestPayload, toPowerBiRows } = require("./externalData");
-const { listWebhookClients, getClientById, recordWebhookResult, PUSH_LOG_COLLECTION } = require("./apiKeys");
+const { buildLatestPayload, filterLatestPayload, toPowerBiRows } = require("./externalData");
+const { listWebhookClients, getClientById, recordWebhookResult, allowedStationIds, PUSH_LOG_COLLECTION } = require("./apiKeys");
 
 const PUSH_CRON = process.env.EXTERNAL_API_PUSH_CRON || "15 * * * *";
 const PUSH_TIMEOUT_MS = Number(process.env.EXTERNAL_API_PUSH_TIMEOUT_MS || 15_000);
@@ -85,13 +86,16 @@ async function logDelivery(entry) {
 
 /**
  * Deliver the payload to one client with retries. Returns the final result.
- * @param {object} client  raw client doc (with webhook.secret)
- * @param {object} payload output of buildLatestPayload()
- * @param {string} reason  "cron" | "manual" | "test"
+ * The payload is narrowed to the client's approved stations before sending.
+ * @param {object} client      raw client doc (with webhook.secret)
+ * @param {object} fullPayload output of buildLatestPayload() (all stations)
+ * @param {string} reason      "cron" | "manual" | "test"
  */
-async function deliverToClient(client, payload, reason = "cron") {
+async function deliverToClient(client, fullPayload, reason = "cron") {
   const deliveryId = crypto.randomUUID();
   const started = Date.now();
+  const stations = allowedStationIds(client);
+  const payload = filterLatestPayload(fullPayload, stations);
   const req = buildRequest(client, payload, deliveryId);
   let result;
   for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
@@ -115,6 +119,7 @@ async function deliverToClient(client, payload, reason = "cron") {
     status: result.status,
     attempts: result.attempts,
     error: result.error || (!result.ok ? `HTTP ${result.status} ${result.responseSnippet || ""}`.trim() : null),
+    stations,
     readings: payload.count,
     durationMs: Date.now() - started,
   };
@@ -123,7 +128,7 @@ async function deliverToClient(client, payload, reason = "cron") {
     recordWebhookResult(client._id, { ok: result.ok, status: result.status, error: summary.error }).catch(() => {}),
   ]);
   if (result.ok) {
-    console.log(`[api-push] ${client.name} ← ${payload.count} readings (${req.format}, HTTP ${result.status}, ${summary.attempts} attempt${summary.attempts > 1 ? "s" : ""})`);
+    console.log(`[api-push] ${client.name} ← ${payload.count} readings [${stations.join(",")}] (${req.format}, HTTP ${result.status}, ${summary.attempts} attempt${summary.attempts > 1 ? "s" : ""})`);
   } else {
     console.warn(`[api-push] ${client.name} FAILED after ${summary.attempts} attempt(s): ${summary.error}`);
   }
@@ -141,6 +146,7 @@ async function runPushCycle(reason = "cron") {
   try {
     const clients = await listWebhookClients();
     if (!clients.length) return [];
+    // Read every station once; deliverToClient narrows it per key.
     const payload = await buildLatestPayload();
     const results = [];
     for (const client of clients) {
@@ -163,7 +169,7 @@ async function pushToClientNow(clientId, reason = "manual") {
   if (!client) throw new Error("client not found");
   if (client.active === false) throw new Error("client is revoked");
   if (!client.webhook?.url) throw new Error("client has no webhook configured");
-  const payload = await buildLatestPayload();
+  const payload = await buildLatestPayload(allowedStationIds(client));
   return deliverToClient(client, payload, reason);
 }
 
