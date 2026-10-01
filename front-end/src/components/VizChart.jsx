@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useApiEndpoint } from "../util/apiClient";
 import { Card, Alert, Spin, Skeleton, Select, DatePicker, Button } from "antd";
 import FilterGroup from "@components/FilterGroup.jsx";
+import Freshness from "@components/Freshness.jsx";
 import {
   ResponsiveContainer,
   LineChart,
@@ -16,14 +17,20 @@ import {
   Customized,
 } from "recharts";
 
-function useVizData(yKey) {
+// Daily aggregates come from the live tabular backup; today's point moves with
+// each new hourly reading, so poll at 60 s like the hourly chart.
+const DAILY_REFRESH_MS = 60_000;
+
+function useVizData({ yKey, station, pollutant, value }) {
+  const params = yKey ? { yKey } : { station, pollutant, value };
   return useApiEndpoint('/api/viz-data', {
-    params: yKey ? { yKey } : undefined,
-    refreshMs: 300000,
+    params,
+    refreshMs: DAILY_REFRESH_MS,
     retries: 3,
     timeoutMs: 60000,
-    cacheKey: yKey ? `viz:${yKey}` : 'viz:default',
-    cacheTtlMs: 120000,
+    cacheKey: `viz:${yKey || `${station || ''}:${pollutant || ''}:${value || ''}`}`,
+    // Shorter than the poll interval so a refresh always re-fetches.
+    cacheTtlMs: 30_000,
   });
 }
 
@@ -71,12 +78,20 @@ function BlinkingLastDot(props) {
 export default function VizChart({
   title = "Air Quality Monitoring Daily Average (µg/Ncm)",
   yKey,
+  station,
+  pollutant,
+  value,
   variant = "card",
   defaultRange,
-  autoRefresh = true,
 }) {
-  const { loading, refreshing, error, data, retry, retrying } = useVizData(yKey, autoRefresh);
-  const displayYLabel = "24 HR AQI Value";
+  const { loading, refreshing, error, data, meta, updatedAt, retry, retrying } = useVizData({
+    yKey, station, pollutant, value,
+  });
+  const displayYLabel = meta?.yLabel || "24 HR AQI Value";
+  // Name the station/pollutant actually plotted, so the card is never ambiguous.
+  const heading = meta?.stationName
+    ? `${meta.stationName} — ${meta.pollutantLabel} daily ${meta.yLabel} (${meta.unit})`
+    : title;
   const BASE_THRESHOLDS = [
     { name: "GOOD", min: 0.0, max: 50.99, color: "#52c41a" },
     { name: "FAIR", min: 51.0, max: 100.99, color: "#d4b106" },
@@ -393,10 +408,13 @@ export default function VizChart({
         <Alert
           type="warning"
           message="No daily average data"
-          description="No rows found in viz_data sheet."
+          description="The tabular backup has no readings for this station and pollutant yet."
           showIcon
           action={<Button size="small" onClick={retry} loading={retrying}>Retry</Button>}
         />
+      )}
+      {!error && meta?.lastReadingAt && (
+        <Freshness lastReadingAt={meta.lastReadingAt} syncedAt={meta.updatedAt} refreshedAt={updatedAt} />
       )}
       {isMobile && !error && (
         <div style={{ marginBottom: 8 }}>{renderFilters()}</div>
@@ -800,7 +818,7 @@ export default function VizChart({
   if (variant === "tile") {
     return (
       <div className="aqm-tile">
-        <div className="aqm-tile-header">{title}</div>
+        <div className="aqm-tile-header">{heading}</div>
         {refreshing && <Spin size="small" className="aqm-tile-spinner" />}
         <div className="aqm-tile-body">
           {!error && renderFilters({ marginBottom: 8 })}
@@ -812,7 +830,12 @@ export default function VizChart({
 
   return (
     <Card
-      title={<span style={{ color: "var(--aqm-muted)" }}>{title}</span>}
+      title={
+        <span style={{ color: "var(--aqm-muted)" }}>
+          {heading}
+          {refreshing && <Spin size="small" style={{ marginLeft: 8 }} />}
+        </span>
+      }
       size="small"
       style={{
         background: "var(--aqm-panel-bg)",

@@ -557,6 +557,85 @@ router.get("/api/backup/status", async (_req, res) => {
   }
 });
 
+/**
+ * Monitoring health — is every station actually updating in real time?
+ *
+ * For each configured dataset this reports the newest reading's hour, how far
+ * behind "now" it is, and when the sheets sync last saw a change. Stations
+ * report hourly, so one missed hour is normal jitter (`ok`), two means the
+ * station or its sheet has stopped (`late`), and six or more is `stale`.
+ *
+ * `lastCheckedAt` moving while `lastReadingAt` does not means this app is
+ * polling fine and the gap is upstream — the analyser or whoever writes that
+ * Google Sheet. That distinction is the whole point of the endpoint, so both
+ * timestamps are always reported.
+ */
+const MONITOR_LATE_AFTER_MS = Number(process.env.MONITOR_LATE_AFTER_MS || 2 * 60 * 60 * 1000);
+const MONITOR_STALE_AFTER_MS = Number(process.env.MONITOR_STALE_AFTER_MS || 6 * 60 * 60 * 1000);
+
+router.get("/api/monitoring/health", async (_req, res) => {
+  try {
+    const now = Date.now();
+    const datasets = [];
+
+    for (const [province, pollutants] of Object.entries(TABULAR_SHEETS)) {
+      for (const [pollutant, entry] of Object.entries(pollutants)) {
+        if (!entry) continue;
+        const snap = await getLatestAqiSnapshot(province, pollutant).catch(() => null);
+        const readingAt = snap?.row ? rowEpochMs(snap.row, snap.dateKey) : 0;
+        const ageMs = readingAt ? now - readingAt : null;
+        const state =
+          ageMs == null ? "no_data"
+            : ageMs > MONITOR_STALE_AFTER_MS ? "stale"
+              : ageMs > MONITOR_LATE_AFTER_MS ? "late"
+                : "ok";
+        const checkedAt = snap?.backupMeta?.lastCheckedAt || null;
+        const backupAt = snap?.backupMeta?.lastBackupAt || null;
+        datasets.push({
+          station: province,
+          pollutant,
+          state,
+          lastReadingAt: readingAt ? new Date(readingAt).toISOString() : null,
+          lastReadingLocal: snap?.row?.[snap.dateKey] ?? null,
+          readingAgeMinutes: ageMs == null ? null : Math.round(ageMs / 60000),
+          aqi: snap?.row ? Number(snap.row.AQI ?? snap.row.aqi) || null : null,
+          status: snap?.row?.Status ?? null,
+          verified: !!snap?.latestAqiVerified,
+          // Sync side: did WE look, and did anything change when we did?
+          lastCheckedAt: checkedAt,
+          checkedAgoMinutes: checkedAt ? Math.round((now - new Date(checkedAt).getTime()) / 60000) : null,
+          lastBackupAt: backupAt,
+          backupAgoMinutes: backupAt ? Math.round((now - new Date(backupAt).getTime()) / 60000) : null,
+          // When we are polling fine but the reading is old, the gap is upstream.
+          upstreamGap: state !== "ok" && checkedAt != null &&
+            now - new Date(checkedAt).getTime() < 10 * 60_000,
+        });
+      }
+    }
+
+    const counts = datasets.reduce((acc, d) => ({ ...acc, [d.state]: (acc[d.state] || 0) + 1 }), {});
+    const worst = datasets.some((d) => d.state === "stale" || d.state === "no_data")
+      ? "stale"
+      : datasets.some((d) => d.state === "late")
+        ? "late"
+        : "ok";
+
+    res.status(worst === "ok" ? 200 : 207).json({
+      ok: worst === "ok",
+      overall: worst,
+      checkedAt: new Date(now).toISOString(),
+      thresholds: {
+        lateAfterMinutes: Math.round(MONITOR_LATE_AFTER_MS / 60000),
+        staleAfterMinutes: Math.round(MONITOR_STALE_AFTER_MS / 60000),
+      },
+      counts,
+      datasets,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || "Failed to build monitoring health" });
+  }
+});
+
 // Check for updates on a specific dataset
 router.get("/api/backup/check/:province/:pollutant", async (req, res) => {
   try {

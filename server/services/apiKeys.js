@@ -20,6 +20,7 @@
  */
 const crypto = require("crypto");
 const { ensureMongo } = require("./mongo");
+const { normalizeValueType } = require("./externalData");
 const { STATIONS } = require("../config/stations");
 
 const CLIENTS_COLLECTION = "api_clients";
@@ -37,7 +38,7 @@ const REQUIRE_HTTPS =
 // read:recent — the rolling recent-readings window only; historical data is
 // deliberately not exposed to partners.
 const SCOPES = ["read:stations", "read:latest", "read:recent"];
-const WEBHOOK_FORMATS = ["json", "powerbi"];
+const WEBHOOK_FORMATS = ["json", "powerbi", "emb"];
 const STATION_IDS = STATIONS.map((s) => s.id);
 
 /* ── Station scoping ───────────────────────────────────────────── */
@@ -114,6 +115,7 @@ function toPublicClient(doc) {
           enabled: doc.webhook.enabled !== false,
           url: doc.webhook.url,
           format: doc.webhook.format || "json",
+          readingValueType: doc.webhook.readingValueType || "aqi",
           hasSecret: !!doc.webhook.secret,
           lastDeliveryAt: doc.webhook.lastDeliveryAt || null,
           lastStatus: doc.webhook.lastStatus ?? null,
@@ -124,8 +126,13 @@ function toPublicClient(doc) {
   };
 }
 
-/** Validate and normalise a webhook config. Throws on bad input. */
-function normalizeWebhook({ url, secret = null, format = "json", enabled = true } = {}) {
+/**
+ * Validate and normalise a webhook config. Throws on bad input.
+ *
+ * `readingValueType` only applies to the `emb` format — it picks whether the
+ * pushed data block carries PM*_AQI or PM*_CONC values.
+ */
+function normalizeWebhook({ url, secret = null, format = "json", enabled = true, readingValueType = "aqi" } = {}) {
   const cleanUrl = String(url || "").trim();
   let parsed;
   try {
@@ -145,6 +152,7 @@ function normalizeWebhook({ url, secret = null, format = "json", enabled = true 
     url: cleanUrl,
     secret: secret ? String(secret) : null,
     format: cleanFormat,
+    readingValueType: normalizeValueType(readingValueType),
     enabled: enabled !== false,
     updatedAt: new Date(),
   };

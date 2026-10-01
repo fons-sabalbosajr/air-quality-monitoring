@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { useApiEndpoint } from "../util/apiClient";
 import { Card, Alert, Spin, Select, Button, DatePicker } from "antd";
 import FilterGroup from "@components/FilterGroup.jsx";
+import Freshness from "@components/Freshness.jsx";
 import {
   ResponsiveContainer,
   LineChart,
@@ -16,14 +17,20 @@ import {
   Customized,
 } from "recharts";
 
-function usePm10Data(yKey) {
+// Hourly readings come from the live tabular backup, which the sheets sync
+// refreshes every minute — poll at 60 s so the chart tracks it in near real time.
+const HOURLY_REFRESH_MS = 60_000;
+
+function usePm10Data({ yKey, station, pollutant, value }) {
+  const params = yKey ? { yKey } : { station, pollutant, value };
   return useApiEndpoint('/api/pm10-data', {
-    params: yKey ? { yKey } : undefined,
-    refreshMs: 300000,
+    params,
+    refreshMs: HOURLY_REFRESH_MS,
     retries: 3,
     timeoutMs: 60000,
-    cacheKey: yKey ? `pm10:${yKey}` : 'pm10:default',
-    cacheTtlMs: 90000,
+    cacheKey: `pm10:${yKey || `${station || ''}:${pollutant || ''}:${value || ''}`}`,
+    // Shorter than the poll interval so a refresh always re-fetches.
+    cacheTtlMs: 30_000,
   });
 }
 
@@ -44,8 +51,21 @@ function formatDateTime(ts) {
   }
 }
 
-export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", yKey, defaultRange }) {
-  const { loading, refreshing, error, data, meta, retry, retrying } = usePm10Data(yKey);
+export default function Pm10Chart({
+  title = "Hourly Station Reading (µg/Ncm)",
+  yKey,
+  station,
+  pollutant,
+  value,
+  defaultRange,
+}) {
+  const { loading, refreshing, error, data, meta, updatedAt, retry, retrying } = usePm10Data({
+    yKey, station, pollutant, value,
+  });
+  // Name the station/pollutant actually plotted, so the card is never ambiguous.
+  const heading = meta?.stationName
+    ? `${meta.stationName} — ${meta.pollutantLabel} ${meta.yLabel} (${meta.unit})`
+    : title;
   const [range, setRange] = useState(defaultRange || '1w'); // default to Last 1 week to avoid bulk loading
   const [customRange, setCustomRange] = useState(null); // dayjs[] | null overrides other filters
   const [selectedYear, setSelectedYear] = useState('all');
@@ -376,7 +396,12 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
 
   return (
     <Card
-      title={<span style={{ color: 'var(--aqm-muted)' }}>{title}</span>}
+      title={
+        <span style={{ color: 'var(--aqm-muted)' }}>
+          {heading}
+          {refreshing && <Spin size="small" style={{ marginLeft: 8 }} />}
+        </span>
+      }
       size="small"
       style={{ background: 'var(--aqm-panel-bg)', border: '1px solid var(--aqm-panel-border)' }}
       styles={{ header: { background: 'var(--aqm-panel-bg)', borderBottom: '1px solid var(--aqm-panel-border)' }, body: { background: 'var(--aqm-panel-bg)' } }}
@@ -438,6 +463,9 @@ export default function Pm10Chart({ title = "Hourly Station Reading (µg/Ncm)", 
             <Button size="small" type="link" onClick={() => { setSelectedYear('all'); setSelectedMonth('all'); }}>Clear filters</Button>
           )}
         </div>
+      )}
+      {!error && meta?.lastReadingAt && (
+        <Freshness lastReadingAt={meta.lastReadingAt} syncedAt={meta.updatedAt} refreshedAt={updatedAt} />
       )}
       {!loading && !error && filtered.length === 0 && (
         <Alert type="warning" message="No data in selected range" showIcon />

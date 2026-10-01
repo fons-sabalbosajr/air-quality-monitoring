@@ -11,6 +11,9 @@
  *   json    — signed envelope { event, deliveryId, sentAt, data: <same as GET /api/v1/latest> }
  *             Headers: X-AQM-Event, X-AQM-Delivery, X-AQM-Timestamp,
  *                      X-AQM-Signature: sha256=<HMAC-SHA256(secret, timestamp + "." + body)>
+ *   emb     — the bare EMB Central Office payload, byte-for-byte what
+ *             GET /api/v1/aqi returns (signed with the same X-AQM-Signature
+ *             header when a secret is configured)
  *   powerbi — bare JSON array of flat rows, as expected by a Power BI
  *             streaming-dataset push URL (no signature; the URL carries its key)
  *
@@ -20,7 +23,7 @@ const crypto = require("crypto");
 const cron = require("node-cron");
 const { MONGO_URI, INGEST_TZ } = require("../config/env");
 const { ensureMongo } = require("./mongo");
-const { buildLatestPayload, filterLatestPayload, toPowerBiRows } = require("./externalData");
+const { buildLatestPayload, filterLatestPayload, toPowerBiRows, toEmbPayload } = require("./externalData");
 const { listWebhookClients, getClientById, recordWebhookResult, allowedStationIds, PUSH_LOG_COLLECTION } = require("./apiKeys");
 
 const PUSH_CRON = process.env.EXTERNAL_API_PUSH_CRON || "15 * * * *";
@@ -50,12 +53,16 @@ function buildRequest(client, payload, deliveryId) {
   if (format === "powerbi") {
     body = JSON.stringify(toPowerBiRows(payload));
   } else {
-    body = JSON.stringify({
-      event: "readings.hourly",
-      deliveryId,
-      sentAt: new Date().toISOString(),
-      data: payload,
-    });
+    if (format === "emb") {
+      body = JSON.stringify(toEmbPayload(payload, client.webhook.readingValueType || "aqi"));
+    } else {
+      body = JSON.stringify({
+        event: "readings.hourly",
+        deliveryId,
+        sentAt: new Date().toISOString(),
+        data: payload,
+      });
+    }
     if (client.webhook.secret) headers["X-AQM-Signature"] = sign(client.webhook.secret, timestamp, body);
   }
   return { body, headers, format };

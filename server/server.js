@@ -207,6 +207,15 @@ app.listen(PORT, "0.0.0.0", () => {
         console.warn(`[enriched-cache] warm-up error: ${e.message}`);
       }
 
+      // Pre-build the /admin/charts series so the first visit after a restart
+      // is served from cache rather than a cold MongoDB read.
+      try {
+        const { warmChartSeries } = require("./services/chartSeries");
+        warmChartSeries().catch((e) => console.warn(`[charts] warm-up error: ${e.message}`));
+      } catch (e) {
+        console.warn(`[charts] warm-up unavailable: ${e.message}`);
+      }
+
       // 2) Sync all stations: Google Sheets → MongoDB → re-warm enriched cache.
       //    Runs in the background so startup is not blocked. Ensures all pages
       //    (Dashboard, Kiosk, TabularResults, Charts) serve fresh data after a

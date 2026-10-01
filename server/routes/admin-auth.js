@@ -3,11 +3,18 @@
  *
  * Endpoints:
  *   GET  /api/admin/auth/status         — { pinSet: bool }
+ *   GET  /api/admin/auth/session        — Is the caller's X-Admin-Token still valid?
  *   POST /api/admin/auth/setup          — First-time PIN setup
  *   POST /api/admin/auth/verify         — Login with PIN
  *   POST /api/admin/auth/reset-request  — Request OTP for PIN reset
  *   POST /api/admin/auth/reset-confirm  — Confirm OTP and set new PIN
  *   POST /api/admin/auth/logout         — Invalidate session token
+ *
+ * Sessions live in memory, so every token is invalidated when the process
+ * restarts (deploys, `pm2 restart`). The admin UI therefore has to re-check a
+ * stored token against /session on load instead of trusting it — otherwise it
+ * renders the admin shell with a dead token and every protected call 401s
+ * with no way back to the login screen.
  */
 const express = require("express");
 const crypto  = require("crypto");
@@ -77,6 +84,15 @@ router.get("/api/admin/auth/status", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Server error" });
   }
+});
+
+// GET /api/admin/auth/session — validate a stored token (no Mongo round-trip)
+router.get("/api/admin/auth/session", (req, res) => {
+  const token = req.headers["x-admin-token"];
+  if (!isValidToken(token)) {
+    return res.status(401).json({ ok: false, error: "Session expired. Please sign in again." });
+  }
+  res.json({ ok: true, expiresAt: _sessions.get(token).expiresAt });
 });
 
 // POST /api/admin/auth/setup  — first-time PIN + recovery email

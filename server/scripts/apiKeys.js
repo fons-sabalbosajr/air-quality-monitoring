@@ -11,11 +11,13 @@
  *                                  [--org "Org"] [--email a@b.c]
  *                                  [--scopes read:stations,read:latest,read:recent]
  *                                  [--rate 60] [--expires 2027-12-31]
- *                                  [--webhook-url https://... --webhook-secret S --webhook-format json|powerbi]
+ *                                  [--webhook-url https://... --webhook-secret S --webhook-format json|emb|powerbi]
+ *                                  [--webhook-value-type aqi|concentration]
  *   node scripts/apiKeys.js list
  *   node scripts/apiKeys.js revoke <id>
  *   node scripts/apiKeys.js stations <id> --stations clark,zambales   — replace a key's approved stations
- *   node scripts/apiKeys.js webhook <id> --url https://... [--secret S] [--format json|powerbi] [--disable]
+ *   node scripts/apiKeys.js webhook <id> --url https://... [--secret S] [--format json|emb|powerbi]
+ *                                                 [--value-type aqi|concentration] [--disable]
  *   node scripts/apiKeys.js webhook <id> --remove
  *   node scripts/apiKeys.js push [<id>]          — deliver the latest readings now (all clients, or one)
  *   node scripts/apiKeys.js deliveries <id> [--limit 20]
@@ -77,7 +79,7 @@ function printWebhook(c) {
   if (!c.webhook) return "  Webhook: none";
   const w = c.webhook;
   return (
-    `  Webhook: ${w.enabled ? "enabled" : "DISABLED"} ${w.format} → ${w.url}` +
+    `  Webhook: ${w.enabled ? "enabled" : "DISABLED"} ${w.format}${w.format === "emb" ? `/${w.readingValueType}` : ""} → ${w.url}` +
     (w.hasSecret ? " (signed)" : " (unsigned)") +
     `\n           last delivery ${fmt(w.lastDeliveryAt)} status=${w.lastStatus ?? "-"} failures=${w.consecutiveFailures}` +
     (w.lastError ? `\n           last error: ${w.lastError}` : "")
@@ -95,7 +97,12 @@ function printWebhook(c) {
 
   if (cmd === "create") {
     const webhook = args["webhook-url"]
-      ? { url: args["webhook-url"], secret: args["webhook-secret"] || null, format: args["webhook-format"] || "json" }
+      ? {
+          url: args["webhook-url"],
+          secret: args["webhook-secret"] || null,
+          format: args["webhook-format"] || "json",
+          readingValueType: args["webhook-value-type"] || "aqi",
+        }
       : null;
     const { key, client } = await createApiKey({
       name: args.name,
@@ -170,6 +177,7 @@ function printWebhook(c) {
         url: args.url,
         secret: args.secret || null,
         format: args.format || "json",
+        readingValueType: args["value-type"] || "aqi",
         enabled: !args.disable,
       });
     }

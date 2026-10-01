@@ -42,6 +42,118 @@ function toReading(row, { dateKey, concKey, pollutant }) {
   };
 }
 
+/* ── EMB Central Office payload shape ─────────────────────────────
+ *
+ * EMB-CO's ingester expects one flat object per station, with both
+ * pollutants side by side and the values as strings:
+ *
+ *   {
+ *     "status": "success",
+ *     "station_name": "Meycauayan AQMS",
+ *     "reading_value_type": "aqi",
+ *     "data": { "TIMESTAMP": "2026-09-15 08:00:00", "PM10_AQI": "45", "PM25_AQI": "47" }
+ *   }
+ *
+ * `reading_value_type` selects which number goes in the data block:
+ *   aqi           → PM10_AQI / PM25_AQI     (the AQI the dashboard shows)
+ *   concentration → PM10_CONC / PM25_CONC   (raw hourly µg/Ncm)
+ */
+
+const EMB_VALUE_TYPES = ["aqi", "concentration"];
+const EMB_VALUE_SUFFIX = { aqi: "AQI", concentration: "CONC" };
+const EMB_POLLUTANT_PREFIX = { pm10: "PM10", pm25: "PM25" };
+
+/** Normalise a client-supplied reading_value_type, or throw. */
+function normalizeValueType(v) {
+  const t = String(v ?? "aqi").trim().toLowerCase();
+  if (!EMB_VALUE_TYPES.includes(t)) {
+    throw new Error(`reading_value_type must be one of: ${EMB_VALUE_TYPES.join(", ")}`);
+  }
+  return t;
+}
+
+function embFieldName(pollutant, valueType) {
+  const prefix = EMB_POLLUTANT_PREFIX[pollutant] || String(pollutant).toUpperCase();
+  return `${prefix}_${EMB_VALUE_SUFFIX[valueType]}`;
+}
+
+/**
+ * "YYYY-MM-DD HH:mm:ss" in station-local time.
+ *
+ * The sheet stores wall-clock Manila time ("10/01/2026 2:00 PM") and
+ * parseDateValue() builds the Date from those components in the server's
+ * local zone, so reading them back with the local getters round-trips the
+ * original reading hour exactly — no timezone conversion is applied.
+ */
+function formatEmbTimestamp(epochMs) {
+  if (!epochMs) return null;
+  const d = new Date(epochMs);
+  if (isNaN(d.getTime())) return null;
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
+/**
+ * One EMB-CO station object. `readings` are this station's latest readings
+ * (one per pollutant, as produced by loadLatest). Values are emitted as
+ * strings; a pollutant with no usable number is emitted as null so the field
+ * set stays stable. TIMESTAMP is the newest reading hour in the set — all
+ * pollutants of a station share the same hourly slot.
+ */
+function toEmbStation(stationName, readings, valueType = "aqi") {
+  const usable = (readings || []).filter((r) => r && !r.error);
+  const data = {};
+  let newest = 0;
+  for (const r of usable) {
+    const value = valueType === "aqi" ? r.aqi : r.concentration;
+    data[embFieldName(r.pollutant, valueType)] = value != null ? String(value) : null;
+    if (r.epochMs && r.epochMs > newest) newest = r.epochMs;
+  }
+  return {
+    station_name: stationName,
+    reading_value_type: valueType,
+    data: { TIMESTAMP: formatEmbTimestamp(newest), ...data },
+  };
+}
+
+/**
+ * Group a latest payload (buildLatestPayload output) by station and reshape
+ * it into the EMB-CO form. Returns an array of station objects in the same
+ * order the stations are configured.
+ */
+function toEmbStations(payload, valueType = "aqi") {
+  const byStation = new Map();
+  for (const r of payload.readings || []) {
+    if (!byStation.has(r.station)) {
+      byStation.set(r.station, { name: r.stationName || r.station, readings: [] });
+    }
+    byStation.get(r.station).readings.push(r);
+  }
+  return [...byStation.values()].map((s) => toEmbStation(s.name, s.readings, valueType));
+}
+
+/**
+ * EMB-CO response for a multi-station request (`/latest?format=emb` and the
+ * `emb` push format). Single-station keys — which is how EMB-CO keys are
+ * issued — get the bare station object; only a key approved for more than
+ * one station gets the `stations` array, so the shape never changes under a
+ * given key.
+ */
+function toEmbPayload(payload, valueType = "aqi") {
+  const stations = toEmbStations(payload, valueType);
+  if (stations.length === 1) return { status: "success", ...stations[0] };
+  return {
+    status: "success",
+    reading_value_type: valueType,
+    generated_at: formatEmbTimestamp(Date.parse(payload.generatedAt)),
+    count: stations.length,
+    stations,
+  };
+}
+
 function stationSummary(s) {
   return {
     id: s.id,
@@ -174,6 +286,7 @@ function toPowerBiRows(payload) {
 
 module.exports = {
   API_VERSION,
+  EMB_VALUE_TYPES,
   toReading,
   stationSummary,
   loadDataset,
@@ -181,4 +294,9 @@ module.exports = {
   buildLatestPayload,
   filterLatestPayload,
   toPowerBiRows,
+  normalizeValueType,
+  formatEmbTimestamp,
+  toEmbStation,
+  toEmbStations,
+  toEmbPayload,
 };

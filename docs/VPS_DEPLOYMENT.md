@@ -279,6 +279,25 @@ nano /etc/nginx/sites-available/embr3-hr-pms
       add_header Expires "0" always;
     }
 
+    # Hashed build assets — cache hard at the browser AND the edge.
+    # Vite fingerprints every filename (index-DNkfbYu0.js), so a changed file is
+    # a changed URL and these can never go stale. Must come BEFORE the generic
+    # /air-quality-monitoring/ block.
+    #
+    # Set this at the ORIGIN, not only in the Cloudflare dashboard: a dashboard
+    # Browser Cache TTL is easy to lose when editing zone-wide settings for
+    # another app on this server, and then every asset ships with no explicit
+    # TTL at all. With `immutable` here, browser caching survives any
+    # Cloudflare setting change or cache purge.
+    location ^~ /air-quality-monitoring/assets/ {
+        alias /var/www/air-quality-monitoring/front-end/dist/assets/;
+        access_log off;
+
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+
     location /air-quality-monitoring/ {
         alias /var/www/air-quality-monitoring/front-end/dist/;
         index index.html;
@@ -427,9 +446,20 @@ curl -s https://embr3-onlinesystems.cloud/air-quality-monitoring/api/health
 curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring/
 # Expected: HTTP/2 200
 
-# 4. Admin redirect
+# 4. Admin (canonical)
+curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring/admin
+# Expected: HTTP/2 200
+
+# 5. Admin shortcut redirect — only if the shortcut block is deployed
 curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring-admin
 # Expected: 301 → /air-quality-monitoring/admin/overview
+# A 404 here means the `location = /air-quality-monitoring-admin` block is missing.
+# Harmless — use /air-quality-monitoring/admin instead, or add the block.
+
+# 6. Partner API reachable and key-protected
+curl -s -o /dev/null -w '%{http_code}\n' \
+  https://embr3-onlinesystems.cloud/air-quality-monitoring/api/v1/ping
+# Expected: 401 (missing_api_key) — proves the route is proxied, not 404
 ```
 
 ### From your browser
@@ -437,9 +467,17 @@ curl -sI https://embr3-onlinesystems.cloud/air-quality-monitoring-admin
 | URL | Expected |
 |-----|----------|
 | `https://embr3-onlinesystems.cloud/air-quality-monitoring` | Kiosk — auto-cycling AQI display |
-| `https://embr3-onlinesystems.cloud/air-quality-monitoring-admin` | Admin — dashboard with sidebar nav |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring/admin` | **Admin (canonical URL)** — PIN gate, then dashboard with sidebar nav |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring/nlex` | NLEX LED wall |
+| `https://embr3-onlinesystems.cloud/air-quality-monitoring-admin` | Admin shortcut → 301. **Only works once the `location = /air-quality-monitoring-admin` block below is deployed** — it 404s otherwise. Share the canonical URL above instead |
 | `https://embr3-onlinesystems.cloud/hrpms` | Still works (untouched) |
 | `https://embr3-onlinesystems.cloud/ocsm/` | Still works (untouched) |
+
+> **Verified 1 October 2026:** the kiosk, `/admin` (and its sub-routes),
+> `/nlex`, every hashed asset and every API route used by the front-end return
+> `200` in production. `/air-quality-monitoring-admin` returns **404** — the
+> redirect block below has not been applied to the live Nginx config. It is a
+> convenience shortcut only; nothing in the app links to it.
 
 ---
 
@@ -485,10 +523,89 @@ pm2 set pm2-logrotate:retain 7
 
 ---
 
+## 8a. Cloudflare settings this app depends on
+
+The zone `embr3-onlinesystems.cloud` is shared with `/hrpms` and `/ocsm`, and
+**Cloudflare caching settings and Cache Rules are zone-wide**. A change made
+while working on one app silently applies to the others, so verify these after
+touching anything in the Cloudflare dashboard.
+
+| Setting | Where | Actual value (verified 2026-10-01) | Notes |
+|---|---|---|---|
+| Browser Cache TTL | Caching → Configuration | **Respect Existing Headers** — required by `/ocsm`, cannot be changed | So AQM **must** set its own asset headers at the origin. The `location ^~ /air-quality-monitoring/assets/` block in §5 is mandatory, not optional — without it every build asset ships with no explicit TTL |
+| SSL/TLS encryption mode | SSL/TLS → Overview | **Full (Strict)** | Correct, and currently satisfied: the origin serves a Let's Encrypt cert for `embr3-onlinesystems.cloud` with a complete chain (`Verify return code: 0`). But it makes the **whole server** — `/hrpms`, `/ocsm` and AQM — return `526` the moment that cert expires or the chain breaks. See "Certificate upkeep" below |
+| Cache Rules | Caching → Cache Rules | One bypass rule for the ESWMP API + socket | No conflict with AQM. Confirmed by behaviour: AQM assets reach `cf-cache-status: HIT` and `/api/*` stays `DYNAMIC`. Keep any new rule scoped to its own app's path prefix |
+| Brotli | Speed → Optimization → Content | **No toggle present — this is expected** | Cloudflare made Brotli always-on and retired the switch. Verified working: `Content-Encoding: br`, 194 KB → 62 KB. Nothing to configure |
+| `www` redirect | Rules → Redirect Rules | 301 `www.…` → apex, handled at the edge | **Load-bearing under Full (Strict).** The origin cert's SAN lists only `embr3-onlinesystems.cloud`, no `www`. The edge redirect means Cloudflare never opens an origin connection for `www`, so the gap is harmless — but removing that redirect would make every `www` request `526` instantly |
+
+### Certificate upkeep (Full (Strict) makes this critical)
+
+Expiry as of 2026-10-01: **Nov 11 2026** (issued Aug 13). Renewal must succeed
+*and* reload Nginx, or the entire server 526s:
+
+```bash
+certbot certificates                      # expiry per cert
+systemctl list-timers | grep -i certbot   # is the renewal timer active?
+certbot renew --dry-run                   # does renewal actually work?
+grep -r ssl_certificate /etc/nginx/sites-enabled/   # must be fullchain.pem, NOT cert.pem
+```
+
+`ssl_certificate` pointing at `cert.pem` instead of `fullchain.pem` sends the
+leaf without its intermediate — Cloudflare cannot build a trust path and
+returns `526` even though the certificate itself is perfectly valid. This is
+the single most common cause of a sudden 526 after editing Nginx.
+
+Ensure a reload hook exists so a renewal takes effect without a manual step:
+
+```bash
+# /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh   (chmod +x)
+#!/bin/sh
+nginx -t && systemctl reload nginx
+```
+
+**Optional, removes the 90-day treadmill:** replace the Let's Encrypt cert with
+a free **Cloudflare Origin CA** certificate (SSL/TLS → Origin Server), valid
+15 years and trusted by Cloudflare under Full (Strict). Because every hostname
+here is proxied, the origin cert never needs to be publicly trusted. Trade-off:
+hitting the origin IP directly would then show an untrusted cert — which is
+also a good reason to firewall port 443 to Cloudflare's IP ranges only.
+
+### After a cache purge
+
+**Nothing to do.** A purge only empties the edge cache; it repopulates on the
+next request per colo (first request `cf-cache-status: MISS`, then `HIT`). It
+does not change settings and cannot cause a 526.
+
+### Verifying from a terminal
+
+```bash
+H=https://embr3-onlinesystems.cloud/air-quality-monitoring
+A=$(curl -s $H/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+
+# 1. Hashed assets must carry an explicit Cache-Control and cache at the edge
+curl -sI "$H/$A" | grep -iE 'cache-control|cf-cache-status'
+# want: Cache-Control: public, max-age=31536000, immutable   /   cf-cache-status: HIT
+
+# 2. HTML must NOT be cached (so a new deploy is picked up immediately)
+curl -sI "$H/" | grep -iE 'cache-control|cf-cache-status'
+# want: no-cache, no-store, must-revalidate  /  cf-cache-status: DYNAMIC
+
+# 3. The API must NOT be cached
+curl -sI "$H/api/health" | grep -i cf-cache-status      # want: DYNAMIC
+
+# 4. Brotli must be negotiated
+curl -sI -H 'Accept-Encoding: br' "$H/$A" | grep -i content-encoding   # want: br
+```
+
+---
+
 ## 9. Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
+| **Every** path returns `HTTP 526` with a Cloudflare HTML body | SSL/TLS is Full (Strict) and Cloudflare cannot validate the origin cert. In order of likelihood: `ssl_certificate` points at `cert.pem` not `fullchain.pem`; an Nginx reload while the config was mid-edit; expired cert; `www` reaching the origin without the edge redirect | Run the four commands under §8a "Certificate upkeep". Observed 2026-10-01 07:40:00–07:43:34 UTC (~3.6 min, self-recovered) during Cloudflare/OCSM work; the cert and chain verified clean afterwards, so a transient reload is the most likely cause |
+| Assets re-download on every visit; `curl -sI` shows no `Cache-Control` | Browser Cache TTL is "Respect Existing Headers" (required by `/ocsm`) and the origin sends no header of its own | Deploy the `location ^~ /air-quality-monitoring/assets/` block from §5. This is the only available fix — the dashboard setting cannot be changed back |
+| AQI readings frozen but `/api/monitoring/health` shows fresh data | A Cloudflare Cache Rule is caching `/air-quality-monitoring/api/*` | Remove or narrow that rule (§8a) |
 | `502 Bad Gateway` on `/air-quality-monitoring/api/` | Node API not running | `pm2 status` → `pm2 restart aqm-api` |
 | Blank page at `/air-quality-monitoring/` | `dist/` not found or wrong alias path | Verify `alias /var/www/air-quality-monitoring/front-end/dist/;` |
 | CORS errors in browser | `CORS_ORIGIN` mismatch | Set `CORS_ORIGIN=https://embr3-onlinesystems.cloud` in `server/.env`, restart |

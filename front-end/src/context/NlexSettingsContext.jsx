@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
 import { readJsonResponse } from "../util/jsonResponse";
-import { secureSession, secureStorage } from "../utils/secureStorage";
+import { secureStorage } from "../utils/secureStorage";
+import { getAdminToken, clearAdminSession } from "../util/adminSession";
 
 const BC_CHANNEL = "nlex-settings-sync";
 const SERVER_POLL_MS = 30000;
@@ -113,18 +114,29 @@ export function saveNlexSettings(newSettings) {
     bc.postMessage({ type: "settings-updated", settings: stamped });
     bc.close();
   } catch {}
-  // Server persist: fire-and-forget so cross-device sync works (other devices poll the server)
-  try {
-    const token = secureSession.getItem("admin-pin-token");
-    if (token) {
-      fetch(`${getApiBase()}/api/nlex-settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-        body: JSON.stringify(stamped),
-      }).catch(() => {});
-    }
-  } catch {}
+  pushToServer(stamped);
   return ts;
+}
+
+/**
+ * Server persist: fire-and-forget so cross-device sync works (other devices
+ * poll the server). A 401 means the admin token died (server restart /
+ * expiry) — drop it so it stops being sent. The page is deliberately not
+ * reloaded here; that would discard in-progress edits. AdminPinGate re-gates
+ * on the next load.
+ */
+function pushToServer(payload) {
+  try {
+    const token = getAdminToken();
+    if (!token) return;
+    fetch(`${getApiBase()}/api/nlex-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => { if (r.status === 401) clearAdminSession(); })
+      .catch(() => {});
+  } catch {}
 }
 
 export function NlexSettingsProvider({ children }) {
@@ -164,15 +176,7 @@ export function NlexSettingsProvider({ children }) {
           // Server has never been written to yet. DO NOT overwrite local settings.
           // If we are the admin, push our current localStorage settings up to the server
           // so all other devices pick them up on their next poll.
-          const token = secureSession.getItem("admin-pin-token");
-          if (token) {
-            const local = parseStored();
-            fetch(`${getApiBase()}/api/nlex-settings`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-              body: JSON.stringify({ ...local, _ts: localTsRef.current }),
-            }).catch(() => {});
-          }
+          pushToServer({ ...parseStored(), _ts: localTsRef.current });
         }
       } catch {}
     }

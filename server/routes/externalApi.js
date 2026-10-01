@@ -14,9 +14,15 @@
  *   GET /api/v1/ping                                   — connection test / key info (incl. approved stations)
  *   GET /api/v1/stations                               — approved stations + data freshness
  *   GET /api/v1/latest                                 — latest reading for every approved station/pollutant
+ *   GET /api/v1/aqi                                    — EMB-CO shape: station + TIMESTAMP + PM10_AQI/PM25_AQI
+ *   GET /api/v1/stations/:station/aqi                  — EMB-CO shape for one station
  *   GET /api/v1/stations/:station/latest               — latest reading(s) for one station
  *   GET /api/v1/stations/:station/:pollutant/latest    — latest reading for one dataset
  *   GET /api/v1/stations/:station/:pollutant/recent    — readings in the rolling recent window
+ *
+ * The /aqi endpoints return the flat EMB Central Office payload. The same
+ * shape is available on /latest and /stations/:station/latest with
+ * `?format=emb`, and as the `emb` webhook push format.
  *
  * Admin (X-Admin-Token required — issue/list/revoke partner keys, stations, webhooks):
  *   GET    /api/admin/api-keys
@@ -31,7 +37,17 @@
 const { Router } = require("express");
 const { isMaintenanceMode } = require("../config/env");
 const { POLLUTANT_LABEL, POLLUTANT_UNIT, getAvailableStations, getStation, isPollutantAvailable } = require("../config/stations");
-const { API_VERSION, stationSummary, loadDataset, loadLatest, buildLatestPayload } = require("../services/externalData");
+const {
+  API_VERSION,
+  EMB_VALUE_TYPES,
+  stationSummary,
+  loadDataset,
+  loadLatest,
+  buildLatestPayload,
+  normalizeValueType,
+  toEmbStation,
+  toEmbPayload,
+} = require("../services/externalData");
 const {
   requireApiKey,
   createApiKey,
@@ -83,21 +99,56 @@ function maintenanceGuard(req, res, next) {
 /**
  * Resolve `:station` and enforce the key's station scope. Returns the
  * station, or null after having already sent the 404 / 403 response.
+ *
+ * `emb` shapes the error bodies as `{ status: "error", … }` so a client that
+ * branches on `status` sees a consistent envelope on every response.
  */
-function resolveAllowedStation(req, res) {
+function resolveAllowedStation(req, res, { emb = false } = {}) {
+  const wrap = (body) => (emb ? { status: "error", ...body } : body);
   const station = getStation(req.params.station);
   if (!station || !station.pollutants.length) {
-    res.status(404).json({ error: "unknown_station", message: `Unknown station '${req.params.station}'.` });
+    res.status(404).json(wrap({ error: "unknown_station", message: `Unknown station '${req.params.station}'.` }));
     return null;
   }
   if (!isStationAllowed(req.apiClient, station.id)) {
-    res.status(403).json({
-      error: "station_not_allowed",
-      message: `This API key is not approved for station '${station.id}'. Approved: ${req.apiClient.stations.join(", ")}.`,
-    });
+    res.status(403).json(
+      wrap({
+        error: "station_not_allowed",
+        message: `This API key is not approved for station '${station.id}'. Approved: ${req.apiClient.stations.join(", ")}.`,
+      }),
+    );
     return null;
   }
   return station;
+}
+
+/** True when the caller asked for the EMB Central Office payload shape. */
+function wantsEmbFormat(req) {
+  return /^(emb|emb-co|emb_co)$/i.test(String(req.query.format || "").trim());
+}
+
+/**
+ * Read `reading_value_type` (aliased `valueType`) off the query string.
+ * Returns the normalised type, or null after having sent the 400 response.
+ */
+function resolveValueType(req, res, { emb = false } = {}) {
+  try {
+    return normalizeValueType(req.query.reading_value_type ?? req.query.valueType ?? "aqi");
+  } catch (e) {
+    const body = { error: "bad_request", message: e.message, allowed: EMB_VALUE_TYPES };
+    res.status(400).json(emb ? { status: "error", ...body } : body);
+    return null;
+  }
+}
+
+/** Latest reading for every pollutant of one station (errors inlined per pollutant). */
+async function stationReadings(station) {
+  const readings = [];
+  for (const p of station.pollutants) {
+    const latest = await loadLatest(station.id, p).catch(() => null);
+    readings.push(latest || { station: station.id, pollutant: p, error: "no_data" });
+  }
+  return readings;
 }
 
 /* ── Public v1 routes ──────────────────────────────────────────── */
@@ -120,6 +171,7 @@ v1.get("/ping", requireApiKey(), (req, res) => {
         : null,
     },
     recentWindowHours: RECENT_WINDOW_HOURS,
+    readingValueTypes: EMB_VALUE_TYPES,
   });
 });
 
@@ -145,27 +197,76 @@ v1.get("/stations", requireApiKey(["read:stations"]), async (req, res) => {
 });
 
 v1.get("/latest", requireApiKey(["read:latest"]), async (req, res) => {
+  const emb = wantsEmbFormat(req);
+  const valueType = emb ? resolveValueType(req, res, { emb }) : "aqi";
+  if (!valueType) return;
   try {
-    res.json(await buildLatestPayload(req.apiClient.stations));
+    const payload = await buildLatestPayload(req.apiClient.stations);
+    res.json(emb ? toEmbPayload(payload, valueType) : payload);
   } catch (e) {
     console.error(`[external-api] /latest failed: ${e.message}`);
-    res.status(500).json({ error: "server_error", message: "Failed to load latest readings." });
+    const body = { error: "server_error", message: "Failed to load latest readings." };
+    res.status(500).json(emb ? { status: "error", ...body } : body);
+  }
+});
+
+/**
+ * EMB Central Office shape for every approved station. Keys are issued per
+ * station, so this normally answers with the single bare station object; see
+ * toEmbPayload() for the multi-station form.
+ */
+v1.get("/aqi", requireApiKey(["read:latest"]), async (req, res) => {
+  const valueType = resolveValueType(req, res, { emb: true });
+  if (!valueType) return;
+  try {
+    const payload = await buildLatestPayload(req.apiClient.stations);
+    if (!payload.readings.length) {
+      return res.status(404).json({ status: "error", error: "no_data", message: "No readings available yet." });
+    }
+    res.json(toEmbPayload(payload, valueType));
+  } catch (e) {
+    console.error(`[external-api] /aqi failed: ${e.message}`);
+    res.status(500).json({ status: "error", error: "server_error", message: "Failed to load latest readings." });
+  }
+});
+
+/** EMB Central Office shape for one station — always a single bare object. */
+v1.get("/stations/:station/aqi", requireApiKey(["read:latest"]), async (req, res) => {
+  const station = resolveAllowedStation(req, res, { emb: true });
+  if (!station) return;
+  const valueType = resolveValueType(req, res, { emb: true });
+  if (!valueType) return;
+  try {
+    const readings = await stationReadings(station);
+    if (!readings.some((r) => !r.error)) {
+      return res.status(404).json({ status: "error", error: "no_data", message: "No readings available yet." });
+    }
+    res.json({ status: "success", ...toEmbStation(station.name, readings, valueType) });
+  } catch (e) {
+    console.error(`[external-api] /stations/${station.id}/aqi failed: ${e.message}`);
+    res.status(500).json({ status: "error", error: "server_error", message: "Failed to load latest reading." });
   }
 });
 
 v1.get("/stations/:station/latest", requireApiKey(["read:latest"]), async (req, res) => {
-  const station = resolveAllowedStation(req, res);
+  const emb = wantsEmbFormat(req);
+  const station = resolveAllowedStation(req, res, { emb });
   if (!station) return;
+  const valueType = emb ? resolveValueType(req, res, { emb }) : "aqi";
+  if (!valueType) return;
   try {
-    const readings = [];
-    for (const p of station.pollutants) {
-      const latest = await loadLatest(station.id, p).catch(() => null);
-      readings.push(latest || { station: station.id, pollutant: p, error: "no_data" });
+    const readings = await stationReadings(station);
+    if (emb) {
+      if (!readings.some((r) => !r.error)) {
+        return res.status(404).json({ status: "error", error: "no_data", message: "No readings available yet." });
+      }
+      return res.json({ status: "success", ...toEmbStation(station.name, readings, valueType) });
     }
     res.json({ apiVersion: API_VERSION, station: stationSummary(station), readings });
   } catch (e) {
     console.error(`[external-api] /stations/${station.id}/latest failed: ${e.message}`);
-    res.status(500).json({ error: "server_error", message: "Failed to load latest reading." });
+    const body = { error: "server_error", message: "Failed to load latest reading." };
+    res.status(500).json(emb ? { status: "error", ...body } : body);
   }
 });
 

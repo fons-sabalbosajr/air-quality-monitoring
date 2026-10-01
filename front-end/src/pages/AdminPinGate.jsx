@@ -2,18 +2,22 @@
  * AdminPinGate — wraps all /admin routes with PIN authentication.
  *
  * Flow:
- *   1. Fetch /api/admin/auth/status
- *   2a. sessionStorage has a valid token → render children immediately
- *   2b. pinSet = false  → show first-time PIN setup UI
- *   2c. pinSet = true   → show PIN login UI
- *   2d. "Forgot PIN?"   → email → OTP → new PIN flow
+ *   1a. sessionStorage has a token → revalidate it with /api/admin/auth/session
+ *       → 200: render children.  401: drop it and fall through to login.
+ *   1b. no token → fetch /api/admin/auth/status
+ *   2a. pinSet = false  → show first-time PIN setup UI
+ *   2b. pinSet = true   → show PIN login UI
+ *   2c. "Forgot PIN?"   → email → OTP → new PIN flow
+ *
+ * Server sessions are in-memory, so a deploy or `pm2 restart` kills every
+ * token. Revalidating on load is what stops a stale token from rendering the
+ * admin shell around API calls that all answer 401.
  */
 import { useState, useEffect, useCallback } from "react";
 import Swal from "sweetalert2";
 import { getApiBase } from "../util/apiBase";
 import { secureSession } from "../utils/secureStorage";
-
-const SESSION_KEY = "admin-pin-token";
+import { ADMIN_SESSION_KEY as SESSION_KEY } from "../util/adminSession";
 
 /* ── Dark mode detection (mirrors App.jsx: watches .dark on <html>) ── */
 function useDark() {
@@ -148,15 +152,41 @@ export default function AdminPinGate({ children }) {
   const [otp, setOtp]           = useState("");
   const [recEmail, setRecEmail] = useState("");
 
-  /* ── On mount: check status + session ───────────────────────── */
+  /* ── On mount: validate any stored token, else ask how to log in ── */
   useEffect(() => {
-    const existing = secureSession.getItem(SESSION_KEY);
-    if (existing) { setStatus("authenticated"); return; }
+    let cancelled = false;
 
-    api("/api/admin/auth/status")
-      .then((r) => r.json())
-      .then(({ pinSet }) => setStatus(pinSet ? "verify" : "setup"))
-      .catch(() => setStatus("verify")); // assume PIN set if unreachable
+    async function askHowToLogIn() {
+      try {
+        const { pinSet } = await api("/api/admin/auth/status").then((r) => r.json());
+        if (!cancelled) setStatus(pinSet ? "verify" : "setup");
+      } catch {
+        if (!cancelled) setStatus("verify"); // assume PIN set if unreachable
+      }
+    }
+
+    (async () => {
+      const existing = secureSession.getItem(SESSION_KEY);
+      if (!existing) return askHowToLogIn();
+      try {
+        const r = await api("/api/admin/auth/session", {
+          headers: { "X-Admin-Token": existing },
+        });
+        if (r.ok) {
+          if (!cancelled) setStatus("authenticated");
+          return;
+        }
+        // Token rejected (expired, or the server restarted) — start over.
+        secureSession.removeItem(SESSION_KEY);
+        return askHowToLogIn();
+      } catch {
+        // Network error: keep the token and let the admin pages through so a
+        // brief blip does not force a re-login; their own calls will retry.
+        if (!cancelled) setStatus("authenticated");
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, []);
 
   /* ── Helpers ─────────────────────────────────────────────────── */

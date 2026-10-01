@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { getApiBase } from "../util/apiBase";
 import { readJsonResponse } from "../util/jsonResponse";
-import { secureSession, secureStorage } from "../utils/secureStorage";
+import { secureStorage } from "../utils/secureStorage";
+import { getAdminToken, clearAdminSession } from "../util/adminSession";
 
 const BC_CHANNEL = "kiosk-settings-sync";
 
@@ -71,15 +72,26 @@ export function saveKioskSettings(newSettings) {
     bc.postMessage({ type: "settings-updated", settings: newSettings });
     bc.close();
   } catch {}
+  pushToServer(newSettings);
+}
+
+/**
+ * Persist settings server-side when the tab holds an admin session.
+ * A 401 means the token died (server restart / expiry) — drop it so it stops
+ * being sent. The page is not reloaded here: that would discard whatever the
+ * admin is editing. AdminPinGate re-gates on the next load.
+ */
+function pushToServer(payload) {
   try {
-    const token = secureSession.getItem("admin-pin-token");
-    if (token) {
-      fetch(`${getApiBase()}/api/kiosk-settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-        body: JSON.stringify(newSettings),
-      }).catch(() => {});
-    }
+    const token = getAdminToken();
+    if (!token) return;
+    fetch(`${getApiBase()}/api/kiosk-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => { if (r.status === 401) clearAdminSession(); })
+      .catch(() => {});
   } catch {}
 }
 
@@ -115,15 +127,8 @@ export function KioskSettingsProvider({ children }) {
           applyServerSettings(data.settings);
           lastServerTs.current = Date.now();
         } else {
-          const token = secureSession.getItem("admin-pin-token");
-          if (token) {
-            const local = parseStored();
-            fetch(`${getApiBase()}/api/kiosk-settings`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-              body: JSON.stringify(local),
-            }).catch(() => {});
-          }
+          // Nothing stored server-side yet — seed it from this tab's settings.
+          pushToServer(parseStored());
         }
       } catch {}
     }

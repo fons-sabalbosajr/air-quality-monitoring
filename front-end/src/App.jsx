@@ -22,6 +22,7 @@ import {
 } from "react-router-dom";
 import {
   DashboardOutlined,
+  LineChartOutlined,
   TableOutlined,
   EnvironmentOutlined,
   SettingOutlined,
@@ -45,7 +46,8 @@ const TabularResultsPage = lazy(() => import("./pages/TabularResults"));
 const ChartsPage = lazy(() => import("./pages/Charts"));
 const KioskPage = lazy(() => import("./pages/Kiosk"));
 const NlexLedWallPage = lazy(() => import("./pages/NlexLedWall"));
-const NlexAdminPage = lazy(() => import("./pages/NlexAdmin"));
+// NlexAdmin is superseded by NlexSettingsPage (/admin/nlex-settings) and has
+// no route — importing it only shipped an unreachable chunk.
 const NlexSettingsPage = lazy(() => import("./pages/NlexSettingsPage"));
 const KioskSettingsPage = lazy(() => import("./pages/KioskSettingsPage"));
 const AdminPinGate = lazy(() => import("./pages/AdminPinGate"));
@@ -1669,6 +1671,7 @@ function App() {
         label: p.label,
       })),
     },
+    { key: "/admin/charts", icon: <LineChartOutlined />, label: "Charts" },
     {
       key: "/admin/nlex-settings",
       icon: <SettingOutlined />,
@@ -1688,6 +1691,7 @@ function App() {
     ...provinces.map((p) => `/admin/tabular-manage/${p.key}`),
     "/admin/tabular",
     "/admin/tabular-manage",
+    "/admin/charts",
     "/admin/nlex-settings",
     "/admin/kiosk-settings",
     "/admin/logs",

@@ -17,6 +17,7 @@ import {
 import Swal from "sweetalert2";
 import dayjs from "dayjs";
 import { getApiBase } from "../util/apiBase";
+import { adminFetch } from "../util/adminSession";
 import { readJsonResponse, responseToError } from "../util/jsonResponse";
 import { getAqiColor, getAqiStatusColor } from "../utils/aqiPalette";
 import { secureSession } from "../utils/secureStorage";
@@ -43,28 +44,11 @@ const STATUS_OPTIONS = [
   "Invalid", "For Validation",
 ];
 
-const SESSION_KEY = "admin-pin-token";
 const ADMIN_TABULAR_CACHE_TTL_MS = 30 * 1000;
 const ADMIN_TABULAR_STORAGE_TTL_MS = 15 * 60 * 1000;
 const ADMIN_TABULAR_CACHE_VERSION = 1;
 const ADMIN_TABULAR_CACHE = new Map();
 const ADMIN_TABULAR_ETAGS = new Map();
-
-function getToken() {
-  return secureSession.getItem(SESSION_KEY) || "";
-}
-
-function adminFetch(path, opts = {}) {
-  const base = getApiBase();
-  return fetch(`${base}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      "X-Admin-Token": getToken(),
-      ...(opts.headers ?? {}),
-    },
-    ...opts,
-  });
-}
 
 function getAdminCacheKey(province, pollutant) {
   return `${province || ""}:${pollutant || ""}`;
@@ -435,10 +419,8 @@ export default function AdminTabularManage() {
     setForceSyncing(true);
     setCurrentPage(1);
     try {
-      const base = getApiBase();
-      const r = await fetch(`${base}/api/tabular/${province}/${pollutant}/force-sync`, {
+      const r = await adminFetch(`/api/tabular/${province}/${pollutant}/force-sync`, {
         method: "POST",
-        headers: { "X-Admin-Token": getToken() },
         signal: controller.signal,
       });
       if (!r.ok) {

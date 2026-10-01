@@ -4,6 +4,94 @@ All notable changes to the EMBR3 Air Quality Monitoring app are documented here.
 
 ---
 
+## [October 1, 2026] — Cloudflare/Nginx caching for build assets
+
+### 🐛 Fixed
+
+#### Hashed build assets shipped with no browser cache policy
+- Measured on production: **all 28** JS/CSS chunks returned **no `Cache-Control` header** (2.3 MB raw, ~750 KB Brotli, ~5 s to fetch cold). Earlier the same day they carried `Cache-Control: max-age=14400`, which Cloudflare's zone-wide Browser Cache TTL was injecting — that setting was lost while the shared zone was being reconfigured for `/ocsm`.
+- Without it browsers fall back to heuristic freshness from `Last-Modified`, which collapses to near zero right after a deploy — exactly when load is heaviest — and is unreliable on the VNNOX signage browser driving the LED wall.
+- `docs/VPS_DEPLOYMENT.md` §5 gained a `location ^~ /air-quality-monitoring/assets/` block sending `public, max-age=31536000, immutable`. Vite fingerprints every filename, so a changed file is a changed URL and this can never serve stale code. Setting it at the origin makes browser caching survive any Cloudflare dashboard change or cache purge.
+
+### 📝 Documentation
+
+#### New §8a — Cloudflare settings this app depends on
+- The zone is shared with `/hrpms` and `/ocsm`, and Cloudflare caching settings and Cache Rules are **zone-wide**, so a change for one app silently applies to the others. Records each setting's **actual verified value** rather than a recommendation.
+- Browser Cache TTL is pinned to "Respect Existing Headers" by `/ocsm` and cannot be changed, which is why the origin `/assets/` block is mandatory rather than a nice-to-have.
+- Brotli has no toggle any more — Cloudflare made it always-on. Verified working (`Content-Encoding: br`), so its absence from the dashboard is expected, not a misconfiguration.
+- Documents that the `www` → apex **edge redirect is load-bearing** under Full (Strict): the origin cert's SAN has no `www` entry, so removing the redirect would 526 every `www` request immediately.
+- New "Certificate upkeep" subsection: Full (Strict) means the whole server 526s if the Let's Encrypt cert expires or loses its chain. Includes the four diagnostic commands, a `renewal-hooks/deploy` script to reload Nginx automatically, the `fullchain.pem` vs `cert.pem` trap (the most common sudden-526 cause), and Cloudflare Origin CA as a way off the 90-day renewal treadmill.
+- States plainly that **a cache purge needs no follow-up action** — the edge repopulates per colo on the next request and a purge cannot cause a 526.
+- Adds four terminal checks for asset caching, HTML bypass, API bypass and Brotli.
+
+---
+
+## [October 1, 2026] — Charts re-pointed at the live pipeline + monitoring health
+
+### ✨ New Features
+
+#### `/admin/charts` now reads the live tabular backup
+- `/api/pm10-data` (hourly) and `/api/viz-data` (daily) are built by the new `services/chartSeries.js` from the **MongoDB tabular backup** — the same snapshot behind the kiosk, NLEX wall, Data Manager and partner API. The page previously read the Excel/SharePoint workbook series, which stopped updating on **2025-11-30**; it was showing 10-month-old numbers.
+- Both endpoints accept `?station=&pollutant=&value=`. `value` is `concentration` (raw hourly µg/Ncm), `rolling` (24-hour rolling average — what the AQI bands classify) or `aqi`. Hourly defaults to `concentration`, daily to `rolling`. An unknown station, a pollutant the station does not measure, or a bad `value` answers `400` naming the valid options.
+- Daily points are anchored at local midnight and carry `n`, the number of readings averaged, so a partial day is visible instead of silently equal-weighted. Hourly points carry `aqi` and `status`.
+- New `GET /api/chart-targets` lists the selectable stations, pollutants and value types, so a station added to `config/stations.js` appears in the UI without a frontend change.
+- The Charts page gained a station + pollutant selector, a manual Refresh, AQI and Status columns on the hourly table, and `n` on the daily table. Chart card titles now name the station and pollutant being plotted. **Charts was also added to the admin sidebar** — the route existed but nothing navigated to it.
+- Everything on the page polls at **60 s**, matching the once-a-minute sheets sync (was a 5-minute chart refresh and a fetch-once table).
+- The legacy workbook is still reachable with `?source=excel` for comparison, and is used automatically only when `MONGO_URI` is unset.
+
+#### Freshness indicators and a monitoring health endpoint
+- New `GET /api/monitoring/health`: one row per dataset with the newest reading's hour, its age, and when the sheets sync last looked and last saw a change. States are `ok` (< 2 h), `late` (2–6 h), `stale` (> 6 h) and `no_data`, tunable with `MONITOR_LATE_AFTER_MS` / `MONITOR_STALE_AFTER_MS`. Returns `200` when every dataset is `ok` and `207` otherwise, so an uptime check that only accepts `200` alerts on a degraded station.
+- `upstreamGap: true` distinguishes "this app stopped polling" from "the station's sheet stopped receiving rows" — without it a stalled analyser looks like an app bug.
+- New `components/Freshness.jsx` puts a Live / Behind / Stale badge on each chart card and table, showing the newest reading hour, its age, and when the browser last refreshed, with the sync timestamps in a tooltip.
+
+### 🐛 Fixed
+
+#### A cold chart build could still hit the Nginx 504
+- Re-pointing introduced a new way to exceed Nginx's 30 s `proxy_read_timeout`: a cold read of 8–10k backup rows. Built series are now cached for `CHARTS_SERIES_TTL_MS` (30 s) with stale-while-revalidate, so a poll never blocks on MongoDB, and a genuinely cold build is bounded by `CHARTS_COLD_BUILD_TIMEOUT_MS` (20 s) — the build continues and populates the cache while the request answers `503 { source: "warming" }` with `Retry-After`. `server.js` pre-builds the default station's series at startup.
+- The startup warm-up explicitly bypasses that deadline (`wait: true`): it has no proxy timeout to respect, and aborting a slow first read would leave the cache cold and log a spurious failure. Measured: enrichment is ~27 ms; the cost is entirely the MongoDB read.
+
+#### Chart errors showed a bare status code
+- `util/apiClient.js` reported `HTTP 503` for any failure. It now reads the server's own `error`/`message` via `responseToError`, so the card shows the real reason ("still being built", an invalid station) instead of a number.
+
+---
+
+## [October 1, 2026] — EMB-CO payload, admin session validation, Charts 504 fix
+
+### ✨ New Features
+
+#### Partner API: EMB Central Office payload shape
+- New `GET /api/v1/aqi` and `GET /api/v1/stations/:station/aqi` return the flat shape EMB Central Office ingests — one object per station with `status`, `station_name`, `reading_value_type` and a `data` block holding `TIMESTAMP`, `PM10_AQI` and `PM25_AQI` as strings.
+- `TIMESTAMP` is `YYYY-MM-DD HH:mm:ss` in station-local (Asia/Manila) time, formatted from the reading's epoch with the local date getters so it round-trips the sheet's wall-clock hour without any timezone conversion.
+- `?reading_value_type=concentration` swaps the AQI values for the raw hourly µg/Ncm figures (`PM10_CONC` / `PM25_CONC`); `aqi` is the default. An unrecognised value answers `400` listing the allowed ones.
+- The same payload is available on the existing endpoints with `?format=emb` (`GET /latest`, `GET /stations/:station/latest`), and as a new `emb` webhook push format — the delivery body is byte-for-byte what `GET /aqi` returns, signed with the usual `X-AQM-Signature`.
+- `webhook.readingValueType` (CLI: `--value-type` / `--webhook-value-type`) picks which value an `emb` push carries. `GET /api/v1/ping` now advertises `readingValueTypes`.
+- Errors from the EMB-shaped endpoints carry `"status": "error"` alongside the usual `error` / `message`, so a client can branch on `status` for every outcome.
+- A pollutant the station measures but has no usable value for is sent as `null` rather than omitted, keeping the field set stable; stations without PM2.5 (Clark, San Fernando) omit `PM25_*` entirely.
+- Per-station keys — how EMB-CO keys are issued — always receive the bare station object; a multi-station key receives `{ status, reading_value_type, generated_at, count, stations: [...] }`. The shape never changes for a given key.
+- **Nothing existing changed.** Every v1 endpoint, field and push format documented in the 21 September package responds exactly as before.
+
+### 🐛 Fixed
+
+#### Admin login survived a dead session token
+- `AdminPinGate` trusted any token it found in `sessionStorage` and rendered the admin shell without checking it. Admin sessions live in memory, so every deploy or `pm2 restart` invalidated them — the UI still looked logged in while every `X-Admin-Token` call answered `401`, with no route back to the login form short of clearing storage.
+- Added `GET /api/admin/auth/session`, which validates the caller's token. The gate now revalidates a stored token on load and falls through to the login screen when it is rejected. A network error leaves the token in place so a brief blip does not force a re-login.
+- New `front-end/src/util/adminSession.js` centralises the admin token and the `401` path. `AdminTabularManage` uses its `adminFetch` (clears the session and reloads to the gate); the kiosk and NLEX settings contexts clear the dead token without reloading, so a failed background settings save never discards in-progress edits.
+
+#### `/api/pm10-data` returned 504 on the live site
+- With no ingested `PM10` series, the route fell through to reading the Excel workbook from SharePoint — several Graph round-trips at 25 s each, which outlives Nginx's 30 s `proxy_read_timeout`. The browser got a `504` after 30 s of hanging and `/admin/charts` never finished loading its Hourly Readings table.
+- The workbook fallback is now opt-in: with `MONGO_URI` set and no ingested series, `/api/pm10-data` and `/api/viz-data` answer `503 { error, hint, series: [], source: "unavailable" }` immediately, and `?source=excel` (or `?yKey=`) forces the slow read. Without `MONGO_URI` the workbook is still read directly, as before.
+
+### 🔄 Updated
+
+#### Removed an unreachable route chunk
+- `App.jsx` lazy-imported `pages/NlexAdmin` but never routed it — the page is superseded by `NlexSettingsPage` at `/admin/nlex-settings`. The import (and the chunk it shipped) is gone.
+
+#### Documentation
+- `docs/external-api/EXTERNAL_API.md`, `INTEGRATION_GUIDE.md` and `openapi.yaml` document the EMB-CO payload, the `emb` push format and `reading_value_type`, with a new endpoint overview table and an EMB-CO integration walkthrough.
+- `docs/API.md` gained an **Admin authentication** section (including the new `/session` endpoint and why a stored token must be revalidated) and records the opt-in workbook fallback.
+
+---
+
 ## [September 21, 2026] — Partner API: station-scoped keys
 
 ### 🔄 Updated
