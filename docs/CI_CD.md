@@ -4,12 +4,12 @@ Workflow: [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) · ser
 
 | Trigger | What runs |
 |---|---|
-| Push to any branch, pull request | **API**: `npm ci`, `node --check` on every file, boot test (`/api/health` with no `.env`), dependency audit (report-only for now). **Front-end**: `npm ci`, ESLint (report-only), production `vite build`. |
+| Push to any branch, pull request | **API**: `npm ci`, `node --check` on every file, boot test (`/api/health` with no `.env`), dependency audit (report-only for now). **Front-end**: `npm ci`, ESLint (report-only), build check. |
 | Push to `main`, or **Actions → CI/CD → Run workflow** on `main` | Both checks above, then **deploy** that exact build to the VPS (after approval, if the `production` environment requires a reviewer). |
 
 ## What a deploy does
 
-1. Packages `server/` (no `node_modules`, `.env*`, `data/`) and the built `front-end/dist` with the commit SHA.
+1. Builds the release front-end with the production secrets, then packages it with `server/` (no `node_modules`, `.env*`, `data/`) and the commit SHA.
 2. On the VPS, `remote-deploy.sh`:
    - **pre-flight** checks (no changes yet): `server/.env` present, Node ≥ 20, PM2 process `aqm-api` exists. It also lists any server files the sync would delete.
    - **backs up** the current server code and web root to `/opt/embr3/air-quality-monitoring/deploy-backups/<timestamp>/` (last 5 kept).
@@ -38,7 +38,9 @@ printf '\n%s\n' 'PASTE THE ONE-LINE CONTENT OF aqm_deploy_key.pub' >> ~/.ssh/aut
 
 The private key **`aqm_deploy_key`** goes into the `VPS_SSH_KEY` secret below. After that, delete both local files.
 
-### 2. Secrets (repo → Settings → Secrets and variables → Actions → *Secrets*)
+### 2. Secrets
+
+Use either **repository secrets** (Settings → Secrets and variables → Actions) or **`production` environment secrets** (Settings → Environments → production). Environment secrets are preferred, because only the approved deploy job can read them, and that job is where the release bundle is built.
 
 This repository is **public**. Credentials go only in Secrets, never in the workflow or the code.
 
@@ -48,7 +50,7 @@ This repository is **public**. Credentials go only in Secrets, never in the work
 | `VPS_USER` | `root` |
 | `VPS_SSH_KEY` | full content of `aqm_deploy_key`, including the `-----BEGIN/END…-----` lines |
 | `VPS_KNOWN_HOSTS` | *(recommended)* output of `ssh-keyscan 72.61.125.232` |
-| `VITE_SECURE_STORAGE_KEY` | **required for `main`**: must equal the value in the VPS `front-end/.env`. Read it on the VPS with `grep VITE_SECURE_STORAGE_KEY /var/www/air-quality-monitoring/front-end/.env`. A different value logs everyone out of saved admin sessions. |
+| `VITE_SECURE_STORAGE_KEY` | **required**: a random value, e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. It's built into the public JS bundle, so it only scrambles browser storage and is **not** a secret. Never reuse a real password for it. Changing it signs admins out once; the kiosk and NLEX screens reload their settings from the server. |
 | `VITE_GOOGLE_WEATHER_API_KEY` | *(optional)* |
 
 *Variables* (optional; the defaults match this VPS): `APP_DIR` (`/var/www/air-quality-monitoring`), `WEB_ROOT` (`$APP_DIR/front-end/dist`), `PM2_NAME` (`aqm-api`), `VPS_PORT` (`22`), `PUBLIC_URL` (`https://embr3-onlinesystems.cloud/air-quality-monitoring`).

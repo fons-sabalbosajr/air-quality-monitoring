@@ -3,13 +3,14 @@
 #   every push / pull request → check the API boots and build the front-end
 #   push to main (or manual run) → deploy that exact build to the Hostinger VPS
 #
-# Deploy prerequisites (Settings → Secrets and variables → Actions):
+# Deploy prerequisites: repository secrets, or `production` environment secrets
+# (only the deploy job reads them, so either works):
 #   secrets  VPS_HOST                 production server, e.g. 72.61.125.232
 #            VPS_USER                 SSH user, e.g. root
 #            VPS_SSH_KEY              private key of the deploy key pair (ed25519)
 #            VPS_KNOWN_HOSTS          optional: `ssh-keyscan <host>` output to pin the host key
-#            VITE_SECURE_STORAGE_KEY  REQUIRED for main: the same value as the VPS
-#                                     front-end/.env, or saved admin sessions stop decrypting
+#            VITE_SECURE_STORAGE_KEY  required: random value baked into the bundle; changing
+#                                     it signs everyone out of saved admin sessions once
 #            VITE_GOOGLE_WEATHER_API_KEY  optional
 #   variables (optional overrides — defaults match docs/VPS_DEPLOYMENT.md)
 #            APP_DIR  WEB_ROOT  PM2_NAME  VPS_PORT  PUBLIC_URL
@@ -40,8 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: server } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -74,8 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: front-end } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -84,26 +85,12 @@ jobs:
       - name: Lint (report only)
         run: npx eslint src/
         continue-on-error: true
-      - name: Require the production storage key on main
-        if: github.ref == 'refs/heads/main'
-        env:
-          HAS_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY != '' }}
-        run: |
-          if [[ "$HAS_KEY" != "true" ]]; then
-            echo "::error::VITE_SECURE_STORAGE_KEY secret is missing — copy it from the VPS front-end/.env (see docs/CI_CD.md)"
-            exit 1
-          fi
-      - name: Production build
+      # Build check only. The release bundle is built in the deploy job, the
+      # one job that can read `production` environment secrets.
+      - name: Build check
         run: npx vite build
         env:
           VITE_API_BASE: ${{ env.PUBLIC_URL }}
-          VITE_SECURE_STORAGE_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY }}
-          VITE_GOOGLE_WEATHER_API_KEY: ${{ secrets.VITE_GOOGLE_WEATHER_API_KEY }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-dist
-          path: front-end/dist
-          retention-days: 7
 
   deploy:
     name: Deploy to production (Hostinger VPS)
@@ -127,23 +114,37 @@ jobs:
       - name: Check deploy configuration
         env:
           HAS_KEY: ${{ secrets.VPS_SSH_KEY != '' }}
+          HAS_STORAGE_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY != '' }}
         run: |
           missing=()
           [[ -n "$VPS_HOST" ]] || missing+=(VPS_HOST)
           [[ -n "$VPS_USER" ]] || missing+=(VPS_USER)
           [[ "$HAS_KEY" == "true" ]] || missing+=(VPS_SSH_KEY)
+          [[ "$HAS_STORAGE_KEY" == "true" ]] || missing+=(VITE_SECURE_STORAGE_KEY)
           if (( ${#missing[@]} )); then
             echo "::error::Missing deploy secrets: ${missing[*]} — see docs/CI_CD.md"
             exit 1
           fi
 
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: web-dist, path: release/web }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: front-end/package-lock.json
+
+      - name: Build release front-end
+        working-directory: front-end
+        run: npm ci --no-fund && npx vite build
+        env:
+          VITE_API_BASE: ${{ env.PUBLIC_URL }}
+          VITE_SECURE_STORAGE_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY }}
+          VITE_GOOGLE_WEATHER_API_KEY: ${{ secrets.VITE_GOOGLE_WEATHER_API_KEY }}
 
       - name: Package release
         run: |
-          mkdir -p release/server
+          mkdir -p release/server release/web
+          cp -a front-end/dist/. release/web/
           rsync -a --exclude node_modules --exclude '.env*' --exclude 'data/*' --exclude logs \
             server/ release/server/
           echo "${GITHUB_SHA}" > release/REVISION
