@@ -485,6 +485,10 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ### Deploy a new version
 
+**Use CI/CD**: merge or push to `main`, approve the `production` deployment in GitHub Actions, and the pipeline tests, deploys, health-checks and rolls back on failure. See [CI_CD.md](CI_CD.md).
+
+The manual steps below are the pre-CI process, kept for emergencies only. They bypass the health gate.
+
 ```bash
 cd /var/www/air-quality-monitoring
 git pull origin main

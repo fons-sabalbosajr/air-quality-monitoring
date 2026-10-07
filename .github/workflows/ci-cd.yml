@@ -1,0 +1,216 @@
+# EMBR3-AQM CI/CD
+#
+#   every push / pull request → check the API boots and build the front-end
+#   push to main (or manual run) → deploy that exact build to the Hostinger VPS
+#
+# Deploy prerequisites (Settings → Secrets and variables → Actions):
+#   secrets  VPS_HOST                 production server, e.g. 72.61.125.232
+#            VPS_USER                 SSH user, e.g. root
+#            VPS_SSH_KEY              private key of the deploy key pair (ed25519)
+#            VPS_KNOWN_HOSTS          optional: `ssh-keyscan <host>` output to pin the host key
+#            VITE_SECURE_STORAGE_KEY  REQUIRED for main: the same value as the VPS
+#                                     front-end/.env, or saved admin sessions stop decrypting
+#            VITE_GOOGLE_WEATHER_API_KEY  optional
+#   variables (optional overrides — defaults match docs/VPS_DEPLOYMENT.md)
+#            APP_DIR  WEB_ROOT  PM2_NAME  VPS_PORT  PUBLIC_URL
+# See docs/CI_CD.md.
+
+name: CI/CD
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://embr3-onlinesystems.cloud/air-quality-monitoring' }}
+
+jobs:
+  server:
+    name: API — syntax, boot & audit
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --no-fund
+      - name: Syntax check
+        run: git ls-files '*.js' | xargs -n1 node --check
+      # No .env in CI: the API must still start and answer /api/health
+      # (without MONGO_URI it falls back to direct reads and schedules nothing).
+      - name: Boot smoke test
+        run: |
+          PORT=3999 node server.js > boot.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 30); do
+            body="$(curl -fsS -m 2 http://127.0.0.1:3999/api/health || true)"
+            if [[ "$body" == *'"health":"ok"'* ]]; then
+              echo "API booted."; kill "$pid"; exit 0
+            fi
+            sleep 1
+          done
+          cat boot.log; kill "$pid" || true; exit 1
+      # Report-only for now: the lockfile carries known high/critical advisories.
+      # Flip to blocking once `npm audit --omit=dev` is clean.
+      - name: Audit production dependencies (report only)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+
+  frontend:
+    name: Front-end — lint & build
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: front-end } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: front-end/package-lock.json
+      - run: npm ci --no-fund
+      - name: Lint (report only)
+        run: npx eslint src/
+        continue-on-error: true
+      - name: Require the production storage key on main
+        if: github.ref == 'refs/heads/main'
+        env:
+          HAS_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY != '' }}
+        run: |
+          if [[ "$HAS_KEY" != "true" ]]; then
+            echo "::error::VITE_SECURE_STORAGE_KEY secret is missing — copy it from the VPS front-end/.env (see docs/CI_CD.md)"
+            exit 1
+          fi
+      - name: Production build
+        run: npx vite build
+        env:
+          VITE_API_BASE: ${{ env.PUBLIC_URL }}
+          VITE_SECURE_STORAGE_KEY: ${{ secrets.VITE_SECURE_STORAGE_KEY }}
+          VITE_GOOGLE_WEATHER_API_KEY: ${{ secrets.VITE_GOOGLE_WEATHER_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: front-end/dist
+          retention-days: 7
+
+  deploy:
+    name: Deploy to production (Hostinger VPS)
+    needs: [server, frontend]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL || 'https://embr3-onlinesystems.cloud/air-quality-monitoring' }}/
+    concurrency:
+      group: production-deploy-aqm
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      APP_DIR: ${{ vars.APP_DIR || '/var/www/air-quality-monitoring' }}
+      WEB_ROOT: ${{ vars.WEB_ROOT || '/var/www/air-quality-monitoring/front-end/dist' }}
+      PM2_NAME: ${{ vars.PM2_NAME || 'aqm-api' }}
+    steps:
+      - name: Check deploy configuration
+        env:
+          HAS_KEY: ${{ secrets.VPS_SSH_KEY != '' }}
+        run: |
+          missing=()
+          [[ -n "$VPS_HOST" ]] || missing+=(VPS_HOST)
+          [[ -n "$VPS_USER" ]] || missing+=(VPS_USER)
+          [[ "$HAS_KEY" == "true" ]] || missing+=(VPS_SSH_KEY)
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing deploy secrets: ${missing[*]} — see docs/CI_CD.md"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: web-dist, path: release/web }
+
+      - name: Package release
+        run: |
+          mkdir -p release/server
+          rsync -a --exclude node_modules --exclude '.env*' --exclude 'data/*' --exclude logs \
+            server/ release/server/
+          echo "${GITHUB_SHA}" > release/REVISION
+          tar -czf aqm-release.tgz -C release .
+          ls -lh aqm-release.tgz
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [[ -n "$VPS_KNOWN_HOSTS" ]]; then
+            printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload and deploy
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key -p $VPS_PORT -o BatchMode=yes"
+          scp -i ~/.ssh/deploy_key -P "$VPS_PORT" -o BatchMode=yes \
+            aqm-release.tgz scripts/deploy/remote-deploy.sh "$VPS_USER@$VPS_HOST:/tmp/"
+          $SSH "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$APP_DIR' WEB_ROOT='$WEB_ROOT' PM2_NAME='$PM2_NAME' bash /tmp/remote-deploy.sh /tmp/aqm-release.tgz; rc=\$?; rm -f /tmp/aqm-release.tgz /tmp/remote-deploy.sh; exit \$rc"
+
+      # The domain is behind Cloudflare, which may challenge requests from
+      # GitHub's data-centre IPs, so the blocking smoke test runs ON the VPS,
+      # through the production Nginx (real hostname/TLS pinned to 127.0.0.1).
+      - name: Smoke test production (through Nginx on the VPS)
+        run: |
+          expected="$(grep -o 'assets/index-[^"]*\.js' release/web/index.html | head -1)"
+          host="${PUBLIC_URL#https://}"; host="${host%%/*}"
+          base="/${PUBLIC_URL#https://*/}"
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" -o BatchMode=yes "$VPS_USER@$VPS_HOST" bash -s -- "$host" "$base" "$expected" <<'REMOTE'
+          host="$1"; base="$2"; expected="$3"
+          get()  { curl -sSk -m 15 --resolve "$host:443:127.0.0.1" "https://$host$base$1" || true; }
+          code() { curl -sSk -m 15 -o /dev/null -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host$base$1" || true; }
+          for attempt in 1 2 3 4 5; do
+            health="$(get /api/health)"
+            monitor="$(get /api/monitoring/health)"   # reads backup metadata from MongoDB
+            partner="$(code /api/v1/ping)"            # partner API: 401 without a key
+            page="$(get /)"                           # must reference this run's bundle
+            if [[ "$health" == *'"health":"ok"'* && "$monitor" == *'"lastCheckedAt":"20'* && "$partner" == "401" && "$page" == *"$expected"* ]]; then
+              echo "Production (Nginx → API → MongoDB) is serving $expected."
+              exit 0
+            fi
+            echo "attempt $attempt: health=${health:0:60} db=$([[ "$monitor" == *'"lastCheckedAt":"20'* ]] && echo yes || echo no) partner=$partner bundle-match=$([[ "$page" == *"$expected"* ]] && echo yes || echo no)"
+            sleep 6
+          done
+          echo "::error::Smoke test through Nginx failed after deploy"
+          exit 1
+          REMOTE
+
+      - name: Public URL check (informational — Cloudflare may challenge the runner)
+        continue-on-error: true
+        run: |
+          code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$PUBLIC_URL/api/health" || true)"
+          if [[ "$code" == "200" ]]; then
+            echo "Public URL reachable (HTTP 200)."
+          else
+            echo "::notice::Public URL returned HTTP $code to the GitHub runner — the on-server smoke test above is authoritative."
+          fi
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
