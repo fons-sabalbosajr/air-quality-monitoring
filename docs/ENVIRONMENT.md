@@ -45,6 +45,8 @@ Keys are issued with `node scripts/apiKeys.js create --name "Partner"`; webhooks
 | `MONGO_COLLECTION_SERIES` | No | `air_data` | Time-series data collection |
 | `MONGO_COLLECTION_META` | No | `air_data_meta` | Sheet metadata collection |
 | `MONGO_COLLECTION_STATION` | No | `station_meta` | Station metadata collection |
+| `MONGO_URI_OLD` | No | — | Source cluster for `node scripts/migrateMongo.js`, which copies every collection + index into `MONGO_URI`. Never deletes. Before cutover it upserts by `_id`; after the app is live on the target, use `--insert-only --skip=air_data_backup,air_data_backup_meta` so live documents are never overwritten. |
+| `MONGO_DB_NAME_OLD` | No | URI path | Source database name for the migration script |
 
 ### Ingestion Schedule
 
